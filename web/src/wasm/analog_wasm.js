@@ -141,6 +141,86 @@ export function evaluateRoute(world, points, params) {
 }
 
 /**
+ * Evaluate a route on a stored grid with its surface conditions (footing where set): same result
+ * as evaluateRoute when the grid has none.
+ * @param {string} world
+ * @param {string} name
+ * @param {string} points
+ * @param {string} params
+ * @returns {string}
+ */
+export function evaluateRouteOn(world, name, points, params) {
+    let deferred6_0;
+    let deferred6_1;
+    try {
+        let ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3;
+        try {
+            ptr0 = passStringToWasm0(world, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passStringToWasm0(points, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len2 = WASM_VECTOR_LEN;
+            ptr3 = passStringToWasm0(params, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len3 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr3) { wasm.__wbindgen_free(ptr3, len3 * 1, 1); }
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 1, 1); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+            throw e;
+        }
+        const ret = wasm.evaluateRouteOn(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+        var ptr5 = ret[0];
+        var len5 = ret[1];
+        if (ret[3]) {
+            ptr5 = 0; len5 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred6_0 = ptr5;
+        deferred6_1 = len5;
+        return getStringFromWasm0(ptr5, len5);
+    } finally {
+        wasm.__wbindgen_free(deferred6_0, deferred6_1, 1);
+    }
+}
+
+/**
+ * Footing per cell for the map layer: 0 = firm (η at its firm value) … 255 = loose (η at its
+ * loose value or more); empty when the grid has no footing.
+ * @param {string} name
+ * @returns {Uint8Array}
+ */
+export function footingBadness(name) {
+    const ptr0 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.footingBadness(ptr0, len0);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
+}
+
+/**
+ * Footing constants and their sources, for the evidence card (all numbers from footing.rs).
+ * @returns {string}
+ */
+export function footingModel() {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.footingModel();
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
  * What Hokkaido cannot reproduce for this target, with numbers; critical-for-test first.
  * @param {string} earth_id
  * @param {string} body_id
@@ -451,6 +531,42 @@ export function roverWalkbackFrom(world, name, lat, lon, params, max_slope_deg, 
 }
 
 /**
+ * Footing factor η at `[[lat, lon], …]` (null outside the grid or when not set).
+ * @param {string} name
+ * @param {string} latlons
+ * @returns {string}
+ */
+export function sampleFooting(name, latlons) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passStringToWasm0(latlons, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+            throw e;
+        }
+        const ret = wasm.sampleFooting(ptr0, len0, ptr1, len1);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
+
+/**
  * Bilinear elevations for `[[lat, lon], …]` from a stored grid (null outside or in holes).
  * @param {string} name
  * @param {string} latlons
@@ -693,6 +809,30 @@ export function setEvaCsv(csv) {
 }
 
 /**
+ * Footing for a stored grid (`{rows, cols, ti, dci}`, jezero_footing.json), turned into the factor
+ * η per cell by analog-core footing.rs; an empty string removes it (footing not counted).
+ * @param {string} name
+ * @param {string} footing_json
+ */
+export function setFooting(name, footing_json) {
+    let ptr0, len0, ptr1, len1;
+    try {
+        ptr0 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        len0 = WASM_VECTOR_LEN;
+        ptr1 = passStringToWasm0(footing_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        len1 = WASM_VECTOR_LEN;
+    } catch (e) {
+        if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+        if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+        throw e;
+    }
+    const ret = wasm.setFooting(ptr0, len0, ptr1, len1);
+    if (ret[1]) {
+        throw takeFromExternrefTable0(ret[0]);
+    }
+}
+
+/**
  * Store an elevation grid under a name (`{lat0, lon0, dlat, dlon, rows, cols, z}`).
  * @param {string} name
  * @param {string} grid_json
@@ -852,6 +992,11 @@ function getArrayF32FromWasm0(ptr, len) {
 function getArrayU32FromWasm0(ptr, len) {
     ptr = ptr >>> 0;
     return getUint32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
+}
+
+function getArrayU8FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
 }
 
 let cachedFloat32ArrayMemory0 = null;

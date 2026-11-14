@@ -27,6 +27,23 @@ export function evaLongerShare(hours: number): number;
 export function evaluateRoute(world: string, points: string, params: string): string;
 
 /**
+ * Evaluate a route on a stored grid with its surface conditions (footing where set): same result
+ * as evaluateRoute when the grid has none.
+ */
+export function evaluateRouteOn(world: string, name: string, points: string, params: string): string;
+
+/**
+ * Footing per cell for the map layer: 0 = firm (η at its firm value) … 255 = loose (η at its
+ * loose value or more); empty when the grid has no footing.
+ */
+export function footingBadness(name: string): Uint8Array;
+
+/**
+ * Footing constants and their sources, for the evidence card (all numbers from footing.rs).
+ */
+export function footingModel(): string;
+
+/**
  * What Hokkaido cannot reproduce for this target, with numbers; critical-for-test first.
  */
 export function gaps(earth_id: string, body_id: string, test: string): string;
@@ -69,6 +86,11 @@ export function roverWalkback(world: string, name: string, lat: number, lon: num
  * `roverWalkback`; only where the path comes from differs.
  */
 export function roverWalkbackFrom(world: string, name: string, lat: number, lon: number, params: string, max_slope_deg: number, rows: string): string;
+
+/**
+ * Footing factor η at `[[lat, lon], …]` (null outside the grid or when not set).
+ */
+export function sampleFooting(name: string, latlons: string): string;
 
 /**
  * Bilinear elevations for `[[lat, lon], …]` from a stored grid (null outside or in holes).
@@ -118,6 +140,12 @@ export function scanTop(scores: Float32Array | number[], n: number, min_km: numb
 export function setEvaCsv(csv: string): string;
 
 /**
+ * Footing for a stored grid (`{rows, cols, ti, dci}`, jezero_footing.json), turned into the factor
+ * η per cell by analog-core footing.rs; an empty string removes it (footing not counted).
+ */
+export function setFooting(name: string, footing_json: string): void;
+
+/**
  * Store an elevation grid under a name (`{lat0, lon0, dlat, dlon, rows, cols, z}`).
  */
 export function setGrid(name: string, grid_json: string): void;
@@ -151,6 +179,9 @@ export interface InitOutput {
     readonly easyPath: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => [number, number, number, number];
     readonly evaLongerShare: (a: number) => number;
     readonly evaluateRoute: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+    readonly evaluateRouteOn: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
+    readonly footingBadness: (a: number, b: number) => [number, number, number, number];
+    readonly footingModel: () => [number, number];
     readonly gaps: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly rankAll: (a: number, b: number) => [number, number, number, number];
     readonly rankSites: (a: number, b: number, c: number, d: number) => [number, number];
@@ -159,6 +190,7 @@ export interface InitOutput {
     readonly roverCheck: (a: number, b: number, c: number) => [number, number, number, number];
     readonly roverWalkback: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
     readonly roverWalkbackFrom: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => [number, number, number, number];
+    readonly sampleFooting: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly sampleGrid: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly scanCell: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
     readonly scanCellAt: (a: number, b: number) => [number, number, number];
@@ -168,6 +200,7 @@ export interface InitOutput {
     readonly scanScores: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly scanTop: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly setEvaCsv: (a: number, b: number) => [number, number];
+    readonly setFooting: (a: number, b: number, c: number, d: number) => [number, number];
     readonly setGrid: (a: number, b: number, c: number, d: number) => [number, number];
     readonly setScan: (a: number, b: number) => [number, number, number, number];
     readonly setTraverse: (a: number, b: number) => [number, number, number, number];
