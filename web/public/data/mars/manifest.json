@@ -85,6 +85,25 @@
     "url": "https://www.mars.asu.edu/data/"
    },
    "note": "Jezero elevation-grid cells (0.0006°). thermal_inertia in J m-2 K-1 s-1/2: ≤150 loose fines/sand, ≥400 rock/duricrust/bedrock (Putzig & Mellon 2007). dust_cover_index < 0.94 dust-mantled (Ruff & Christensen 2002)"
+  },
+  "mars_radiation": {
+   "files": [
+    "mars_radiation.parquet"
+   ],
+   "rows": 4,
+   "bytes": 1438,
+   "columns": [
+    "quantity",
+    "value",
+    "sigma",
+    "unit",
+    "source"
+   ],
+   "source": {
+    "label": "Curiosity RAD surface dose rates (Hassler et al. 2014, Science); NASA-STD-3001 limits",
+    "url": "https://doi.org/10.1126/science.1244797"
+   },
+   "note": "The figures analog-core radiation.rs uses: EVA dose = surface_dose_equivalent_rate × hours / 24"
   }
  }
 }

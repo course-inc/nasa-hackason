@@ -125,6 +125,12 @@ const walkbackCheck: ToolDef = {
     if (reach) lines.push(t(l, `基地から歩いて帰れる範囲: ${reach.area_km2.toFixed(0)} km²（最遠 ${r1(reach.max_km)} km）。`,
       `Walk-home area from the base: ${reach.area_km2.toFixed(0)} km² (farthest ${r1(reach.max_km)} km).`));
     if (ev.unknown_segments > 0) lines.push(t(l, `地形が分からない区間 ${ev.unknown_segments} か所は急な登り（約17°）として計算。`, `${ev.unknown_segments} segments without terrain data are counted as a steep climb (~17°).`));
+    // Radiation: the third budget (Curiosity RAD rate × hours, NASA career limit), from Rust.
+    try {
+      const rx = c.core.radiationExposure(ev.total_h);
+      lines.push(t(l, `放射線: この船外活動で ${rx.dose_msv.toFixed(2)} mSv（NASA の生涯上限 600 mSv の ${(rx.career_share * 100).toFixed(2)}%、Curiosity RAD の地表の線量率から）。1 回の船外活動では放射線より酸素・冷却水が先に尽きる。`,
+        `Radiation: ${rx.dose_msv.toFixed(2)} mSv on this EVA (${(rx.career_share * 100).toFixed(2)}% of NASA's 600 mSv career limit, from Curiosity RAD's surface rate). On one EVA, O₂ or water runs out long before radiation.`));
+    } catch { /* core without radiation */ }
     // Footing: how much of the time the loose ground adds (same route on firm ground, Rust).
     if (params.footing !== false && data?.footing) {
       const firm = evaluate(c.core, dense, { ...evaParams(params), footing: false });
