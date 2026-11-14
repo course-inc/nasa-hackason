@@ -89,6 +89,6 @@ export const WALKBACK_COLOR: Record<WalkbackState, string> = { ok: '#52c41a', ti
 export async function roverWalkbackSql(core: Core, data: WalkData | null, p: EvaParams): Promise<{ r: RoverWalkback; sql: string } | null> {
   if (!data?.dem) return null;
   const { marsQuery, ROVER_PATH_SQL } = await import('../agent/marsDb');
-  const rows = await marsQuery(core, ROVER_PATH_SQL);
+  const rows = await marsQuery(core, ROVER_PATH_SQL, ['rover_traverse']);
   return { r: core.roverWalkbackFrom(WORLD, JEZERO, LANDING.lat, LANDING.lon, p, MAX_SLOPE, rows), sql: ROVER_PATH_SQL };
 }

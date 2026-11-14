@@ -61,7 +61,7 @@ export function makeQueryNasa(core: Core): ToolDef {
       const c = checkSql(String(a.sql ?? ''));
       if (!c.ok) throw new Error(ja ? `この SQL は実行できません: ${c.error}` : `This SQL cannot run: ${c.error}`);
       const limit = Math.max(1, Math.min(MAX_ROWS, Math.round(Number(a.limit ?? 50)) || 50));
-      const { db, manifest } = await marsDb(core);
+      const { db, manifest } = await marsDb(core, c.tables);
       const wrapped = `SELECT * FROM (${c.sql}) AS q LIMIT ${limit + 1}`;
       const t0 = performance.now();
       let rows: Row[];

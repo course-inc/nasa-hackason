@@ -51,6 +51,7 @@ const write = (name, sql) => {
   // The Node runtime writes straight to the real file system.
   const file = path.join(OUT, name);
   fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.rmSync(file, { force: true }); // DuckDB would leave tmp_<name> next to an existing file
   q(`COPY (${sql}) TO '${file.replace(/'/g, "''")}' (FORMAT parquet, COMPRESSION zstd, ROW_GROUP_SIZE 2048)`);
   fs.chmodSync(file, 0o644);
   return fs.statSync(file).size;
@@ -60,7 +61,8 @@ const roverFiles = [];
 let bytes = 0;
 for (const m of missions) {
   const f = `rover_traverse/mission=${m}/data.parquet`;
-  bytes += write(f, `SELECT * FROM rover WHERE mission = '${m}' ORDER BY sol, drive, seq`);
+  // mission lives in the path (hive partition), so DuckDB skips other missions' files unopened.
+  bytes += write(f, `SELECT * EXCLUDE (mission) FROM rover WHERE mission = '${m}' ORDER BY sol, drive, seq`);
   roverFiles.push(f);
 }
 const evaBytes = write('eva.parquet', `SELECT * FROM eva ORDER BY hours`);
@@ -69,7 +71,7 @@ const manifest = {
   scale: SCALE,
   tables: {
     rover_traverse: {
-      files: roverFiles, rows: count('rover'), bytes,
+      files: roverFiles, rows: count('rover'), bytes, hive: true,
       columns: ['mission', 'drive', 'seq', 'sol', 'lat', 'lon', 'elev_m', 'km'],
       source: { label: 'Mars 2020 Perseverance traverse (NASA/JPL MMGIS)', url: 'https://mars.nasa.gov/mmgis-maps/M20/Layers/json/M20_traverse.json' },
       note: 'km: distance driven since the start of the record, as computed by analog-core traverse::points',

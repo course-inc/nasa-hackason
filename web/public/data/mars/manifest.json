@@ -6,7 +6,8 @@
     "rover_traverse/mission=m20/data.parquet"
    ],
    "rows": 10456,
-   "bytes": 241883,
+   "bytes": 240754,
+   "hive": true,
    "columns": [
     "mission",
     "drive",

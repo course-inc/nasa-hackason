@@ -4,7 +4,7 @@
 import type { Core } from '../core';
 import type { Row } from '../db';
 
-export interface MarsTable { files: string[]; rows: number; bytes: number; columns: string[]; source: { label: string; url?: string }; note?: string }
+export interface MarsTable { files: string[]; rows: number; bytes: number; columns: string[]; hive?: boolean; source: { label: string; url?: string }; note?: string }
 export interface MarsManifest { scale: number; tables: Record<string, MarsTable> }
 
 let manifest: Promise<MarsManifest> | null = null;
@@ -25,16 +25,17 @@ export function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise
   });
 }
 
-/** The shared DuckDB with the Mars views attached. */
-export async function marsDb(core: Core, base = './data/mars/') {
+/** The shared DuckDB with the Mars views attached (only `tables`, when given: a query touches only what it names). */
+export async function marsDb(core: Core, tables?: string[], base = './data/mars/') {
   const [{ openDb }, m] = await Promise.all([import('../db'), marsManifest(base)]);
   const db = await withTimeout(openDb(core), 30000, 'DuckDB');
-  await Promise.all(Object.entries(m.tables).map(([name, t]) => db.attachParquet(name, t.files.map((f) => base + f))));
+  await Promise.all(Object.entries(m.tables).filter(([name]) => !tables || tables.includes(name))
+    .map(([name, t]) => db.attachParquet(name, t.files, { hive: t.hive, base })));
   return { db, manifest: m };
 }
 
-export async function marsQuery(core: Core, sql: string, timeoutMs = 15000): Promise<Row[]> {
-  const { db } = await marsDb(core);
+export async function marsQuery(core: Core, sql: string, tables?: string[], timeoutMs = 15000): Promise<Row[]> {
+  const { db } = await marsDb(core, tables);
   return withTimeout(db.query(sql), timeoutMs, 'query');
 }
 
