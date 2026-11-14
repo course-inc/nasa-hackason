@@ -3,8 +3,10 @@
 //     O₂ left if you clicked there (from the same Rust evaluation as the panel), red where the walk
 //     could not get back;
 //   · drag a point to move it, drag a segment's middle handle to insert one, right-click or
-//     double-click a point to delete it, click to select and Delete/Backspace, Esc or Enter to stop.
-// Touch: tap adds (the map's click), long-press deletes, drag moves.
+//     double-click a point to delete it, click to select and Delete/Backspace (while drawing,
+//     Backspace with nothing selected takes back the last point), Esc or Enter to stop;
+//   · hover a point for "out to here and back" numbers.
+// Touch: tap adds (the map's click), long-press deletes, drag moves; bigger handles.
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import type { Waypoint } from '../core';
@@ -28,6 +30,9 @@ export function RouteEditor({ host, route, drawing, onChange, preview, connect, 
   const live = useRef({ route, onChange, preview, connect, onFinish, drawing, t });
   live.current = { route, onChange, preview, connect, onFinish, drawing, t };
   const selected = useRef<number | null>(null);
+  // Rebuild the handles only when the points move, not when an elevation arrives (that would close
+  // a tooltip or break a drag in progress).
+  const geom = route.map((w) => `${w.lat.toFixed(7)},${w.lon.toFixed(7)}`).join(';');
 
   useEffect(() => {
     let map: L.Map | undefined;
@@ -45,28 +50,66 @@ export function RouteEditor({ host, route, drawing, onChange, preview, connect, 
       const r = live.current.route;
       const { t: tr } = live.current;
       const set = (next: Waypoint[]) => live.current.onChange(next);
-      const remove = (i: number) => { if (i > 0 && r.length > 1) set(r.filter((_, j) => j !== i)); };
+      // Handlers read the latest route (elevations fill in after a point is drawn).
+      const cur = () => live.current.route;
+      let removed = false;
+      const remove = (i: number) => { if (!removed && i > 0 && r.length > 1) { removed = true; set(cur().filter((_, j) => j !== i)); } };
+      // Lifting the finger after a long-press would also "click" the map and add a point there.
+      const swallowClick = () => {
+        const stop = (e: Event) => { e.stopPropagation(); e.preventDefault(); };
+        window.addEventListener('click', stop, true);
+        setTimeout(() => window.removeEventListener('click', stop, true), 700);
+      };
+
+      const coarse = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
+      const size = (i: number): [number, number] => (coarse ? (i === 0 ? [26, 26] : [22, 22]) : i === 0 ? [18, 18] : [14, 14]);
+      const marks: L.Marker[] = [];
+      const restyle = () => marks.forEach((mk, j) => mk.getElement()?.classList.toggle('sel', selected.current === j));
+      // Numbers for "walk out to this point and back", from the same engine as the panel.
+      const stats = (i: number) => {
+        if (i === 0) return tr('基地（ドラッグで移動）', 'Base (drag to move)');
+        const pv = live.current.preview(cur().slice(0, i + 1));
+        const head = tr(`WP${i}`, `WP${i}`);
+        if (!pv) return head;
+        return `<b>${head}</b> ${tr('ここまで行って戻ると', 'out to here and back')}: ${tr('行き', 'out')} ${pv.out_km.toFixed(1)} km · ${fmtH(pv.total_h)}${pv.o2_left != null ? ` · O₂ ${Math.round(Math.max(0, pv.o2_left) * 100)}%` : ''}${pv.ok ? '' : ` · <span class="ng">${tr('帰れない', 'cannot get back')}</span>`}<br><small>${coarse ? tr('長押しで削除', 'Long-press to delete') : tr('ドラッグで移動・右クリックで削除', 'Drag to move · right-click to delete')}</small>`;
+      };
 
       r.forEach((w, i) => {
         const mk = L.marker([w.lat, w.lon], {
           draggable: true, keyboard: false, autoPan: true,
-          icon: L.divIcon({ className: `wp-handle${i === 0 ? ' base' : ''}${selected.current === i ? ' sel' : ''}`, iconSize: i === 0 ? [18, 18] : [12, 12] }),
-          title: i === 0 ? tr('基地（ドラッグで移動）', 'Base (drag to move)') : tr(`WP${i}（ドラッグで移動・右クリックで削除）`, `WP${i} (drag to move, right-click to delete)`),
+          icon: L.divIcon({ className: `wp-handle${i === 0 ? ' base' : ''}${selected.current === i ? ' sel' : ''}`, iconSize: size(i) }),
         }).addTo(group!);
-        mk.on('dragend', () => { const p = mk.getLatLng(); set(r.map((x, j) => (j === i ? { lat: p.lat, lon: p.lng, elev: undefined } : x))); });
-        mk.on('contextmenu', (e) => { L.DomEvent.stop(e); remove(i); });
+        marks.push(mk);
+        mk.bindTooltip(() => stats(i), { direction: 'top', offset: [0, -8], className: 'wp-tip' });
+        mk.on('dragstart', () => mk.closeTooltip());
+        mk.on('dragend', () => { const p = mk.getLatLng(); set(cur().map((x, j) => (j === i ? { lat: p.lat, lon: p.lng, elev: undefined } : x))); });
+        mk.on('contextmenu', (e) => { L.DomEvent.stop(e); if ((e.originalEvent as PointerEvent | undefined)?.pointerType === 'touch' || coarse) swallowClick(); remove(i); });
         mk.on('dblclick', (e) => { L.DomEvent.stop(e); remove(i); });
-        mk.on('click', (e) => { L.DomEvent.stop(e); selected.current = i; });
+        mk.on('click', (e) => { L.DomEvent.stop(e); selected.current = i; restyle(); });
+        // Touch: long-press deletes (iOS fires no contextmenu); moving first means a drag instead.
+        const el = mk.getElement();
+        if (el && i > 0) {
+          let timer = 0, x0 = 0, y0 = 0;
+          const cancel = () => { clearTimeout(timer); timer = 0; el.classList.remove('pressing'); };
+          el.addEventListener('pointerdown', (e) => {
+            if (e.pointerType !== 'touch') return;
+            x0 = e.clientX; y0 = e.clientY; el.classList.add('pressing');
+            timer = window.setTimeout(() => { cancel(); navigator.vibrate?.(30); swallowClick(); remove(i); }, 600);
+          });
+          el.addEventListener('pointermove', (e) => { if (timer && Math.hypot(e.clientX - x0, e.clientY - y0) > 8) cancel(); });
+          el.addEventListener('pointerup', cancel);
+          el.addEventListener('pointercancel', cancel);
+        }
       });
       // Middle handles: drag to insert a point there.
       for (let i = 0; i + 1 < r.length; i++) {
         const a = r[i], b = r[i + 1];
         const mid = L.marker([(a.lat + b.lat) / 2, (a.lon + b.lon) / 2], {
           draggable: true, keyboard: false, opacity: 0.85,
-          icon: L.divIcon({ className: 'wp-mid', iconSize: [10, 10] }),
+          icon: L.divIcon({ className: 'wp-mid', iconSize: coarse ? [16, 16] : [10, 10] }),
           title: tr('ドラッグで点を足す', 'Drag to add a point'),
         }).addTo(group!);
-        mid.on('dragend', () => { const p = mid.getLatLng(); set([...r.slice(0, i + 1), { lat: p.lat, lon: p.lng, elev: undefined }, ...r.slice(i + 1)]); });
+        mid.on('dragend', () => { const p = mid.getLatLng(); { const c = cur(); set([...c.slice(0, i + 1), { lat: p.lat, lon: p.lng, elev: undefined }, ...c.slice(i + 1)]); } });
       }
 
       // Rubber band while drawing.
@@ -78,7 +121,7 @@ export function RouteEditor({ host, route, drawing, onChange, preview, connect, 
         const tipPt: Waypoint = { lat: c.lat, lon: c.lng, elev: undefined };
         const leg = path && live.current.connect ? live.current.connect(last, tipPt) : null;
         const added = leg ? [...leg.slice(0, -1), tipPt] : [tipPt];
-        const pv = live.current.preview([...r, ...added]);
+        const pv = live.current.preview([...cur(), ...added]);
         const color = pv && !pv.ok ? '#ff4d4f' : '#ffd666';
         const ll: L.LatLngExpression[] = [[last.lat, last.lon], ...added.map((w) => [w.lat, w.lon] as [number, number])];
         if (!band) band = L.polyline(ll, { color, weight: 3, dashArray: '6 6', interactive: false }).addTo(group!);
@@ -98,7 +141,8 @@ export function RouteEditor({ host, route, drawing, onChange, preview, connect, 
       if (live.current.drawing) {
         m.on('mousemove', onMove); m.on('mouseout', onOut);
         m.doubleClickZoom.disable();
-        const onDbl = () => live.current.onFinish();
+        // Double-click finishes on desktop; on touch a long-press can look like a double tap.
+        const onDbl = () => { if (!coarse) live.current.onFinish(); };
         m.on('dblclick', onDbl);
         cleanup.push(() => { m.off('mousemove', onMove); m.off('mouseout', onOut); m.off('dblclick', onDbl); m.doubleClickZoom.enable(); });
       }
@@ -110,11 +154,14 @@ export function RouteEditor({ host, route, drawing, onChange, preview, connect, 
       if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
       if (!host?.offsetParent) return;
       if (e.key === 'Escape' || (e.key === 'Enter' && live.current.drawing)) { live.current.onFinish(); return; }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selected.current != null && selected.current > 0) {
-        e.preventDefault();
-        const i = selected.current; selected.current = null;
+      if (e.key === 'Delete' || e.key === 'Backspace') {
         const r = live.current.route;
-        if (i < r.length) live.current.onChange(r.filter((_, j) => j !== i));
+        // The selected point, or (while drawing) the last one.
+        const i = selected.current != null && selected.current > 0 ? selected.current : live.current.drawing && r.length > 1 ? r.length - 1 : null;
+        if (i == null || i >= r.length) return;
+        e.preventDefault();
+        selected.current = null;
+        live.current.onChange(r.filter((_, j) => j !== i));
       }
     };
     window.addEventListener('keydown', onKey);
@@ -124,7 +171,7 @@ export function RouteEditor({ host, route, drawing, onChange, preview, connect, 
       cleanup.forEach((f) => f());
       tip?.remove(); group?.remove();
     };
-  }, [host, route, drawing, !!connect]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [host, geom, drawing, !!connect]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return null;
 }

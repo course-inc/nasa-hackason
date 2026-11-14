@@ -557,7 +557,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           )}
           {!globeOn && !view3d && !walkRec && !(rehOpen && reh.found.length > 0) && (
             <div className="draw-hint" aria-live="polite">{mode === 'route'
-              ? (easy ? t('⤳ 楽な道モード（坂の楽な道でつなぐ）・', '⤳ Easy path (follows the easiest slopes) · ') : '') + t('クリックで点を追加・点をドラッグで移動・線の中の小さな点をドラッグで挿入・右クリックかダブルクリックで削除・Esc か Enter で終わる・⌘Z で戻す', 'Click to add a point · drag points to move · drag a small middle dot to insert · right-click or double-click to delete · Esc or Enter to finish · ⌘Z to undo')
+              ? (easy ? t('⤳ 楽な道モード（坂の楽な道でつなぐ）・', '⤳ Easy path (follows the easiest slopes) · ') : '') + t('クリックで点を追加・点に乗せると距離と O₂・ドラッグで移動・線の中の小さな点で挿入・右クリックで削除・Backspace で最後の点を消す・Esc か Enter で終わる', 'Click to add · hover a point for distance and O₂ · drag to move · drag a middle dot to insert · right-click to delete · Backspace removes the last point · Esc or Enter to finish')
               : mode === 'base' ? t('クリックした所に基地を置き直す', 'Click to move the base')
               : t('〰 を押すとルートを引けます（点はドラッグで動かせます）', 'Press 〰 to draw a route (points can be dragged)')}</div>
           )}
