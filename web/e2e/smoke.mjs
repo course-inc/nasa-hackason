@@ -51,6 +51,10 @@ await p.screenshot({ path: 'e2e/shot-target.png' });
 // Whole-Hokkaido scan: the grid loads, the heat map and best candidates appear, sites are checked.
 await p.locator('#mode-tabs button[data-mode=scan]').click();
 await p.waitForSelector('#scan-top li', { timeout: 20000 }).catch(() => fail('scan candidates'));
+// Treasure hunt: the sweep finishes with the scan's #1 card (with its caveats).
+await p.waitForSelector('#scan-best', { timeout: 20000 }).catch(() => fail('scan #1 card'));
+console.log('scan #1:', (await p.locator('#scan-best').innerText()).replace(/\s+/g, ' ').slice(0, 160));
+if (!/岩石|Rock type/.test(await p.locator('#scan-best').innerText())) fail('scan #1 card states what is not scored');
 const nTop = await p.locator('#scan-top li').count();
 console.log('scan top', nTop, '|', await p.locator('#scan .scan-head').innerText());
 if (nTop < 1) fail('scan top');

@@ -63,3 +63,9 @@ declare global {
 if (typeof window !== 'undefined') {
   window.__walkback = { registerAgent, tools: toolSpecs, callTool: (name, args) => callTool(name, args) };
 }
+
+/** Settles once the lazily loaded tools (query_nasa, #10's explore tools) are registered, so a
+ * question asked right after the page opens still sees them (their chunks come over the network). */
+let ready: Promise<void> = Promise.resolve();
+export const toolsReady = () => ready;
+export function setToolsReady(p: Promise<void>) { ready = p; }

@@ -404,3 +404,25 @@ h1 small { font-size: 12px; margin-left: 6px; }
 .globe-card a { color: #9ec5ff; }
 .globe-card-x { position: absolute; top: 6px; right: 6px; padding: 0 7px; font-size: 16px; background: none; border: none; color: #8a96a8; cursor: pointer; }
 .globe-label.name.feature::before { content: '• '; color: #c9a27e; }
+
+/* Scan treasure hunt (#target scan) */
+.scan-hunt { margin: 8px 0 10px; font-size: 12.5px; color: #ffd666; }
+.scan-hunt .track { height: 6px; background: #2a3346; border-radius: 3px; margin-top: 4px; overflow: hidden; }
+.scan-hunt .fill { height: 100%; background: linear-gradient(90deg, #ff7a45, #ffd666); }
+#scan-top li.found { animation: scan-found 0.5s ease-out; }
+@keyframes scan-found { from { background: rgba(255, 214, 102, 0.35); transform: translateX(-6px); } to { background: transparent; transform: none; } }
+.scan-best { border: 1px solid #ffd666; background: linear-gradient(135deg, rgba(255, 214, 102, 0.12), rgba(255, 122, 69, 0.08)); cursor: pointer; animation: scan-best-in 0.6s ease-out; }
+.scan-best-head { display: flex; justify-content: space-between; align-items: center; color: #ffd666; font-size: 14px; }
+.scan-best-where { font-size: 13px; margin: 4px 0; display: flex; justify-content: space-between; gap: 8px; }
+.scan-best-where .score { font-size: 18px; color: #ffd666; }
+.scan-best p { margin: 4px 0; font-size: 12.5px; }
+.linkish { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 12px; padding: 0; }
+@keyframes scan-best-in { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { #scan-top li.found, .scan-best { animation: none; } }
+
+/* Same-slope challenge (rehearsal card) */
+.challenge { border: 1px solid #40a9ff; border-radius: 8px; padding: 8px 10px; margin: 8px 0; background: rgba(64, 169, 255, 0.1); animation: scan-best-in 0.6s ease-out; }
+.challenge-head { display: flex; justify-content: space-between; align-items: center; color: #69c0ff; font-size: 14px; }
+.challenge p { margin: 4px 0; font-size: 12.5px; }
+.challenge button.primary { margin: 4px 0; font-size: 12.5px; }
+.challenge-chip { font-size: 12px; margin: 6px 0; }
