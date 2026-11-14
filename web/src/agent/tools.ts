@@ -3,7 +3,7 @@
 import type { Core, Waypoint } from '../core';
 import { LANDING, exampleRoute, loadHokkaidoGrid, type WalkData } from '../walk/data';
 import { fmtH } from '../walk/geo';
-import { DEFAULT_START, computePlan, evaParams, evaluate, rehearsalPoints, roverWalkbackSql, turnIndex, turnWaypoint, WATER_PER_O2, type PlanParams } from '../walk/plan';
+import { DEFAULT_START, computePlan, evaParams, evaluate, planRoute, rehearsalPoints, roverWalkbackSql, turnIndex, turnWaypoint, WATER_PER_O2, type PlanParams } from '../walk/plan';
 import { nextFrame, walkController, type EvidenceTopic } from '../walk/controller';
 import { registerTool, setToolsReady } from './port';
 import { getLang } from '../i18n';
@@ -442,7 +442,39 @@ const viewWalk: ToolDef = {
   },
 };
 
-export const WALK_TOOLS: ToolDef[] = [walkbackCheck, roverWalkbackTool, importWalkTool, marsReplay, openEvidence, view3d, viewGlobe, viewOverlay, viewSetParams, viewWalk];
+/** plan_route: the route to a destination, searched by the Rust core (grid.rs plan_route), then judged. */
+const planRouteTool: ToolDef = {
+  name: 'plan_route',
+  kind: 'compute',
+  description: 'Plan the walk from the base to a destination automatically (Dijkstra over the Jezero terrain, only through cells the astronaut can walk back from; cost = walking time with slope, footing and the departure-time cooling water). Puts the route on the map and returns the same verdict as walkback_check. Use it for "go to X", "the way to this point", "plan a route to …".',
+  parameters: {
+    type: 'object',
+    properties: {
+      lat: { type: 'number', description: 'Destination latitude (°N) inside the Jezero map' },
+      lon: { type: 'number', description: 'Destination longitude (°E)' },
+      lang: { type: 'string', enum: ['ja', 'en'] },
+    },
+    required: ['lat', 'lon'],
+  },
+  async run(a) {
+    const c = await walkController();
+    const data = await c.data();
+    const params = c.params();
+    const base = c.route()[0] ?? LANDING;
+    const r = planRoute(c.core, data, base, { lat: Number(a.lat), lon: Number(a.lon), elev: undefined }, evaParams(params));
+    if (!r.route) {
+      const l = a.lang === 'en' ? 'en' : 'ja';
+      const why = r.plan?.status === 'outside_reach'
+        ? (l === 'ja' ? `目的地は歩いて帰れる範囲の外（往復で使える分の ${r.plan.goal_ratio != null ? Math.round(r.plan.goal_ratio * 100) + '%' : '100% 超'}）。` : `The destination is outside the walk-home area (${r.plan.goal_ratio != null ? Math.round(r.plan.goal_ratio * 100) + '%' : 'over 100%'} of the budget).`)
+        : (l === 'ja' ? '目的地までの道が見つからない（地形データの外か、歩けない坂）。' : 'No path to the destination (outside the terrain data or too steep).');
+      return { text: why, data: { status: r.plan?.status ?? 'error', goal_ratio: r.plan?.goal_ratio ?? null } };
+    }
+    const res = await walkbackCheck.run({ route: r.route.map((w) => ({ lat: w.lat, lon: w.lon })), lang: a.lang });
+    return { ...res, text: `${a.lang === 'en' ? `Route planned automatically (${r.route.length - 1} legs, search ${Math.round(r.ms)} ms). ` : `目的地までの経路を自動で引きました（${r.route.length - 1} 区間、探索 ${Math.round(r.ms)} ms）。`}${res.text}` };
+  },
+};
+
+export const WALK_TOOLS: ToolDef[] = [walkbackCheck, planRouteTool, roverWalkbackTool, importWalkTool, marsReplay, openEvidence, view3d, viewGlobe, viewOverlay, viewSetParams, viewWalk];
 
 /**
  * Register the WALKBACK tools and #10's Hokkaido tools.

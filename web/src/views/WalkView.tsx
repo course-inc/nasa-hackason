@@ -7,7 +7,7 @@ import { getElevation } from '../elevation';
 import { PlanetMap, missionOverlay, type Feature, type FlyTarget } from '../map/PlanetMap';
 import { JEZERO, LANDING, ensureFooting, exampleRoute, loadWalkData, type WalkData } from '../walk/data';
 import { fmtH, footingImage, reachImage, slopeColor } from '../walk/geo';
-import { DEFAULT_START, WALKBACK_COLOR, WATER_PER_O2, WORLD, waterFactor, denseRoute, easyLeg, evaParams, evaluate, reachFrom, rehearsalPoints, roverCheck, roverWalkbackSql, turnIndex, turnWaypoint, walkbackState } from '../walk/plan';
+import { DEFAULT_START, WALKBACK_COLOR, WATER_PER_O2, WORLD, waterFactor, denseRoute, easyLeg, evaParams, planRoute, evaluate, reachFrom, rehearsalPoints, roverCheck, roverWalkbackSql, turnIndex, turnWaypoint, walkbackState } from '../walk/plan';
 import { setWalkController, type EvidenceTopic } from '../walk/controller';
 import { useLang, useT } from '../i18n';
 import { GpxError, SAMPLE_GPX, atDistance, importWalk, type WalkImport } from '../walk/gpx';
@@ -21,7 +21,7 @@ import { Terrain3D, type Camera3D, type Line3D, type Point3D } from '../map/Terr
 import { Globe, type GlobeCamera, type GlobeMark } from '../map/Globe';
 import type { Reach, RoverWalkback } from '../core';
 
-type Mode = 'pan' | 'route' | 'base';
+type Mode = 'pan' | 'route' | 'base' | 'goal';
 export interface WalkParams { world?: World; lat?: number; lon?: number; z?: number }
 
 const HIRISE = ['hirise'];
@@ -165,7 +165,24 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
 
   // Elevation for waypoints outside the Jezero grid (Trek MOLA identify).
   const [easy, setEasy] = useState(false);
+  // Destination mode: plan the walk from the base to the clicked point (Rust Dijkstra over the
+  // walk-home area); the result becomes the route (verdict, HUD, 3D, undo all follow).
+  const [planMsg, setPlanMsg] = useState<string | null>(null);
+  const planTo = (lat: number, lon: number) => {
+    const base = route[0] ?? LANDING;
+    const r = planRoute(core, data, base, { lat, lon, elev: undefined }, p);
+    if (r.route) {
+      setRoute(r.route);
+      setPlanMsg(t(`目的地まで自動で経路を引きました（帰れる範囲だけを通る、探索 ${Math.round(r.ms)} ms）`, `Route planned to the destination (inside the walk-home area only; search ${Math.round(r.ms)} ms)`));
+    } else {
+      const s = r.plan?.status;
+      setPlanMsg(s === 'outside_reach' ? t(`そこは歩いて帰れる範囲の外です（往復で使える分の ${r.plan?.goal_ratio != null ? Math.round(r.plan.goal_ratio * 100) + '%' : '100% 超'}）。もっと近くを選んでください`, `That point is outside the walk-home area (${r.plan?.goal_ratio != null ? Math.round(r.plan.goal_ratio * 100) + '%' : 'over 100%'} of the budget out and back). Pick a closer one`)
+        : s === 'outside_grid' ? t('Jezero の地形データの外です', 'Outside the Jezero terrain data')
+        : t('そこまで歩いて行ける道が見つかりませんでした', 'No walkable path to that point'));
+    }
+  };
   const addPoint = (lat: number, lon: number) => {
+    if (mode === 'goal') { planTo(lat, lon); return; }
     const wp: Waypoint = { lat, lon, elev: undefined };
     if (mode === 'base') setRoute((r) => [wp, ...r.slice(1)]);
     else {
@@ -437,6 +454,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
     ['pan', '✋', t('地図を動かす', 'Move the map')], ['route', '〰', t('ルートを引く', 'Draw the route')], ['base', '⌂', t('基地を置き直す', 'Move the base')],
     ['undo', '↶', t('戻す（⌘Z / Ctrl+Z）', 'Undo (⌘Z / Ctrl+Z)')], ['redo', '↷', t('やり直す（⌘⇧Z / Ctrl+Y）', 'Redo (⌘⇧Z / Ctrl+Y)')],
     ['clear', '🗑', t('ルートを消す', 'Clear the route')], ['example', '★', t('例のルートに戻す', 'Example route')],
+    ['goal', '🎯', t('目的地を置く（基地から自動で経路を探す）', 'Set a destination (plan the route from the base)')],
     ['easy', '⤳', easy ? t('楽な道モード: オン（坂の楽な道で点をつなぐ）', 'Easy path: on (joins points along the easiest slopes)') : t('楽な道モード: オフ（まっすぐつなぐ）', 'Easy path: off (straight lines)')],
   ];
 
@@ -461,8 +479,8 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           <>
             <div className="kv"><span>{t('行き / 帰り（まっすぐ）', 'Out / back (straight)')}</span><b>{ev.out_km.toFixed(1)} km / {ev.back_km.toFixed(1)} km</b></div>
             <div className="kv"><span>{t('かかる時間', 'Time')}</span><b>{fmtH(ev.total_h)}</b></div>
-            {rad && <div className="kv" id="rad-dose"><span>{t('放射線（この船外活動）', 'Radiation (this EVA)')}</span><b>{rad.dose_msv.toFixed(2)} mSv <small className="muted">{t(`生涯上限の ${(rad.career_share * 100).toFixed(2)}%`, `${(rad.career_share * 100).toFixed(2)}% of career limit`)}</small></b></div>}
             {evFirm && ev.total_h - evFirm.total_h >= 1 / 60 && <div className="kv sub" id="foot-extra"><span>{t('うち足場で増えた時間', 'of which footing adds')}</span><b>+{fmtH(ev.total_h - evFirm.total_h)}</b></div>}
+            {rad && <div className="kv" id="rad-dose"><span>{t('放射線（この船外活動）', 'Radiation (this EVA)')}</span><b>{rad.dose_msv.toFixed(2)} mSv <small className="muted">{t(`生涯上限の ${(rad.career_share * 100).toFixed(2)}%`, `${(rad.career_share * 100).toFixed(2)}% of career limit`)}</small></b></div>}
             <div className="kv"><span>{t('体力の消費 / 使える分', 'Effort used / usable')}</span><b>{ev.total_effort_h.toFixed(1)} / {ev.usable_h.toFixed(1)} h</b></div>
             <div className="kv"><span>{t('先に尽きるもの', 'Runs out first')}</span><b className={ev.limiting === 'water' ? 'water' : ''}>{ev.limiting === 'water' ? t('冷却水', 'Cooling water') : t('酸素', 'Oxygen')}</b></div>
             {reachImg && <div className="kv"><span>{t('歩いて帰れる範囲', 'Walk-home area')}</span><b>{reachImg.area.toFixed(0)} km²{t('（最遠 ', ' (farthest ')}{reachImg.max.toFixed(1)} km{t('）', ')')}</b></div>}
@@ -609,6 +627,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
             <div className="draw-hint" aria-live="polite">{mode === 'route'
               ? (easy ? t('⤳ 楽な道モード（坂の楽な道でつなぐ）・', '⤳ Easy path (follows the easiest slopes) · ') : '') + t('クリックで点を追加・点に乗せると距離と O₂・ドラッグで移動・線の中の小さな点で挿入・右クリックで削除・Backspace で最後の点を消す・Esc か Enter で終わる', 'Click to add · hover a point for distance and O₂ · drag to move · drag a middle dot to insert · right-click to delete · Backspace removes the last point · Esc or Enter to finish')
               : mode === 'base' ? t('クリックした所に基地を置き直す', 'Click to move the base')
+              : mode === 'goal' ? (planMsg ?? t('🎯 目的地をクリック: 基地から、坂・足場・帰り道を計算して経路を自動で引きます', '🎯 Click a destination: the route from the base is planned with slopes, footing and the way back'))
               : t('〰 を押すとルートを引けます（点はドラッグで動かせます）', 'Press 〰 to draw a route (points can be dragged)')}</div>
           )}
         </div>

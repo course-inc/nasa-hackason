@@ -1,6 +1,6 @@
 // One plan → all its numbers. The WALKBACK screen and the agent tools both call this, so what a
 // tool reports is exactly what the screen shows. Every number comes from the Rust core.
-import type { Core, EvaParams, Reach, RouteCheck, RouteEval, RoverWalkback, Waypoint, World } from '../core';
+import type { Core, EvaParams, PlannedRoute, RouteWeights, Reach, RouteCheck, RouteEval, RoverWalkback, Waypoint, World } from '../core';
 import { JEZERO, LANDING, ensureFooting, type WalkData } from './data';
 import { densify, type Dense } from './geo';
 
@@ -136,4 +136,20 @@ export function easyLeg(core: Core, data: WalkData | null, a: Waypoint, b: Waypo
     if (!path || path.length < 2) return null;
     return simplify(path, data.dem.dlat * 1.5).slice(1).map(([lat, lon]) => ({ lat, lon, elev: undefined }));
   } catch { return null; }
+}
+
+/**
+ * Route to a destination: Dijkstra over the walk-home area (Rust grid.rs plan_route) with the same
+ * costs as the verdict (slope, footing, and the departure-time water budget), then the points as a
+ * route from the base. `ms` is how long the search took.
+ */
+export function planRoute(core: Core, data: WalkData | null, base: Waypoint, goal: Waypoint, p: EvaParams, w?: RouteWeights):
+  { route: Waypoint[] | null; plan: PlannedRoute | null; ms: number } {
+  if (!data?.dem) return { route: null, plan: null, ms: 0 };
+  const t0 = performance.now();
+  try {
+    const plan = core.planRoute(WORLD, JEZERO, [base.lat, base.lon], [goal.lat, goal.lon], foot(core, p), MAX_SLOPE, w);
+    const route = plan.status === 'ok' ? [base, ...plan.path.slice(1).map(([lat, lon]) => ({ lat, lon, elev: undefined }))] : null;
+    return { route, plan, ms: performance.now() - t0 };
+  } catch { return { route: null, plan: null, ms: performance.now() - t0 }; }
 }

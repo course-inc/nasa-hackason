@@ -189,6 +189,42 @@ pub fn radiation_model() -> String {
     }))
 }
 
+/// Plan a walk from the base to a destination on a stored grid (grid.rs plan_route): only cells
+/// of the walk-home area, weighted cost; `weights` = {time, slope, footing, margin} (missing = 0,
+/// time 1). Returns {path: [[lat, lon], …], status, goal_ratio}.
+#[wasm_bindgen(js_name = planRoute)]
+#[allow(clippy::too_many_arguments)]
+pub fn plan_route(
+    world: &str,
+    name: &str,
+    lat1: f64,
+    lon1: f64,
+    lat2: f64,
+    lon2: f64,
+    params: &str,
+    max_slope_deg: f64,
+    weights: &str,
+) -> Result<String, JsError> {
+    let w = parse_world(world)?;
+    let p: route::EvaParams = serde_json::from_str(params).map_err(err)?;
+    let wt: grid::RouteWeights = if weights.is_empty() {
+        grid::RouteWeights::default()
+    } else {
+        serde_json::from_str(weights).map_err(err)?
+    };
+    with_grid(name, |g| {
+        json(&grid::plan_route(
+            w,
+            g,
+            (lat1, lon1),
+            (lat2, lon2),
+            &p,
+            max_slope_deg,
+            &wt,
+        ))
+    })
+}
+
 /// Store the Jezero hourly weather (jezero_weather.json, Perseverance MEDA).
 #[wasm_bindgen(js_name = setWeather)]
 pub fn set_weather(json_str: &str) -> Result<(), JsError> {
