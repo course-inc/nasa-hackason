@@ -7,8 +7,20 @@ import { densify, type Dense } from './geo';
 export const WORLD: World = 'mars';
 /** Same constant as analog-core route.rs (Gernhardt 2010): cooling water per unit of O₂ when walking hard. */
 export const WATER_PER_O2 = 3.1 / 2.7;
-/** Steeper steps are not walkable in the walk-home area. */
-export const MAX_SLOPE = 25;
+/**
+ * Steepest walkable slope, degrees, up or down: the dynamic angle of repose of Martian sand dunes,
+ * where loose material avalanches — 30–31° measured with HiRISE elevation models at Gale and
+ * Herschel craters, 33–34° at Nili Patera (Atwood-Stone & McEwen 2013, Geophys. Res. Lett. 40,
+ * doi:10.1002/grl.50586); the lower value is used. Steeper cells are not walkable in the walk-home
+ * area, the route planner and the rover check, and a drawn route with such a leg is impassable.
+ * (Was 25° without a source.) No published separate limit for walking downhill was found.
+ */
+export const MAX_SLOPE = 30;
+/** First leg of an evaluated route steeper than MAX_SLOPE (slope from the Rust legs), or null. */
+export const steepLeg = (ev: RouteEval) => {
+  const i = ev.legs.findIndex((l) => l.known && Math.abs(l.slope_deg) > MAX_SLOPE);
+  return i < 0 ? null : i;
+};
 
 /** The sliders on the screen. reserve is in percent. */
 export interface PlanParams { speed: number; o2: number; water: number; reserve: number; footing?: boolean;
