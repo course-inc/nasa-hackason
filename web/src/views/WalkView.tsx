@@ -241,7 +241,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           <label className="check"><input type="checkbox" checked={showRover} onChange={(e) => setShowRover(e.target.checked)} /> 探査車の実走ルート</label>
           <p className="muted">ルートの色: 緑 8°未満 / 黄 8〜15° / 赤 15°以上 / 灰 地形不明。帰れる範囲の黄色い縁が限界の線です。</p>
         </details>
-        <p className="muted src">データ: Mars 2020 Perseverance 走行記録（NASA/JPL MMGIS）、MRO HiRISE 画像と地形（NASA/UArizona, USGS）、MGS MOLA 地形、Mars Odyssey THEMIS、MRO CTX、data.nasa.gov 船外活動記録、国土地理院 標高タイル。{data?.dem?.src ? ` 地形グリッド: ${data.dem.src}` : ''}</p>
+        <p className="muted src">データ: Mars 2020 Perseverance 走行記録（NASA/JPL MMGIS）、MRO HiRISE 画像と地形（NASA/UArizona, USGS）、MGS MOLA 地形、Mars Odyssey THEMIS、MRO CTX、data.nasa.gov 船外活動記録、NASADEM（北海道の地形、NASA/JPL）。北海道の航空写真は国土地理院（表示のみ）。{data?.dem?.src ? ` 地形グリッド: ${data.dem.src}` : ''}</p>
       </aside>
 
       <div className={`maps ${rehOpen && reh.found.length ? '' : 'single'}`}>

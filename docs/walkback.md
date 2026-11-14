@@ -23,6 +23,6 @@ Jezero クレーターで「基地から歩いて出て、酸素と冷却水が�
 | jezero_dem.json | HiRISE DTM 5 枚（USGS Astrogeology）＋ MOLA MEGDR で補完、0.0006° グリッド |
 | m20_traverse.json | Perseverance 走行ルート（mars.nasa.gov MMGIS M20_traverse.json） |
 | eva.csv | data.nasa.gov「Extra-vehicular Activity (EVA) - US and Russia」 |
-| hokkaido/*.json | 国土地理院 標高タイル（dem_png z12）を約 83 m グリッドに再標本化 |
+| hokkaido/*.json | NASADEM（NASA/JPL、1 秒 ≈ 30 m、Microsoft Planetary Computer の COG。`data/raw/nasadem/*.tif` があればそれを使う）を約 83 m グリッドに双線形補間。海（≤ 0 m）と湖面（同じ標高が 1% 以上続く平面）は null にして、練習コースが水の上に乗らないようにする。`--dem gsi` で旧来の国土地理院 標高タイル版 |
 
-作り直し: 生データを `data/raw/` に置いて `mise run walk-data`。地図タイル（オフライン用）は `mise run walk-tiles` で `web/public/tiles/` に取得（git には入れない、Tauri ビルド時に同梱）。どちらも nasa.gov / 国土地理院に届くネットワークが必要。
+作り直し: 生データを `data/raw/` に置いて `mise run walk-data`。地図タイル（オフライン用）は `mise run walk-tiles` で `web/public/tiles/` に取得（git には入れない、Tauri ビルド時に同梱）。walk-data は nasa.gov と Planetary Computer、walk-tiles は地図タイル配信元に届くネットワークが必要。

@@ -10,9 +10,12 @@
 //   web/public/data/m20_traverse.json   drives [{sol, c: [[lon, lat, z], …]}], points ≥ 3 m apart
 //   web/public/data/eva.csv             copy
 //   web/public/data/jezero_dem.json     copy
-//   web/public/data/hokkaido/<id>.json  elevation grid around each #10 Hokkaido site, from GSI
-//                                       DEM PNG tiles (国土地理院 標高タイル), resampled to lat/lon
-//   Pass --no-hokkaido to skip the GSI download.
+//   web/public/data/hokkaido/<id>.json  elevation grid around each #10 Hokkaido site, from NASADEM
+//                                       (NASA/JPL, 1 arc-second ≈ 30 m; Cloud-Optimized GeoTIFFs via
+//                                       Microsoft Planetary Computer, no login), resampled to ≈ 83 m.
+//   Pass --no-hokkaido to skip the download. --dem gsi uses 国土地理院 DEM PNG tiles instead
+//   (old behaviour; the project rule is that numbers fed into calculations come from NASA data).
+//   NASADEM reading needs the geotiff package (root devDependency).
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
@@ -53,7 +56,7 @@ else console.warn('skip eva: data/raw/eva.csv missing');
 if (fs.existsSync(raw('jezero_dem.json'))) write('jezero_dem.json', JSON.stringify(JSON.parse(fs.readFileSync(raw('jezero_dem.json'), 'utf8'))));
 else console.warn('skip jezero dem: data/raw/jezero_dem.json missing');
 
-// ---- Hokkaido grids from GSI DEM PNG tiles ----
+// ---- Hokkaido grids from GSI DEM PNG tiles (--dem gsi) ----
 // PNG decoder for 8-bit RGB/RGBA, non-interlaced (what GSI serves).
 function decodePng(buf) {
   let pos = 8, w = 0, h = 0, ct = 0;
@@ -123,12 +126,108 @@ async function siteGrid(site) {
   return { id: site.id, name: site.name, lat0, lon0, dlat, dlon, rows, cols, z, src: '国土地理院 標高タイル (DEM PNG, z12)' };
 }
 
+// ---- Hokkaido grids from NASADEM (default) ----
+const PC = 'https://planetarycomputer.microsoft.com/api';
+let pcToken = null;
+const nasademTiles = new Map(); // item id -> { img, x0, y0, rx, ry, w, h }
+// Tiles already downloaded by scripts/build-scan-data.mjs (#10) live in data/raw/nasadem/<id>.tif,
+// with the STAC search result in items.json; use those before going to the network.
+const nasademLocal = path.join(root, 'data/raw/nasadem');
+const nasademItems = fs.existsSync(path.join(nasademLocal, 'items.json'))
+  ? new Set(JSON.parse(fs.readFileSync(path.join(nasademLocal, 'items.json'), 'utf8')).map((it) => it.id))
+  : null;
+async function nasademTile(lat, lon) {
+  const { fromUrl, fromFile } = await import('geotiff');
+  const id = `NASADEM_HGT_n${String(Math.floor(lat)).padStart(2, '0')}e${String(Math.floor(lon)).padStart(3, '0')}`;
+  if (nasademTiles.has(id)) return nasademTiles.get(id);
+  const p = (async () => {
+    const local = path.join(nasademLocal, `${id}.tif`);
+    let tiff;
+    if (fs.existsSync(local)) tiff = await fromFile(local);
+    else {
+      if (nasademItems && !nasademItems.has(id)) return null; // sea-only tile (not in the search result)
+      pcToken ??= (await (await fetch(`${PC}/sas/v1/token/nasadem`)).json()).token;
+      const item = await (await fetch(`${PC}/stac/v1/collections/nasadem/items/${id}`)).json();
+      const href = item?.assets?.elevation?.href;
+      if (!href) return null; // sea-only tile
+      tiff = await fromUrl(`${href}?${pcToken}`);
+    }
+    const img = await tiff.getImage();
+    const [x0, y0] = img.getOrigin(), [rx, ry] = img.getResolution();
+    return { img, x0, y0, rx, ry, w: img.getWidth(), h: img.getHeight() };
+  })();
+  nasademTiles.set(id, p);
+  return p;
+}
+
+async function siteGridNasadem(site) {
+  // Same footprint as the old GSI version: about 0.26° (lon) × 0.19° (lat) around the site.
+  const dlat = CELL_DEG, dlon = CELL_DEG / Math.cos((site.lat * Math.PI) / 180);
+  const halfLat = 0.095, halfLon = 0.13;
+  const north = site.lat + halfLat, south = site.lat - halfLat, west = site.lon - halfLon, east = site.lon + halfLon;
+  const rows = Math.floor((north - south) / dlat), cols = Math.floor((east - west) / dlon);
+  const lat0 = north - dlat / 2, lon0 = west + dlon / 2;
+  // Read the window of each 1°×1° NASADEM tile the grid touches.
+  const wins = [];
+  for (let la = Math.floor(south); la <= Math.floor(north); la++) for (let lo = Math.floor(west); lo <= Math.floor(east); lo++) {
+    const t = await nasademTile(la + 0.5, lo + 0.5);
+    if (!t) continue;
+    const px = (x) => Math.max(0, Math.min(t.w, x));
+    const c0 = px(Math.floor((Math.max(west, lo) - t.x0) / t.rx) - 2), c1 = px(Math.ceil((Math.min(east, lo + 1) - t.x0) / t.rx) + 2);
+    const r0 = px(Math.floor((Math.min(north, la + 1) - t.y0) / t.ry) - 2), r1 = px(Math.ceil((Math.max(south, la) - t.y0) / t.ry) + 2);
+    if (c1 <= c0 || r1 <= r0) continue;
+    const [band] = await t.img.readRasters({ window: [c0, r0, c1, r1] });
+    wins.push({ t, c0, r0, w: c1 - c0, h: r1 - r0, band, nodata: t.img.getGDALNoData() });
+  }
+  const z = [];
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const la = lat0 - r * dlat, lo = lon0 + c * dlon;
+    let v = null;
+    for (const w of wins) {
+      // pixel-is-area: centre of pixel (i, j) is origin + (i + 0.5) * res
+      const fx = (lo - w.t.x0) / w.t.rx - 0.5 - w.c0, fy = (la - w.t.y0) / w.t.ry - 0.5 - w.r0;
+      const i = Math.floor(fx), j = Math.floor(fy);
+      if (i < 0 || j < 0 || i + 1 >= w.w || j + 1 >= w.h) continue;
+      const at = (a, b) => { const x = w.band[b * w.w + a]; return x === w.nodata || x < -1000 ? null : x; };
+      const q = [at(i, j), at(i + 1, j), at(i, j + 1), at(i + 1, j + 1)];
+      if (q.some((x) => x == null)) { v = q.find((x) => x != null) ?? null; break; }
+      const u = fx - i, t = fy - j;
+      v = q[0] * (1 - u) * (1 - t) + q[1] * u * (1 - t) + q[2] * (1 - u) * t + q[3] * u * t;
+      break;
+    }
+    // NASADEM fills the sea with 0 (a little below in places). Store it as null, like GSI's no-data,
+    // because the rehearsal search skips placements that touch null; as 0 the flat sea would be a
+    // perfect match for flat Mars stretches. (Hokkaido has no dry land at or below sea level.)
+    z.push(v == null || v <= 0 ? null : Math.round(v * 10) / 10);
+  }
+  maskLakes(z, rows, cols);
+  return { id: site.id, name: site.name, lat0, lon0, dlat, dlon, rows, cols, z, src: 'NASADEM (NASA/JPL, 1 arc-second; via Microsoft Planetary Computer), bilinear to ~83 m' };
+}
+
+// Lakes (支笏湖, 洞爺湖, 摩周湖 …) are one flat elevation in both NASADEM and the GSI DEM, so a flat
+// Mars stretch would be "rehearsed" on the water. A value covering ≥ 1% of the grid is a lake surface;
+// null its cells whose four neighbours share it (the shoreline keeps its interpolated values).
+function maskLakes(z, rows, cols) {
+  const count = new Map();
+  for (const v of z) if (v != null) count.set(v, (count.get(v) ?? 0) + 1);
+  const lake = new Set([...count].filter(([, n]) => n >= z.length / 100).map(([v]) => v));
+  if (!lake.size) return;
+  const flat = z.map((v, i) => {
+    if (!lake.has(v)) return false;
+    const r = Math.floor(i / cols), c = i % cols;
+    return [[r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]].every(([rr, cc]) => rr < 0 || cc < 0 || rr >= rows || cc >= cols || z[rr * cols + cc] === v);
+  });
+  flat.forEach((f, i) => { if (f) z[i] = null; });
+}
+
+const demArg = process.argv.indexOf('--dem');
+const DEM = demArg > 0 ? process.argv[demArg + 1] : 'nasadem';
 if (!process.argv.includes('--no-hokkaido')) {
   const sites = JSON.parse(fs.readFileSync(path.join(root, 'data/earth-metrics.json'), 'utf8')).filter((s) => s.id !== 'sapporo');
   const index = [];
   for (const s of sites) {
     try {
-      const g = await siteGrid(s);
+      const g = DEM === 'gsi' ? await siteGrid(s) : await siteGridNasadem(s);
       const nulls = g.z.filter((v) => v === null).length / g.z.length;
       write(`hokkaido/${s.id}.json`, JSON.stringify(g));
       index.push({ id: s.id, name: s.name, lat: s.lat, lon: s.lon, rows: g.rows, cols: g.cols, nulls: +nulls.toFixed(3) });
