@@ -311,6 +311,28 @@ export function planRoute(world, name, lat1, lon1, lat2, lon2, params, max_slope
 }
 
 /**
+ * Weighted cost of each settled cell, in the same order.
+ * @returns {Float32Array}
+ */
+export function planTraceCost() {
+    const ret = wasm.planTraceCost();
+    var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v1;
+}
+
+/**
+ * Cells (row-major indices) the last planRoute search settled, in order.
+ * @returns {Uint32Array}
+ */
+export function planTraceOrder() {
+    const ret = wasm.planTraceOrder();
+    var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v1;
+}
+
+/**
  * Radiation dose for `hours` on the surface (Curiosity RAD rate, NASA limits): {dose_msv,
  * career_share, hours_to_career_limit}.
  * @param {number} hours

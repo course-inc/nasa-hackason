@@ -56,6 +56,16 @@ export function gaps(earth_id: string, body_id: string, test: string): string;
 export function planRoute(world: string, name: string, lat1: number, lon1: number, lat2: number, lon2: number, params: string, max_slope_deg: number, weights: string): string;
 
 /**
+ * Weighted cost of each settled cell, in the same order.
+ */
+export function planTraceCost(): Float32Array;
+
+/**
+ * Cells (row-major indices) the last planRoute search settled, in order.
+ */
+export function planTraceOrder(): Uint32Array;
+
+/**
  * Radiation dose for `hours` on the surface (Curiosity RAD rate, NASA limits): {dose_msv,
  * career_share, hours_to_career_limit}.
  */
@@ -218,6 +228,8 @@ export interface InitOutput {
     readonly footingModel: () => [number, number];
     readonly gaps: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly planRoute: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number) => [number, number, number, number];
+    readonly planTraceCost: () => [number, number];
+    readonly planTraceOrder: () => [number, number];
     readonly radiationExposure: (a: number) => [number, number];
     readonly radiationModel: () => [number, number];
     readonly rankAll: (a: number, b: number) => [number, number, number, number];
