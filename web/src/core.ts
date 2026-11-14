@@ -36,6 +36,8 @@ export interface EvaParams {
   water_h?: number; min_reserve_h?: number; unknown_slope?: number;
   /** Count the footing (THEMIS thermal inertia, TES dust) where the grid has it; default on. */
   footing?: boolean;
+  /** Local solar hour of departure at Jezero (MEDA air temperature → cooling water); none = not counted. */
+  start_h?: number;
 }
 export interface FootingModel { ti_loose: number; ti_firm: number; eta_loose: number; eta_firm: number; dci_dusty: number; dust_extra: number }
 export interface Leg { km: number; slope_deg: number; hours: number; effort_h: number; known: boolean }
@@ -117,6 +119,10 @@ export interface Core extends Boot {
   setFooting: (grid: string, json: string) => void;
   sampleFooting: (grid: string, latlons: [number, number][]) => (number | null)[];
   footingModel: () => FootingModel;
+  setWeather: (json: string) => void;
+  /** Cooling-water factor for a walk from local solar hour `startH` lasting `hours` (Rust weather.rs). */
+  weatherWalk: (startH: number, hours: number) => { water_factor: number; temp_k: number | null; pressure_pa: number | null };
+  weatherModel: () => { metabolic_w: number; t_ref_k: number; t_skin_k: number; leak_w_per_k: number; sol_hours: number };
   radiationExposure: (hours: number) => { dose_msv: number; career_share: number; hours_to_career_limit: number };
   radiationModel: () => { dose_eq_msv_per_day: number; dose_eq_sigma: number; absorbed_mgy_per_day: number; career_limit_msv: number; spe_limit_msv: number };
   /** Per cell 0 (firm) … 255 (loose), for the map layer; empty without footing. */
@@ -184,6 +190,9 @@ export function loadCore(): Promise<Core> {
       sampleFooting: (grid, latlons) => JSON.parse(wasm.sampleFooting(grid, JSON.stringify(latlons))),
       footingModel: () => JSON.parse(wasm.footingModel()),
       radiationExposure: (h) => JSON.parse(wasm.radiationExposure(h)),
+      setWeather: (j) => wasm.setWeather(j),
+      weatherWalk: (a, h) => JSON.parse(wasm.weatherWalk(a, h)),
+      weatherModel: () => JSON.parse(wasm.weatherModel()),
       radiationModel: () => JSON.parse(wasm.radiationModel()),
       footingBadness: (grid) => wasm.footingBadness(grid),
       distanceKm: (world, a, b) => wasm.distanceKm(world, a.lat, a.lng, b.lat, b.lng),

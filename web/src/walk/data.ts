@@ -35,6 +35,8 @@ export interface WalkData {
   hokkaido: HokkaidoSite[];
   /** Footing per Jezero grid cell (THEMIS thermal inertia, TES dust cover index), for the map layer. */
   footing: Footing | null;
+  /** Jezero hourly air temperature / pressure (Perseverance MEDA), loaded into the Rust core. */
+  weather: { hours: { hour: number; air_temp_k: number | null; pressure_pa: number | null; sols: number }[]; sols: number[]; src: string } | null;
   /** Datasets that failed to load: 'dem' | 'traverse' | 'eva' | 'hokkaido' (details in the console). */
   errors: string[];
 }
@@ -49,7 +51,7 @@ let cache: Promise<WalkData> | null = null;
 
 export function loadWalkData(core: Core): Promise<WalkData> {
   cache ??= (async () => {
-    const d: WalkData = { dem: null, demGrid: null, rover: null, traverse: [], traverseRaw: [], eva: null, hokkaido: [], footing: null, errors: [] };
+    const d: WalkData = { dem: null, demGrid: null, rover: null, traverse: [], traverseRaw: [], eva: null, hokkaido: [], footing: null, weather: null, errors: [] };
     await Promise.all([
       get('./data/jezero_dem.json').then((t) => {
         core.setGrid(JEZERO, t);
@@ -58,6 +60,8 @@ export function loadWalkData(core: Core): Promise<WalkData> {
         d.dem = meta;
         d.demGrid = g;
       }).catch((e) => (console.warn('jezero dem', e), d.errors.push('dem'))),
+      get('./data/jezero_weather.json').then((t) => { core.setWeather(t); d.weather = JSON.parse(t); })
+        .catch((e) => (console.warn('weather', e), d.errors.push('weather'))),
       get('./data/jezero_footing.json').then((t) => { footingText = t; d.footing = JSON.parse(t); })
         .catch((e) => (console.warn('footing', e), d.errors.push('footing'))),
       get('./data/m20_traverse.json').then((t) => {
