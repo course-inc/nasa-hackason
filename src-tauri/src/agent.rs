@@ -22,7 +22,9 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{oneshot, Mutex};
 
-pub const SYSTEM_PROMPT: &str = "あなたは火星の船外活動計画の相棒。数字は必ずツールの結果だけを使い、自分で計算・推測しない。答えには出典（ツールの sources）を添える。表示ツールで地図を動かして見せる。ユーザーの言語で答える。";
+/// Names the tools for each kind of question: small local models pick the right tool and
+/// arguments far more often with this than with a generic prompt (see the `bench` test).
+pub const SYSTEM_PROMPT: &str = "あなたは火星の船外活動計画の相棒。質問には必ず先にツールを呼ぶ。帰れるか・距離・時間・酸素や冷却水の条件の質問は walkback_check（数値条件は o2_h などの引数に入れる。「Nkm先」は route={\"away_km\":N}）。練習コースは walkback_check に with_rehearsal=true。ローバーが壊れたら・どこで引き返すかは rover_walkback。根拠・出典は open_evidence（topic は rover, eva, consumables など）。北海道のどこで・いつ訓練するかは explore_hokkaido。歩いた記録・GPX は import_walk。見せてと言われたら表示ツール（view_3d, view_walk など）で地図を動かす。答えに書く数字はツールの結果の文に出てくる数字だけを、そのまま写す。自分で計算・換算・四捨五入しない。最後に出典（sources）を一言添える。ユーザーの言語で短く答える。";
 const ANTHROPIC_URL: &str = "https://api.anthropic.com/v1/messages";
 const OLLAMA_URL: &str = "http://127.0.0.1:11434/v1/chat/completions";
 const OLLAMA_DEFAULT: &str = "qwen2.5:7b";
@@ -471,9 +473,10 @@ mod tests {
     //   (serve a DUCKDB_LOCAL build, e.g. on :4188)
     //   BENCH_BRIDGE="node scripts/agent-bench/bridge.mjs" BENCH_MODELS=qwen2.5:7b,qwen3.5:4b \
     //   BENCH_RUNS=5 cargo test -p analog-finder --lib bench -- --ignored --nocapture
-    // Optional BENCH_PROMPT=improved uses BENCH_SYSTEM_PROMPT_IMPROVED below.
+    // BENCH_PROMPT=original runs the first, generic system prompt for comparison.
 
-    const BENCH_SYSTEM_PROMPT_IMPROVED: &str = "あなたは火星の船外活動計画の相棒。質問には必ず先にツールを呼ぶ。帰れるか・距離・時間・酸素や冷却水の条件の質問は walkback_check（数値条件は o2_h などの引数に入れる。「Nkm先」は route={\"away_km\":N}）。練習コースは walkback_check に with_rehearsal=true。ローバーが壊れたら・どこで引き返すかは rover_walkback。根拠・出典は open_evidence（topic は rover, eva, consumables など）。答えに書く数字はツールの結果の文に出てくる数字だけを、そのまま写す。自分で計算・換算・四捨五入しない。最後に出典（sources）を一言添える。ユーザーの言語で短く答える。";
+    /// The first, generic prompt, kept for comparison (BENCH_PROMPT=original).
+    const BENCH_SYSTEM_PROMPT_ORIGINAL: &str = "あなたは火星の船外活動計画の相棒。数字は必ずツールの結果だけを使い、自分で計算・推測しない。答えには出典（ツールの sources）を添える。表示ツールで地図を動かして見せる。ユーザーの言語で答える。";
 
     struct Q {
         text: &'static str,
@@ -508,7 +511,11 @@ mod tests {
         },
         Q {
             text: "同じ坂の練習コースを北海道で探して",
-            ok: |c| called(c, "walkback_check", |a| a["with_rehearsal"] == json!(true)),
+            ok: |c| {
+                called(c, "walkback_check", |a| {
+                    a["with_rehearsal"] == json!(true) || a["with_rehearsal"] == json!("true")
+                })
+            },
         },
         Q {
             text: "ローバーが壊れたらどこで引き返す？",
@@ -575,8 +582,8 @@ mod tests {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(5);
-        let prompt = if std::env::var("BENCH_PROMPT").as_deref() == Ok("improved") {
-            BENCH_SYSTEM_PROMPT_IMPROVED
+        let prompt = if std::env::var("BENCH_PROMPT").as_deref() == Ok("original") {
+            BENCH_SYSTEM_PROMPT_ORIGINAL
         } else {
             SYSTEM_PROMPT
         };
@@ -737,7 +744,7 @@ mod tests {
             if prompt == SYSTEM_PROMPT {
                 "default"
             } else {
-                "improved"
+                "original"
             }
         );
         let out = std::env::var("BENCH_OUT").unwrap_or_else(|_| "/dev/null".into());

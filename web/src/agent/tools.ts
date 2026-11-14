@@ -50,6 +50,7 @@ export function alongRover(core: Core, raw: [number, number, number][][], km: nu
 }
 
 export function resolveRoute(core: Core, data: WalkData, arg: unknown, current: Waypoint[]): Waypoint[] {
+  if (typeof arg === 'string' && /^[[{]/.test(arg.trim())) { try { arg = JSON.parse(arg); } catch { /* fall through */ } }
   if (arg == null || arg === 'current') return current;
   if (arg === 'example') return exampleRoute(data.traverseRaw);
   if (Array.isArray(arg)) {
@@ -89,23 +90,18 @@ const walkbackCheck: ToolDef = {
   parameters: {
     type: 'object',
     properties: {
+      // Kept loose on purpose: small local models often send numbers as strings or a bare object;
+      // run() checks the value and explains a wrong one.
       route: {
-        description: 'Route: array of {lat, lon} (first point is the base), "example" (the default 3 km route along Perseverance\'s path), "current" (what is on screen), {away_km: N} (follow Perseverance\'s path until N km in a straight line from the landing site), or {along_rover_km: N} (Perseverance\'s path from the landing site for N km of driving).',
-        oneOf: [
-          { type: 'array', items: { type: 'object', properties: { lat: { type: 'number' }, lon: { type: 'number' } }, required: ['lat', 'lon'] }, minItems: 2 },
-          { type: 'string', enum: ['example', 'current'] },
-          { type: 'object', properties: { away_km: { type: 'number', minimum: 0.5, maximum: 15 } }, required: ['away_km'] },
-          { type: 'object', properties: { along_rover_km: { type: 'number', minimum: 0.5, maximum: 30 } }, required: ['along_rover_km'] },
-        ],
+        description: 'Route: array of {lat, lon} (first point is the base), "example" (the default 3 km route along Perseverance\'s path), "current" (what is on screen), {away_km: N} (follow Perseverance\'s path until N km in a straight line from the landing site, e.g. "3 km out" → {"away_km": 3}), or {along_rover_km: N} (Perseverance\'s path from the landing site for N km of driving).',
       },
-      speed_kmh: { type: 'number', minimum: 0.5, maximum: 5, description: 'Walking speed on flat ground' },
-      o2_h: { type: 'number', minimum: 2, maximum: 12, description: 'Oxygen supply in hours' },
-      water_h: { type: 'number', minimum: 2, maximum: 12, description: 'Cooling water supply in hours' },
-      reserve: { type: 'number', minimum: 0, maximum: 50, description: 'Reserve kept at arrival, percent (at least 30 min)' },
-      with_rehearsal: { type: 'boolean', description: 'Also search Hokkaido for practice courses with the same slopes' },
+      speed_kmh: { type: ['number', 'string'], description: 'Walking speed on flat ground, km/h (0.5–5)' },
+      o2_h: { type: ['number', 'string'], description: 'Oxygen supply in hours (2–12)' },
+      water_h: { type: ['number', 'string'], description: 'Cooling water supply in hours (2–12)' },
+      reserve: { type: ['number', 'string'], description: 'Reserve kept at arrival, percent (0–50; at least 30 min)' },
+      with_rehearsal: { type: ['boolean', 'string'], description: 'true: also search Hokkaido for practice courses with the same slopes (use for "practice course", "練習コース", "同じ坂")' },
       lang: LANG,
     },
-    additionalProperties: false,
   },
   async run(a: Record<string, unknown> = {}) {
     const l = lang(a);
@@ -133,7 +129,7 @@ const walkbackCheck: ToolDef = {
       `Settings: speed ${params.speed} km/h, O₂ ${params.o2} h, water ${params.water} h, reserve ${params.reserve}%.`));
 
     let rehearsal: { site: string; score: number; slope_diff_deg: number; climb_mars_m: number; climb_earth_m: number }[] | undefined;
-    if (a.with_rehearsal) {
+    if (a.with_rehearsal === true || a.with_rehearsal === 'true') {
       const found = await c.runRehearsal(rehearsalPoints(c.core, data, route));
       rehearsal = found.slice(0, 3).map((f) => ({ site: f.site.name, score: Math.round(f.m.score), slope_diff_deg: +f.m.rms_deg.toFixed(1), climb_mars_m: Math.round(f.m.climb_mars_m), climb_earth_m: Math.round(f.m.climb_earth_m) }));
       lines.push(rehearsal.length
@@ -149,23 +145,23 @@ const walkbackCheck: ToolDef = {
         limiting: ev.limiting, turn_back_km: ti != null ? ev.ticks[ti]?.km ?? null : null, turn_back_point: ti != null ? dense.pts[ti] : null,
         reach_km2: reach?.area_km2 ?? null, reach_max_km: reach?.max_km ?? null, params, waypoints: route.length, rehearsal,
       },
-      sources: [SRC.engine, SRC.rover, SRC.hirise, SRC.mola, SRC.gernhardt, ...(a.with_rehearsal ? [SRC.nasadem] : [])],
+      sources: [SRC.engine, SRC.rover, SRC.hirise, SRC.mola, SRC.gernhardt, ...(a.with_rehearsal === true || a.with_rehearsal === 'true' ? [SRC.nasadem] : [])],
     };
   },
 };
 
 // ---------- rover_walkback (B) ----------
 const PARAM_PROPS = {
-  speed_kmh: { type: 'number', minimum: 0.5, maximum: 5, description: 'Walking speed on flat ground' },
-  o2_h: { type: 'number', minimum: 2, maximum: 12, description: 'Oxygen supply in hours' },
-  water_h: { type: 'number', minimum: 2, maximum: 12, description: 'Cooling water supply in hours' },
-  reserve: { type: 'number', minimum: 0, maximum: 50, description: 'Reserve kept at arrival, percent (at least 30 min)' },
+  speed_kmh: { type: ['number', 'string'], description: 'Walking speed on flat ground, km/h (0.5–5)' },
+  o2_h: { type: ['number', 'string'], description: 'Oxygen supply in hours (2–12)' },
+  water_h: { type: ['number', 'string'], description: 'Cooling water supply in hours (2–12)' },
+  reserve: { type: ['number', 'string'], description: 'Reserve kept at arrival, percent (0–50; at least 30 min)' },
 };
 const roverWalkbackTool: ToolDef = {
   name: 'rover_walkback',
   kind: 'compute',
   description: 'Crewed rover breakdown check: assume a crew drove Perseverance\'s real path from the landing site (the base). For each point, could they walk home if the rover broke down there (walk-home only, same O₂/cooling-water settings)? Colours the path on the map (green ok / yellow tight / red no) and returns the first point they could not walk home from (flag: km driven, sol) and the share of the path they could walk home from. Unset parameters keep the screen\'s values.',
-  parameters: { type: 'object', properties: { ...PARAM_PROPS, lang: LANG }, additionalProperties: false },
+  parameters: { type: 'object', properties: { ...PARAM_PROPS, lang: LANG } },
   async run(a: Record<string, unknown> = {}) {
     const l = lang(a);
     const c = await walkController();
