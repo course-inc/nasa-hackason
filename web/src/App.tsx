@@ -8,6 +8,8 @@ import { AnalogsView } from './views/AnalogsView';
 import { TargetView, type TargetParams } from './views/TargetView';
 import { WalkView, type WalkParams } from './views/WalkView';
 import { setLang, useLang, useT } from './i18n';
+import { Splash, wantSplash } from './Splash';
+import { loadWalkData } from './walk/data';
 
 type View = 'target' | 'analogs' | 'walk';
 
@@ -31,6 +33,13 @@ export function App() {
   const [visited, setVisited] = useState<Set<string>>(() => new Set([parseHash().view]));
 
   useEffect(() => { loadCore().then(setCore, (e) => setError(String(e))); }, []);
+  // Splash while the Rust core and the Jezero data load (steps: core, data).
+  const [splash, setSplash] = useState(wantSplash);
+  const [dataReady, setDataReady] = useState(false);
+  useEffect(() => {
+    if (!core) return;
+    loadWalkData(core).then(() => setDataReady(true), () => setDataReady(true));
+  }, [core]);
   // Scan tools for agents, the console and e2e (#11 registers them in its own harness).
   useEffect(() => {
     if (!core) return;
@@ -53,6 +62,7 @@ export function App() {
 
   return (
     <>
+      {splash && <Splash ready={(!!core || !!error) && (dataReady || !!error)} steps={[(core ? 1 : 0) + (dataReady ? 1 : 0), 2]} onDone={() => setSplash(false)} />}
       <header>
         <h1>WALKBACK <small>Hokkaido × Mars</small></h1>
         <nav aria-label={t('画面', 'Views')}>
