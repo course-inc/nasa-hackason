@@ -21,3 +21,17 @@ spec:
         command: node scripts/fetch-walk-tiles.mjs && pnpm --dir web build
         outputDirectory: web/dist
         nodeVersion: "22"
+    - name: hackathon-countdown
+      repository:
+        url: https://github.com/course-inc/nasa-hackason
+        owner: course-inc
+        name: nasa-hackason
+        defaultBranch: deploy
+      rootDirectory: .
+      framework: static
+      deploymentTarget: cloudflare_pages
+      build:
+        # Single static HTML page (Space Apps Sapporo countdown); nothing to build.
+        command: echo "static countdown page"
+        outputDirectory: tools/countdown
+        nodeVersion: "22"
