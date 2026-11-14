@@ -25,8 +25,14 @@ export function Hud({ s, limiting, onStop, children }: { s: HudState; limiting: 
     s.phase === 'back' ? t('帰還中', 'Returning') :
     s.phase === 'done' ? t('基地に帰着', 'Back at base') :
     s.margin_h < 0.5 ? t('まもなく引き返し地点', 'Turn-back point soon') : '';
+  // Turn-back alert: inside the last 45 min of margin on the way out (or at the turn), the visor
+  // turns red and a flag shows how much margin is left. Same numbers as the plan (ev.ticks).
+  const near = (s.phase === 'out' && s.margin_h < 0.75) || s.phase === 'turn';
   return (
-    <div className={`hud phase-${s.phase}`} role="status" aria-live="polite">
+    <div className={`hud phase-${s.phase}${near ? ' near-turn' : ''}`} role="status" aria-live="polite">
+      {near && (
+        <div className="hud-flag">🚩 {s.phase === 'turn' ? t('引き返し地点', 'Turn-back point') : t(`引き返し地点まで あと ${fmtH(Math.max(0, s.margin_h))}`, `Turn-back point in ${fmtH(Math.max(0, s.margin_h))}`)}</div>
+      )}
       <div className="hud-visor" />
       <div className="hud-top">
         <div><span>{t('経過', 'Elapsed')}</span><b>{fmtH(s.t_h)}</b></div>

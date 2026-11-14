@@ -437,7 +437,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
             <div className="terrain-over">
               <Terrain3D grid={data.demGrid} radiusKm={core.world(WORLD).radius_km} palette="mars" lines={lines3d} points={points3d}
                 reach={showReach ? reachRaw : null} walker={walker} focus={focus3d} label={t('Jezero クレーター（3D）', 'Jezero crater (3D)')}
-                camera={camera} exaggeration={exag} />
+                camera={camera} exaggeration={exag} photo="./data/jezero_ortho.jpg" />
             </div>
           )}
           {globeOn && (
