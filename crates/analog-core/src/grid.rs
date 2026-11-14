@@ -493,3 +493,253 @@ mod tests {
         assert!(easy_path(World::Mars, &g, (1.0, 0.0), (-0.03, 0.06), &params(), 25.0).is_none());
     }
 }
+
+/// What the route planner trades off. Each weight multiplies a dimensionless penalty added to the
+/// walking time of a step (1.0 = as costly as the time itself); all zero but `time` = fastest walk.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct RouteWeights {
+    /// Walking time (and so O₂ / water): the base cost.
+    #[serde(default = "one")]
+    pub time: f64,
+    /// Avoid steep steps: penalty (slope / 10°)².
+    #[serde(default)]
+    pub slope: f64,
+    /// Avoid poor footing: penalty (η − 1) / 0.5 (η from footing.rs).
+    #[serde(default)]
+    pub footing: f64,
+    /// Keep a margin for the walk home: penalty = share of the budget out + back from that cell.
+    #[serde(default)]
+    pub margin: f64,
+}
+fn one() -> f64 {
+    1.0
+}
+impl Default for RouteWeights {
+    fn default() -> Self {
+        RouteWeights {
+            time: 1.0,
+            slope: 0.0,
+            footing: 0.0,
+            margin: 0.0,
+        }
+    }
+}
+
+/// Why no route: the destination is outside the walk-home area (or outside the grid).
+#[derive(Debug, Clone, Serialize)]
+pub struct PlannedRoute {
+    /// [lat, lon] from the base to the destination (string-pulled), empty when none.
+    pub path: Vec<(f64, f64)>,
+    /// "ok" | "outside_grid" | "outside_reach" | "no_path"
+    pub status: &'static str,
+    /// Share of the budget (out + back) at the destination cell.
+    pub goal_ratio: Option<f64>,
+}
+
+/// Plan a walk from the base to a destination: Dijkstra over the cells of the walk-home area only
+/// (cells where walking out and back fits the budget), with the step cost = walking time
+/// (slope, footing) × (time weight + the other penalties). The cell path is string-pulled where a
+/// straight line costs no more than 3 % over it.
+pub fn plan_route(
+    world: World,
+    g: &Grid,
+    from: (f64, f64),
+    to: (f64, f64),
+    p: &EvaParams,
+    max_slope_deg: f64,
+    w: &RouteWeights,
+) -> PlannedRoute {
+    let none = |status, goal_ratio| PlannedRoute {
+        path: Vec::new(),
+        status,
+        goal_ratio,
+    };
+    if g.rows == 0 || !g.contains(from.0, from.1) || !g.contains(to.0, to.1) {
+        return none("outside_grid", None);
+    }
+    let budget = p.budget();
+    let (ar, ac) = base_cell(g, from.0, from.1);
+    let (br, bc) = base_cell(g, to.0, to.1);
+    let (a, b) = (ar * g.cols + ac, br * g.cols + bc);
+    let out = efforts(world, g, a, p, max_slope_deg, false);
+    let back = efforts(world, g, a, p, max_slope_deg, true);
+    let ratio = |i: usize| {
+        let t = out[i] + back[i];
+        (t.is_finite() && budget > 0.0).then(|| t / budget)
+    };
+    let goal_ratio = ratio(b);
+    if goal_ratio.is_none_or(|r| r > 1.0) {
+        return none("outside_reach", goal_ratio);
+    }
+    let (dy, dx) = g.cell_m(world);
+    let max_slope = max_slope_deg.to_radians().tan();
+    // Weighted step cost between neighbouring cells; None = not walkable or outside the area.
+    let cost = |i: usize, j: usize, dist: f64| -> Option<f64> {
+        let rj = ratio(j).filter(|&r| r <= 1.0)?;
+        let t = step_cost(p, g.z[i], g.z[j], dist, max_slope)?;
+        let foot = (g.foot_cell(i) + g.foot_cell(j)) / 2.0;
+        let slope_deg = match (g.z[i], g.z[j]) {
+            (Some(x), Some(y)) => ((y - x).abs() / dist).atan().to_degrees(),
+            _ => 17.0,
+        };
+        let pen = w.time
+            + w.slope * (slope_deg / 10.0).powi(2)
+            + w.footing * ((foot - 1.0) / 0.5).max(0.0)
+            + w.margin * rj;
+        Some(t * foot * pen)
+    };
+    let n = g.rows * g.cols;
+    let mut best = vec![f64::INFINITY; n];
+    let mut prev = vec![usize::MAX; n];
+    let mut heap = BinaryHeap::new();
+    best[a] = 0.0;
+    heap.push(Node(0.0, a));
+    let dirs: [(i64, i64); 8] = [
+        (-1, 0),
+        (1, 0),
+        (0, -1),
+        (0, 1),
+        (-1, -1),
+        (-1, 1),
+        (1, -1),
+        (1, 1),
+    ];
+    while let Some(Node(c, i)) = heap.pop() {
+        if c > best[i] {
+            continue;
+        }
+        if i == b {
+            break;
+        }
+        let (r, cc) = ((i / g.cols) as i64, (i % g.cols) as i64);
+        for (ddr, ddc) in dirs {
+            let (nr, nc) = (r + ddr, cc + ddc);
+            if nr < 0 || nc < 0 || nr >= g.rows as i64 || nc >= g.cols as i64 {
+                continue;
+            }
+            let j = nr as usize * g.cols + nc as usize;
+            let dist = ((ddr as f64 * dy).powi(2) + (ddc as f64 * dx).powi(2)).sqrt();
+            if let Some(s) = cost(i, j, dist) {
+                if c + s < best[j] {
+                    best[j] = c + s;
+                    prev[j] = i;
+                    heap.push(Node(c + s, j));
+                }
+            }
+        }
+    }
+    if !best[b].is_finite() {
+        return none("no_path", goal_ratio);
+    }
+    let mut cells = vec![b];
+    while let Some(&i) = cells.last() {
+        if i == a {
+            break;
+        }
+        cells.push(prev[i]);
+    }
+    cells.reverse();
+    let ll = |i: usize| (g.lat((i / g.cols) as f64), g.lon((i % g.cols) as f64));
+    let mut pts: Vec<(f64, f64)> = cells.iter().map(|&i| ll(i)).collect();
+    let acc: Vec<f64> = cells.iter().map(|&i| best[i]).collect();
+    pts[0] = from;
+    if pts.len() > 1 {
+        *pts.last_mut().unwrap() = to;
+    } else {
+        pts.push(to);
+    }
+    // String-pull with the same weighted cost sampled along the straight line (≤ 3 % worse).
+    let line = |p0: (f64, f64), p1: (f64, f64)| -> Option<f64> {
+        let len =
+            (((p1.0 - p0.0) / g.dlat * dy).powi(2) + ((p1.1 - p0.1) / g.dlon * dx).powi(2)).sqrt();
+        let steps = ((len / dy.min(dx)).ceil() as usize).max(1);
+        let mut total = 0.0;
+        let mut prev_cell = {
+            let (r, c) = g.rc(p0.0, p0.1);
+            r.round() as usize * g.cols + c.round() as usize
+        };
+        for k in 1..=steps {
+            let f = k as f64 / steps as f64;
+            let (la, lo) = (p0.0 + (p1.0 - p0.0) * f, p0.1 + (p1.1 - p0.1) * f);
+            let (r, c) = g.rc(la, lo);
+            let cell = r.round() as usize * g.cols + c.round() as usize;
+            total += cost(prev_cell, cell, len / steps as f64)?;
+            prev_cell = cell;
+        }
+        Some(total)
+    };
+    let mut path = vec![pts[0]];
+    let mut i = 0;
+    while i + 1 < pts.len() {
+        let mut j = i + 1;
+        for k in (i + 2..pts.len()).rev() {
+            if let Some(c) = line(pts[i], pts[k]) {
+                if c <= (acc[k] - acc[i]) * 1.03 + 1e-9 {
+                    j = k;
+                    break;
+                }
+            }
+        }
+        path.push(pts[j]);
+        i = j;
+    }
+    PlannedRoute {
+        path,
+        status: "ok",
+        goal_ratio,
+    }
+}
+
+#[cfg(test)]
+mod plan_tests {
+    use super::*;
+
+    #[test]
+    fn plans_around_a_wall_and_refuses_unreachable_goals() {
+        let mut g = Grid {
+            lat0: 0.0,
+            lon0: 0.0,
+            dlat: 0.001,
+            dlon: 0.001,
+            rows: 61,
+            cols: 61,
+            z: vec![Some(0.0); 61 * 61],
+            foot: Vec::new(),
+        };
+        for r in 0..50 {
+            g.z[r * 61 + 30] = Some(500.0);
+        }
+        let p = EvaParams {
+            water_h: 100.0,
+            min_reserve_h: 0.0,
+            ..EvaParams::new(2.0, 8.0, 0.0)
+        };
+        let r = plan_route(
+            World::Mars,
+            &g,
+            (-0.03, 0.0),
+            (-0.03, 0.06),
+            &p,
+            25.0,
+            &RouteWeights::default(),
+        );
+        assert_eq!(r.status, "ok");
+        assert!(r.path.iter().any(|&(lat, _)| lat <= -0.0495));
+        // A tiny O₂ budget: the far side is outside the walk-home area.
+        let tight = EvaParams {
+            water_h: 100.0,
+            min_reserve_h: 0.0,
+            ..EvaParams::new(2.0, 0.5, 0.0)
+        };
+        let r2 = plan_route(
+            World::Mars,
+            &g,
+            (-0.03, 0.0),
+            (-0.03, 0.06),
+            &tight,
+            25.0,
+            &RouteWeights::default(),
+        );
+        assert_eq!(r2.status, "outside_reach");
+    }
+}

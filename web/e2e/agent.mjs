@@ -231,6 +231,7 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
   {
     await p.locator('.draw-toolbar a[data-m=example]').click();
     await p.locator('.draw-toolbar a[data-m=route]').click();
+    await p.waitForTimeout(400); // the editor arms the rubber band after the mode switch renders
     const box = await p.locator('.walk .maps .map').first().boundingBox();
     await p.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.5);
     await p.mouse.move(box.x + box.width * 0.62, box.y + box.height * 0.52);
@@ -253,6 +254,14 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
     await p.locator('.draw-toolbar a[data-m=easy]').click();
     if (!(await p.locator('.draw-toolbar a[data-m=easy].on').count())) fail('easy-path toggle');
     await p.locator('.draw-toolbar a[data-m=easy]').click();
+    // Destination mode: one click plans the route from the base (Rust Dijkstra).
+    await p.locator('.draw-toolbar a[data-m=goal]').click();
+    await p.mouse.click(box.x + box.width * 0.55, box.y + box.height * 0.3);
+    await p.waitForTimeout(800);
+    const hint = await p.locator('.draw-hint').innerText();
+    console.log('goal:', hint.slice(0, 80));
+    if (!/自動で経路|帰れる範囲の外|見つかりません/.test(hint)) fail('destination mode plans a route');
+    await p.locator('.draw-toolbar a[data-m=pan]').click();
   }
   // Desktop: the panel folds away to a chip and the map is full screen.
   await p.locator('.panel-fold').click();

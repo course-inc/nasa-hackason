@@ -39,6 +39,9 @@ export interface EvaParams {
   /** Local solar hour of departure at Jezero (MEDA air temperature → cooling water); none = not counted. */
   start_h?: number;
 }
+/** Route-planner weights (grid.rs RouteWeights): penalties added to the walking time of a step. */
+export interface RouteWeights { time?: number; slope?: number; footing?: number; margin?: number }
+export interface PlannedRoute { path: [number, number][]; status: 'ok' | 'outside_grid' | 'outside_reach' | 'no_path'; goal_ratio: number | null }
 export interface FootingModel { ti_loose: number; ti_firm: number; eta_loose: number; eta_firm: number; dci_dusty: number; dust_extra: number }
 export interface Leg { km: number; slope_deg: number; hours: number; effort_h: number; known: boolean }
 export interface Tick { idx: number; t_h: number; km: number; o2_left: number; water_left: number; home_h: number; margin_h: number }
@@ -120,6 +123,8 @@ export interface Core extends Boot {
   sampleFooting: (grid: string, latlons: [number, number][]) => (number | null)[];
   footingModel: () => FootingModel;
   setWeather: (json: string) => void;
+  /** Route from the base to a destination inside the walk-home area (Rust grid.rs plan_route). */
+  planRoute: (world: World, grid: string, from: [number, number], to: [number, number], p: EvaParams, maxSlopeDeg: number, w?: RouteWeights) => PlannedRoute;
   /** Cooling-water factor for a walk from local solar hour `startH` lasting `hours` (Rust weather.rs). */
   weatherWalk: (startH: number, hours: number) => { water_factor: number; temp_k: number | null; pressure_pa: number | null };
   weatherModel: () => { metabolic_w: number; t_ref_k: number; t_skin_k: number; leak_w_per_k: number; sol_hours: number };
@@ -191,6 +196,7 @@ export function loadCore(): Promise<Core> {
       footingModel: () => JSON.parse(wasm.footingModel()),
       radiationExposure: (h) => JSON.parse(wasm.radiationExposure(h)),
       setWeather: (j) => wasm.setWeather(j),
+      planRoute: (world, grid, a, b, p, max, w) => JSON.parse(wasm.planRoute(world, grid, a[0], a[1], b[0], b[1], JSON.stringify(p), max, w ? JSON.stringify(w) : '')),
       weatherWalk: (a, h) => JSON.parse(wasm.weatherWalk(a, h)),
       weatherModel: () => JSON.parse(wasm.weatherModel()),
       radiationModel: () => JSON.parse(wasm.radiationModel()),
