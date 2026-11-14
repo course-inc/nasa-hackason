@@ -257,6 +257,23 @@ export function TargetView({ core, params }: { core: Core; params: TargetParams 
 
         <div className="card gaps" id="gaps">
           <h4>{t.gapsTitle}</h4>
+          {/* "Impossible on Earth" gauge: what this site reproduces (match terms ≥ 60) next to what no
+              place on Earth can (the gaps; red when it matters for this test). All from the engine. */}
+          <div className="cando" aria-label={lang === 'en' ? 'Can and cannot be rehearsed' : '再現できる点とできない点'}>
+            <div className="cando-col ok">
+              <h5>{lang === 'en' ? 'Hokkaido can' : '北海道でできる'} <b>{cur.dims.filter((d) => d.s >= 0.6).length}</b></h5>
+              {cur.dims.filter((d) => d.s >= 0.6).sort((x, y) => y.s - x.s).map((d) => (
+                <div key={d.key} className="cando-card ok">{dimLabel(d)} <b>{Math.round(d.s * 100)}</b></div>
+              ))}
+              {!cur.dims.some((d) => d.s >= 0.6) && <p className="muted">{lang === 'en' ? 'No term at 60 or above' : '60点以上の項目なし'}</p>}
+            </div>
+            <div className="cando-col ng">
+              <h5>{lang === 'en' ? 'Impossible on Earth' : '地球では無理'} <b>{gaps.length}</b></h5>
+              {[...gaps].sort((x, y) => Number(y.critical) - Number(x.critical)).map((g: Gap) => (
+                <div key={g.key} className={`cando-card ng ${g.critical ? 'critical' : ''}`}>⚠ {lang === 'en' ? g.label_en : g.label} <b>{g.value}</b></div>
+              ))}
+            </div>
+          </div>
           {gaps.map((g: Gap) => (
             <div key={g.key} className="gap-row">
               <span className={`gap ${g.critical ? 'critical' : ''}`}>{lang === 'en' ? g.label_en : g.label} · {g.value}</span>

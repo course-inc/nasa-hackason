@@ -32,6 +32,12 @@ describe('rules agent routing', () => {
     expect(plan('8時間を超えた船外活動は何回？', ALL)[0]).toEqual({ name: 'query_nasa', args: { sql: 'SELECT count(*) AS evas, max(hours) AS longest_h FROM eva WHERE hours > 8' } });
     expect(plan('How far had Perseverance driven by sol 1000?', ALL)[0].args.sql).toMatch(/sol <= 1000/);
   });
+  it('the three quick questions', () => {
+    expect(plan('2月に氷の試験をしたい', ALL)[0]).toEqual({ name: 'explore_hokkaido', args: { target: 'arcadia', test: 'ice', n: 5 } });
+    expect(plan('歩く訓練をしたい', ALL)[0]).toEqual({ name: 'explore_hokkaido', args: { target: 'jezero', test: 'walk', n: 5 } });
+    expect(names('ローバーが壊れたら？')).toEqual(['rover_walkback']);
+    expect(plan('An ice test in February', ALL)[0].args).toMatchObject({ test: 'ice' });
+  });
   it('globe', () => {
     expect(names('火星の全球を見せて')).toEqual(['view_globe']);
   });

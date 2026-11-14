@@ -92,3 +92,31 @@ export async function roverWalkbackSql(core: Core, data: WalkData | null, p: Eva
   const rows = await marsQuery(core, ROVER_PATH_SQL, ['rover_traverse']);
   return { r: core.roverWalkbackFrom(WORLD, JEZERO, LANDING.lat, LANDING.lon, p, MAX_SLOPE, rows), sql: ROVER_PATH_SQL };
 }
+
+/** Drop points that lie within `tol` degrees of the line between their neighbours (Douglas–Peucker). */
+function simplify(pts: [number, number][], tol: number): [number, number][] {
+  if (pts.length < 3) return pts;
+  const [a, b] = [pts[0], pts[pts.length - 1]];
+  const dx = b[1] - a[1], dy = b[0] - a[0], len = Math.hypot(dx, dy) || 1e-12;
+  let far = 0, at = 0;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const d = Math.abs(dx * (a[0] - pts[i][0]) - dy * (a[1] - pts[i][1])) / len;
+    if (d > far) { far = d; at = i; }
+  }
+  if (far <= tol) return [a, b];
+  return [...simplify(pts.slice(0, at + 1), tol).slice(0, -1), ...simplify(pts.slice(at), tol)];
+}
+
+/**
+ * "Easy path" leg: the least-effort walk from `a` to `b` over the Jezero grid (Dijkstra in Rust),
+ * simplified to a few waypoints. Returns the points after `a` (ending at `b`), or null outside the
+ * grid or where no walkable path exists (the caller then draws a straight leg).
+ */
+export function easyLeg(core: Core, data: WalkData | null, a: Waypoint, b: Waypoint, p: EvaParams): Waypoint[] | null {
+  if (!data?.dem) return null;
+  try {
+    const path = core.easyPath(WORLD, JEZERO, [a.lat, a.lon], [b.lat, b.lon], p, MAX_SLOPE);
+    if (!path || path.length < 2) return null;
+    return simplify(path, data.dem.dlat * 1.5).slice(1).map(([lat, lon]) => ({ lat, lon, elev: undefined }));
+  } catch { return null; }
+}

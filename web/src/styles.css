@@ -369,3 +369,25 @@ h1 small { font-size: 12px; margin-left: 6px; }
 .globe { transition: opacity .6s ease; }
 .globe.fade-out, .globe.fade-in { opacity: 0; }
 .globe-label { pointer-events: auto; cursor: pointer; }
+
+/* "Impossible on Earth" gauge (#target details) */
+.cando { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 6px 0 12px; }
+.cando-col h5 { margin: 0 0 6px; font-size: 12px; color: var(--muted); }
+.cando-col.ok h5 b { color: var(--ok); } .cando-col.ng h5 b { color: var(--ng); }
+.cando-card { font-size: 12px; padding: 5px 8px; border-radius: 6px; margin-bottom: 4px; display: flex; justify-content: space-between; gap: 6px; }
+.cando-card.ok { background: rgba(82,196,26,.12); border: 1px solid rgba(82,196,26,.35); }
+.cando-card.ng { background: rgba(255,77,79,.08); border: 1px solid rgba(255,77,79,.3); color: #ffb3b3; }
+.cando-card.ng.critical { background: rgba(255,77,79,.22); border-color: #ff4d4f; color: #fff; font-weight: 700; }
+.draw-toolbar a.off { opacity: .35; }
+/* Route editor handles and hints */
+.wp-handle { background: #ffd666; border: 2px solid #3a2a00; border-radius: 50%; box-shadow: 0 0 0 2px rgba(0,0,0,.35); cursor: grab; }
+.wp-handle.base { background: #fff; border-color: #222; }
+.wp-handle.sel { box-shadow: 0 0 0 3px #40a9ff; }
+.wp-mid { background: rgba(255,255,255,.85); border: 1px solid #333; border-radius: 50%; cursor: copy; }
+.band-tip { background: rgba(15,20,30,.9); color: #fff; border: 1px solid #ffd666; font-weight: 700; }
+.band-tip.ng { border-color: #ff4d4f; color: #ffd6d6; }
+.band-tip::before { display: none; }
+.draw-hint { position: absolute; z-index: 1000; left: 50%; transform: translateX(-50%); bottom: 26px; max-width: min(760px, 70%);
+  background: rgba(15,20,30,.78); color: #dfe6ef; font-size: 12px; padding: 4px 12px; border-radius: 12px; pointer-events: none; text-align: center; }
+.walk .maps.panel-open .draw-hint { left: calc(50% + 190px); max-width: min(640px, 50%); }
+@media (max-width: 820px) { .draw-hint { display: none; } }

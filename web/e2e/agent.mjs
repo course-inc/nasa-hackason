@@ -192,6 +192,38 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
   const empty = await p.locator('.walk .verdict').innerText();
   console.log('\nempty route:', empty);
   if (!/地図をクリック/.test(empty)) fail('empty route tells what to do');
+  // Undo / redo: ↶ brings the cleared route back (and its verdict), ⌘/Ctrl+Z and ↷ / Shift+Z too.
+  const before = await p.locator('.walk .verdict').innerText();
+  await p.locator('.draw-toolbar a[data-m=undo]').click();
+  const restored = await p.locator('.walk .verdict').innerText();
+  console.log('undo restores:', restored);
+  if (/地図をクリック/.test(restored)) fail('↶ undoes the clear');
+  await p.locator('.draw-toolbar a[data-m=redo]').click();
+  if (!/地図をクリック/.test(await p.locator('.walk .verdict').innerText())) fail('↷ redoes the clear');
+  await p.locator('.walk .maps .map').first().hover();
+  await p.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
+  if (/地図をクリック/.test(await p.locator('.walk .verdict').innerText())) fail('Cmd/Ctrl+Z undoes');
+  if (!before) fail('verdict before undo');
+  // Route editing: rubber band with the engine's numbers, right-click deletes, Esc stops drawing,
+  // easy-path mode toggles.
+  {
+    await p.locator('.draw-toolbar a[data-m=example]').click();
+    await p.locator('.draw-toolbar a[data-m=route]').click();
+    const box = await p.locator('.walk .maps .map').first().boundingBox();
+    await p.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.5);
+    await p.mouse.move(box.x + box.width * 0.62, box.y + box.height * 0.52);
+    const tip = await p.locator('.band-tip').innerText({ timeout: 3000 }).catch(() => '');
+    console.log('rubber band:', tip.replace(/\s+/g, ' '));
+    if (!/行き [\d.]+ km/.test(tip)) fail('rubber band shows distance');
+    const n = await p.locator('.wp-handle').count();
+    await p.locator('.wp-handle').nth(n - 1).click({ button: 'right' });
+    if ((await p.locator('.wp-handle').count()) !== n - 1) fail('right-click deletes a point');
+    await p.keyboard.press('Escape');
+    if (await p.locator('.draw-toolbar a[data-m=route].on').count()) fail('Esc stops drawing');
+    await p.locator('.draw-toolbar a[data-m=easy]').click();
+    if (!(await p.locator('.draw-toolbar a[data-m=easy].on').count())) fail('easy-path toggle');
+    await p.locator('.draw-toolbar a[data-m=easy]').click();
+  }
   // Desktop: the panel folds away to a chip and the map is full screen.
   await p.locator('.panel-fold').click();
   if (!(await p.locator('.panel-chip').count())) fail('panel folds to a chip');
