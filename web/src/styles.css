@@ -479,3 +479,16 @@ h1 small { font-size: 12px; margin-left: 6px; }
 .search-viz-legend i { width: 14px; height: 8px; border-radius: 2px; display: inline-block; }
 .search-viz-legend i.near { background: rgb(40,140,255); } .search-viz-legend i.far { background: rgb(255,240,40); } .search-viz-legend i.no { background: rgba(120,20,30,.7); margin-left: 6px; }
 .search-viz-path { filter: drop-shadow(0 0 4px #fff); }
+
+/* Route planner card */
+.route-plan h4 { margin: 0 0 4px; }
+.route-plan .wt { display: block; font-size: 12.5px; margin: 4px 0; }
+.route-plan .wt input { width: 100%; }
+.route-plan table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; margin: 6px 0; font-variant-numeric: tabular-nums; }
+.route-plan table.cmp th, .route-plan table.cmp td { padding: 3px 4px; border-bottom: 1px solid var(--line); text-align: right; }
+.route-plan table.cmp th:first-child { text-align: left; font-weight: normal; color: var(--muted); }
+.route-plan .sw { display: inline-block; width: 14px; height: 4px; margin-right: 4px; vertical-align: middle; }
+.route-plan .sw.fast { background: repeating-linear-gradient(90deg, #69c0ff 0 5px, transparent 5px 8px); }
+.route-plan .sw.safe { background: #52c41a; }
+.route-plan .row { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0; }
+.route-plan .row button { font-size: 12px; }
