@@ -33,8 +33,11 @@ export const setFooting: (a: number, b: number, c: number, d: number) => [number
 export const setGrid: (a: number, b: number, c: number, d: number) => [number, number];
 export const setScan: (a: number, b: number) => [number, number, number, number];
 export const setTraverse: (a: number, b: number) => [number, number, number, number];
+export const setWeather: (a: number, b: number) => [number, number];
 export const transplantWalk: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const walkSummary: (a: number, b: number) => [number, number, number, number];
+export const weatherModel: () => [number, number];
+export const weatherWalk: (a: number, b: number) => [number, number];
 export const __wbindgen_externrefs: WebAssembly.Table;
 export const __wbindgen_free: (a: number, b: number, c: number) => void;
 export const __wbindgen_malloc: (a: number, b: number) => number;

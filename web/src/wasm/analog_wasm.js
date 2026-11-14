@@ -944,6 +944,19 @@ export function setTraverse(traverse_json) {
 }
 
 /**
+ * Store the Jezero hourly weather (jezero_weather.json, Perseverance MEDA).
+ * @param {string} json_str
+ */
+export function setWeather(json_str) {
+    const ptr0 = passStringToWasm0(json_str, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.setWeather(ptr0, len0);
+    if (ret[1]) {
+        throw takeFromExternrefTable0(ret[0]);
+    }
+}
+
+/**
  * #11 A: lay a walk recorded on Earth onto Mars from `base` (same east/north metres).
  * @param {string} points
  * @param {number} base_lat
@@ -996,6 +1009,43 @@ export function walkSummary(points) {
         return getStringFromWasm0(ptr2, len2);
     } finally {
         wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * Weather model constants for the evidence text.
+ * @returns {string}
+ */
+export function weatherModel() {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.weatherModel();
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
+ * Cooling-water factor for a walk from local solar hour `start_h` lasting `hours`, plus the air
+ * temperature and pressure at the start: {water_factor, temp_k, pressure_pa}; factor 1 without data.
+ * @param {number} start_h
+ * @param {number} hours
+ * @returns {string}
+ */
+export function weatherWalk(start_h, hours) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.weatherWalk(start_h, hours);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
     }
 }
 function __wbg_get_imports() {
