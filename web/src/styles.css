@@ -469,3 +469,13 @@ h1 small { font-size: 12px; margin-left: 6px; }
 .splash-src { position: absolute; bottom: 34px; margin: 0; font-size: 11px; color: #6c675f; text-align: center; padding: 0 16px; }
 .splash-skip { position: absolute; bottom: 12px; margin: 0; font-size: 10.5px; color: #4d4943; }
 @media (prefers-reduced-motion: reduce) { .splash-mars { animation: none; } .splash { transition: none; } }
+
+/* Route-search animation */
+.search-viz { position: absolute; z-index: 1002; left: 50%; transform: translateX(-50%); top: 64px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  background: rgba(14, 18, 28, 0.92); border: 1px solid #2a3346; border-radius: 10px; padding: 6px 10px; font-size: 12.5px; color: #e8edf5; max-width: min(640px, 92%); }
+.search-viz button { font-size: 12px; padding: 3px 9px; }
+.search-viz button.on { border-color: var(--accent); color: var(--accent); }
+.search-viz-legend { width: 100%; display: flex; gap: 6px; align-items: center; font-size: 11px; color: #aab4c4; }
+.search-viz-legend i { width: 14px; height: 8px; border-radius: 2px; display: inline-block; }
+.search-viz-legend i.near { background: rgb(40,140,255); } .search-viz-legend i.far { background: rgb(255,240,40); } .search-viz-legend i.no { background: rgba(120,20,30,.7); margin-left: 6px; }
+.search-viz-path { filter: drop-shadow(0 0 4px #fff); }
