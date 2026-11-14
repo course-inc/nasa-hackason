@@ -7,6 +7,9 @@
 #   scripts/deploy-web.sh --target preview  same into the `preview` branch (tachyon app
 #                                           walkback-preview, scripts/tachyon.preview.yml); the
 #                                           public deploy branch is not touched
+#   scripts/deploy-web.sh --target both     preview first, then the public deploy branch
+#                                           (roll back with: tachyon compute deployments rollback
+#                                           app_01m7ccwrtfwnvwv8ecg7558mad --to-previous)
 # Works in a temporary worktree, so the current checkout and branch are left alone.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -20,7 +23,12 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
-[[ "$BRANCH" == deploy || "$BRANCH" == preview ]] || { echo "--target must be deploy or preview"; exit 2; }
+if [[ "$BRANCH" == both ]]; then
+  extra=(); $DRY && extra=(--dry)
+  "$0" --target preview "${extra[@]}" && "$0" --target deploy "${extra[@]}"
+  exit $?
+fi
+[[ "$BRANCH" == deploy || "$BRANCH" == preview ]] || { echo "--target must be deploy, preview or both"; exit 2; }
 
 git fetch -q origin main
 # The preview branch starts from main the first time.

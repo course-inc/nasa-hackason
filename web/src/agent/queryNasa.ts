@@ -11,6 +11,7 @@ import type { ToolDef, ToolResult } from './types';
 export const TABLES: Record<string, string> = {
   rover_traverse: 'Perseverance drive record: mission, drive, seq, sol, lat, lon, elev_m, km (distance driven so far)',
   eva: 'Real EVAs (US and Russia): id, country, crew, vehicle, date, hours',
+  mars_footing: 'Footing of the Jezero grid cells (~60 m): lat, lon, thermal_inertia (Mars Odyssey THEMIS, J m-2 K-1 s-1/2; ≤150 loose sand/dust, ≥400 rock/cemented), dust_cover_index (MGS TES; <0.94 dusty)',
   mars_names: "Mars gazetteer (IAU names, landing sites, crewed-landing candidates): name, kind ('feature' | 'landing' | 'crewed'), type (Crater, Vallis, Mons, Planitia, … or 'Landing site'), lat, lon (degrees east, -180..180), diameter_km, origin (what the name honours), year, agency, link",
   targets: 'Moon/Mars target sites: body_id, world, name_en, name_ja, lat, tmin_k, tmax_k, slope_deg',
   sites: '14 known Hokkaido analogue sites: earth_id, name_en, name_ja, lat, lon',

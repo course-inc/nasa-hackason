@@ -67,6 +67,24 @@
     "url": "https://planetarynames.wr.usgs.gov/Page/MARS/target"
    },
    "note": "kind: feature (IAU name), landing (lander/rover), crewed (crewed-landing candidate). lon: degrees east, -180..180. diameter_km: IAU feature size"
+  },
+  "mars_footing": {
+   "files": [
+    "mars_footing.parquet"
+   ],
+   "rows": 326900,
+   "bytes": 443890,
+   "columns": [
+    "lat",
+    "lon",
+    "thermal_inertia",
+    "dust_cover_index"
+   ],
+   "source": {
+    "label": "Mars Odyssey THEMIS thermal inertia 100 m (NASA/ASU); MGS TES Dust Cover Index (Ruff & Christensen 2002)",
+    "url": "https://www.mars.asu.edu/data/"
+   },
+   "note": "Jezero elevation-grid cells (0.0006°). thermal_inertia in J m-2 K-1 s-1/2: ≤150 loose fines/sand, ≥400 rock/duricrust/bedrock (Putzig & Mellon 2007). dust_cover_index < 0.94 dust-mantled (Ruff & Christensen 2002)"
   }
  }
 }

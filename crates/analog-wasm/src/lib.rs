@@ -1,7 +1,9 @@
 //! wasm-bindgen surface of analog-core. Everything goes in and out as JSON strings so the
 //! TypeScript side (web/src/core.ts) owns the types and no extra glue crates are needed.
 
-use analog_core::{data, eva, grid, rehearsal, route, scoring, traverse, world};
+use analog_core::{
+    conditions, data, eva, footing, grid, rehearsal, route, scoring, traverse, world,
+};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
@@ -113,6 +115,107 @@ fn with_grid<T>(name: &str, f: impl FnOnce(&grid::Grid) -> T) -> Result<T, JsErr
             .map(f)
             .ok_or_else(|| JsError::new(&format!("grid {name} not loaded")))
     })
+}
+
+/// Footing for a stored grid (`{rows, cols, ti, dci}`, jezero_footing.json), turned into the factor
+/// η per cell by analog-core footing.rs; an empty string removes it (footing not counted).
+#[wasm_bindgen(js_name = setFooting)]
+pub fn set_footing(name: &str, footing_json: &str) -> Result<(), JsError> {
+    let etas = if footing_json.is_empty() {
+        Vec::new()
+    } else {
+        let f: footing::Footing = serde_json::from_str(footing_json).map_err(err)?;
+        f.etas()
+    };
+    GRIDS.with(|m| {
+        let mut m = m.borrow_mut();
+        let g = m
+            .get_mut(name)
+            .ok_or_else(|| JsError::new(&format!("grid {name} not loaded")))?;
+        if !etas.is_empty() && etas.len() != g.rows * g.cols {
+            return Err(JsError::new("footing size does not match the grid"));
+        }
+        g.foot = etas;
+        Ok(())
+    })
+}
+
+/// Footing factor η at `[[lat, lon], …]` (null outside the grid or when not set).
+#[wasm_bindgen(js_name = sampleFooting)]
+pub fn sample_footing(name: &str, latlons: &str) -> Result<String, JsError> {
+    let pts: Vec<[f64; 2]> = serde_json::from_str(latlons).map_err(err)?;
+    with_grid(name, |g| {
+        json(
+            &pts.iter()
+                .map(|p| g.foot_at(p[0], p[1]))
+                .collect::<Vec<_>>(),
+        )
+    })
+}
+
+/// Footing per cell for the map layer: 0 = firm (η at its firm value) … 255 = loose (η at its
+/// loose value or more); empty when the grid has no footing.
+#[wasm_bindgen(js_name = footingBadness)]
+pub fn footing_badness(name: &str) -> Result<Vec<u8>, JsError> {
+    let span = footing::ETA_LOOSE - footing::ETA_FIRM;
+    with_grid(name, |g| {
+        g.foot
+            .iter()
+            .map(|&e| {
+                ((f64::from(e) - footing::ETA_FIRM) / span * 255.0)
+                    .round()
+                    .clamp(0.0, 255.0) as u8
+            })
+            .collect()
+    })
+}
+
+/// Footing constants and their sources, for the evidence card (all numbers from footing.rs).
+#[wasm_bindgen(js_name = footingModel)]
+pub fn footing_model() -> String {
+    json(&serde_json::json!({
+        "ti_loose": footing::TI_LOOSE, "ti_firm": footing::TI_FIRM,
+        "eta_loose": footing::ETA_LOOSE, "eta_firm": footing::ETA_FIRM,
+        "dci_dusty": footing::DCI_DUSTY, "dust_extra": footing::DUST_EXTRA,
+    }))
+}
+
+/// Evaluate a route on a stored grid with its surface conditions (footing where set): same result
+/// as evaluateRoute when the grid has none.
+#[wasm_bindgen(js_name = evaluateRouteOn)]
+pub fn evaluate_route_on(
+    world: &str,
+    name: &str,
+    points: &str,
+    params: &str,
+) -> Result<String, JsError> {
+    let w = parse_world(world)?;
+    let pts: Vec<route::Waypoint> = serde_json::from_str(points).map_err(err)?;
+    let p: route::EvaParams = serde_json::from_str(params).map_err(err)?;
+    let surface = GRIDS.with(|m| {
+        m.borrow()
+            .get(name)
+            .filter(|g| !g.foot.is_empty())
+            .map(|g| {
+                let base = pts.first().map(|b| (b.lat, b.lon));
+                conditions::Surface {
+                    foot: pts
+                        .iter()
+                        .map(|q| g.foot_at(q.lat, q.lon).unwrap_or(1.0))
+                        .collect(),
+                    home_foot: pts
+                        .iter()
+                        .map(|q| base.map_or(1.0, |b| g.foot_line((q.lat, q.lon), b)))
+                        .collect(),
+                }
+            })
+    });
+    Ok(json(&conditions::evaluate(
+        w,
+        &pts,
+        p,
+        &surface.unwrap_or_default(),
+    )))
 }
 
 /// Bilinear elevations for `[[lat, lon], …]` from a stored grid (null outside or in holes).

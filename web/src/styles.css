@@ -442,3 +442,9 @@ h1 small { font-size: 12px; margin-left: 6px; }
 .wp-tip small { color: #aab4c4; }
 .wp-handle:hover { box-shadow: 0 0 0 4px rgba(255, 214, 102, .55); }
 .wp-handle.pressing { box-shadow: 0 0 0 6px rgba(255, 77, 79, .55); }
+
+/* Footing layer legend */
+.foot-legend { display: grid; grid-template-columns: 1fr; gap: 2px; font-size: 11.5px; color: var(--muted); margin: 2px 0 6px; }
+.foot-legend i { height: 8px; border-radius: 4px; background: linear-gradient(90deg, rgba(255,200,40,0), rgba(255,120,40,.6), rgba(255,40,40,.86)); }
+.foot-legend span:last-child { text-align: right; }
+.kv.sub span { padding-left: 1em; font-size: 12px; }
