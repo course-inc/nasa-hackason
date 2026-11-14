@@ -67,6 +67,8 @@ export function plan(question: string, available: Set<string>): Step[] {
   if (evaH) add('query_nasa', { sql: `SELECT count(*) AS evas, max(hours) AS longest_h FROM eva WHERE hours > ${Number(evaH[1])}` });
   const solQ = q.match(/sol\s*(\d+)\s*(?:まで|の時点)/i) ?? q.match(/(?:by|until|up to)\s*sol\s*(\d+)/i);
   if (solQ && has(q, /走|距離|km|drive|driven|far/i)) add('query_nasa', { sql: `SELECT max(km) AS km_driven, max(sol) AS last_sol FROM rover_traverse WHERE mission = 'm20' AND sol <= ${Number(solQ[1])}` });
+  // Route evaluation material (totals, by departure time, by segment).
+  if (has(q, /評価|採点|比べ|内訳|evaluate|assess|break ?down/i) && !has(q, /北海道|Hokkaido/i)) add('evaluate_route', { lang });
   // Gazetteer: landing sites, crewed-landing candidates, or where/how big a named feature is.
   if (has(q, /着陸(?:した|地点の一覧|地点を?全部|地点はどこ)|過去の着陸|landing sites|where did .* land|landers/i))
     add('query_nasa', { sql: "SELECT name, agency, year, lat, lon FROM mars_names WHERE kind = 'landing' ORDER BY year" });

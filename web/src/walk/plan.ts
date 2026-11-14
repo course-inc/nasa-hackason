@@ -188,3 +188,89 @@ export function routeMetrics(core: Core, data: WalkData | null, route: Waypoint[
   return { km: ev.out_km, total_h: ev.total_h, o2_left: ev.usable_o2_h > 0 ? 1 - ev.total_effort_h / ev.usable_o2_h : 0, max_slope: ev.max_slope_deg, poor_footing: poor, ok: ev.ok,
     flat_h: flat, slope_h: Math.max(0, firm.total_h - flat), footing_h: Math.max(0, ev.total_h - firm.total_h), water_factor: waterFactor(core, p) };
 }
+
+/**
+ * Evaluation material for one route: the numbers the app already computes, gathered per segment
+ * (between the drawn waypoints, the same cuts as the route profile) and in total, each with where
+ * it comes from. Nothing new is modelled here: the Rust evaluation (RouteEval legs / ticks), the
+ * footing grid, the weather factor, the radiation rate and the rover-path check are combined.
+ */
+export interface Segment { from_wp: number; to_wp: number; km: number; hours: number; climb_m: number; descent_m: number; max_slope_deg: number; over_limit: boolean; poor_footing: number }
+export interface RouteEvaluation {
+  totals: {
+    out_km: number; back_km: number; round_trip_h: number; climb_m: number; descent_m: number;
+    max_slope_deg: number; mean_slope_deg: number; over_limit_legs: number; poor_footing: number;
+    verdict: 'ok' | 'turn_back' | 'impassable'; margin_h: number | null; turn_back_km: number | null;
+    radiation_msv: number | null; near_rover_path: number | null;
+  };
+  by_departure: { start_h: number; temp_c: number | null; water_factor: number; o2_left: number; water_left: number; ok: boolean }[];
+  segments: Segment[];
+  sources: Record<string, string>;
+}
+export function evaluateRouteMaterial(core: Core, data: WalkData | null, route: Waypoint[], p: EvaParams): RouteEvaluation | null {
+  if (!data?.dem || route.length < 2) return null;
+  const dense = denseRoute(core, data, route);
+  const ev = evaluate(core, dense, p);
+  const pts = dense.pts;
+  let cut = 1.35;
+  let foot: (number | null)[] = [];
+  try {
+    const m = core.footingModel(); cut = (m.eta_firm + m.eta_loose) / 2;
+    ensureFooting(core, true);
+    foot = core.sampleFooting(JEZERO, pts.map((w) => [w.lat, w.lon] as [number, number]));
+  } catch { /* no footing */ } finally { ensureFooting(core, p.footing ?? true); }
+  const dz = (i: number) => (pts[i].elev != null && pts[i - 1].elev != null ? (pts[i].elev as number) - (pts[i - 1].elev as number) : 0);
+  const legStats = (a: number, b: number) => {
+    let km = 0, h = 0, up = 0, down = 0, mx = 0, poor = 0, known = 0, over = false;
+    for (let i = a + 1; i <= b && i < pts.length; i++) {
+      const l = ev.legs[i - 1];
+      if (!l) continue;
+      km += l.km; h += l.hours;
+      const d = dz(i); if (d > 0) up += d; else down -= d;
+      if (l.known) { mx = Math.max(mx, Math.abs(l.slope_deg)); if (Math.abs(l.slope_deg) > MAX_SLOPE) over = true; }
+      const f = foot[i]; if (f != null) { known++; if (f >= cut) poor++; }
+    }
+    return { km, h, up, down, mx, over, poor: known ? poor / known : 0 };
+  };
+  const segments: Segment[] = [];
+  for (let k = 0; k + 1 < dense.wp.length; k++) {
+    const s = legStats(dense.wp[k], dense.wp[k + 1]);
+    segments.push({ from_wp: k, to_wp: k + 1, km: s.km, hours: s.h, climb_m: s.up, descent_m: s.down, max_slope_deg: s.mx, over_limit: s.over, poor_footing: s.poor });
+  }
+  const all = legStats(0, pts.length - 1);
+  const knownLegs = ev.legs.filter((l) => l.known);
+  const kmKnown = knownLegs.reduce((x, l) => x + l.km, 0);
+  const mean = kmKnown ? knownLegs.reduce((x, l) => x + Math.abs(l.slope_deg) * l.km, 0) / kmKnown : 0;
+  const steep = steepLeg(ev), ti = turnIndex(ev);
+  const by_departure = [6, 9, 12, 15, 18].map((h) => {
+    const q = { ...p, start_h: h };
+    const e = evaluate(core, dense, q);
+    const f = waterFactor(core, q);
+    let temp: number | null = null;
+    try { const w = core.weatherWalk(h, p.o2_h); temp = w.temp_k != null ? w.temp_k - 273.15 : null; } catch { /* no weather */ }
+    return { start_h: h, temp_c: temp, water_factor: f, o2_left: e.usable_o2_h > 0 ? 1 - e.total_effort_h / e.usable_o2_h : 0, water_left: e.usable_water_h > 0 ? 1 - (e.total_effort_h * WATER_PER_O2) / e.usable_water_h : 0, ok: e.ok };
+  });
+  let rad: number | null = null;
+  try { rad = core.radiationExposure(ev.total_h).dose_msv; } catch { /* none */ }
+  const chk = roverCheck(core, data, dense);
+  return {
+    totals: {
+      out_km: ev.out_km, back_km: ev.back_km, round_trip_h: ev.total_h, climb_m: all.up, descent_m: all.down,
+      max_slope_deg: ev.max_slope_deg, mean_slope_deg: mean, over_limit_legs: ev.legs.filter((l) => l.known && Math.abs(l.slope_deg) > MAX_SLOPE).length,
+      poor_footing: all.poor, verdict: steep != null ? 'impassable' : ev.ok ? 'ok' : 'turn_back',
+      margin_h: ev.ok ? ev.usable_h - ev.total_effort_h : null, turn_back_km: ti != null ? ev.ticks[ti]?.km ?? null : null,
+      radiation_msv: rad, near_rover_path: chk ? chk.near_share : null,
+    },
+    by_departure, segments,
+    sources: {
+      distance_time: 'Rust route evaluation on the Jezero elevation grid (HiRISE DTMs + MGS MOLA): Tobler walking speed on each 40 m leg',
+      climb_slope: 'Elevations of the route points from the Jezero grid (HiRISE DTMs + MGS MOLA)',
+      slope_limit: `${MAX_SLOPE}° = Martian dune angle of repose (Atwood-Stone & McEwen 2013)`,
+      footing: 'Mars Odyssey THEMIS thermal inertia + MGS TES dust cover index → footing factor (footing.rs); "poor" = at or above the midpoint of firm and loose',
+      consumables: 'O₂ / cooling-water budgets from the settings, water 1.15× O₂ (Gernhardt 2010), water scaled by the air temperature over the walk (Perseverance MEDA, weather.rs)',
+      radiation: 'Curiosity RAD surface dose rate 0.64 mSv/day (Hassler et al. 2014) × hours',
+      margin: 'Usable effort-hours minus those used out and back (route evaluation)',
+      rover_path: 'Share of the route within 100 m of Perseverance\'s drive path (Mars 2020 MMGIS traverse)',
+    },
+  };
+}
