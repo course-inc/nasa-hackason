@@ -5,8 +5,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Core, Waypoint, World } from '../core';
 import { getElevation } from '../elevation';
 import { PlanetMap, missionOverlay, type Feature, type FlyTarget } from '../map/PlanetMap';
-import { LANDING, exampleRoute, loadWalkData, type WalkData } from '../walk/data';
-import { fmtH, reachImage, slopeColor } from '../walk/geo';
+import { JEZERO, LANDING, ensureFooting, exampleRoute, loadWalkData, type WalkData } from '../walk/data';
+import { fmtH, footingImage, reachImage, slopeColor } from '../walk/geo';
 import { WALKBACK_COLOR, WATER_PER_O2, WORLD, denseRoute, easyLeg, evaParams, evaluate, reachFrom, rehearsalPoints, roverCheck, roverWalkbackSql, turnIndex, turnWaypoint, walkbackState } from '../walk/plan';
 import { setWalkController, type EvidenceTopic } from '../walk/controller';
 import { useLang, useT } from '../i18n';
@@ -68,6 +68,9 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const [reserve, setReserve] = useState(20);
   const [showReach, setShowReach] = useState(true);
   const [showRover, setShowRover] = useState(true);
+  // Footing (THEMIS thermal inertia, TES dust): counted in every walk number; layer off by default.
+  const [footOn, setFootOn] = useState(true);
+  const [showFoot, setShowFoot] = useState(false);
   const [view3d, setView3d] = useState(false);
   const [globeOn, setGlobeOn] = useState(false);
   const [globeCam, setGlobeCam] = useState<GlobeCamera | null>(null);
@@ -90,9 +93,19 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   }, [params.lat, params.lon, params.z]);
 
   // Same functions as the agent tools (walk/plan.ts), so both always show the same numbers.
-  const p = useMemo(() => evaParams({ speed, o2, water, reserve }), [speed, o2, water, reserve]);
+  const p = useMemo(() => evaParams({ speed, o2, water, reserve, footing: footOn }), [speed, o2, water, reserve, footOn]);
   const dense = useMemo(() => denseRoute(core, data, route), [core, data, route]);
   const ev = useMemo(() => evaluate(core, dense, p), [core, dense, p]);
+  // The same route on firm ground, to show how much time the footing adds.
+  const evFirm = useMemo(() => (footOn && data?.footing ? evaluate(core, dense, { ...p, footing: false }) : null), [core, dense, p, footOn, data]);
+  const footModel = useMemo(() => { try { return core.footingModel(); } catch { return null; } }, [core]);
+  const footImg = useMemo(() => {
+    if (!showFoot || !data?.dem || !data.footing) return null;
+    ensureFooting(core, true);
+    const img = footingImage(core.footingBadness(JEZERO), data.dem);
+    ensureFooting(core, footOn);
+    return img;
+  }, [core, data, showFoot]); // eslint-disable-line react-hooks/exhaustive-deps
   const check = useMemo(() => roverCheck(core, data, dense), [core, data, dense]);
   const longer = useMemo(() => (data?.eva ? core.evaLongerShare(ev.total_h) : 0), [core, data, ev.total_h]);
 
@@ -269,14 +282,14 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const [camera, setCamera] = useState<Camera3D | null>(null);
   const [exag, setExag] = useState<number | undefined>(undefined);
   const [flash, setFlash] = useState<EvidenceTopic | null>(null);
-  const live$ = useRef({ route, speed, o2, water, reserve, play, stop, startRehearsalWith: reh.run, found: reh.found, loadWalk, loadSample, walkRec });
-  live$.current = { route, speed, o2, water, reserve, play, stop, startRehearsalWith: reh.run, found: reh.found, loadWalk, loadSample, walkRec };
+  const live$ = useRef({ route, speed, o2, water, reserve, footOn, play, stop, startRehearsalWith: reh.run, found: reh.found, loadWalk, loadSample, walkRec });
+  live$.current = { route, speed, o2, water, reserve, footOn, play, stop, startRehearsalWith: reh.run, found: reh.found, loadWalk, loadSample, walkRec };
   useEffect(() => {
     setWalkController({
       core,
       data: () => loadWalkData(core),
       route: () => live$.current.route,
-      params: () => ({ speed: live$.current.speed, o2: live$.current.o2, water: live$.current.water, reserve: live$.current.reserve }),
+      params: () => ({ speed: live$.current.speed, o2: live$.current.o2, water: live$.current.water, reserve: live$.current.reserve, footing: live$.current.footOn }),
       setRoute: (r) => { live$.current.route = r; setRoute(r); },
       setParams: (q) => {
         if (q.speed != null) { setSpeed(q.speed); live$.current.speed = q.speed; }
@@ -344,6 +357,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const turnIdx = turnIndex(ev);
   const features = useMemo<Feature[]>(() => {
     const f: Feature[] = [];
+    if (footImg) f.push({ kind: 'image', url: footImg.url, bounds: footImg.bounds, opacity: 0.7 });
     if (reachImg && showReach) f.push({ kind: 'image', url: reachImg.url, bounds: reachImg.bounds, opacity: 0.55 });
     f.push(...roverFeatures);
     // Route coloured by slope, in runs of the same colour.
@@ -375,7 +389,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
       f.push({ kind: 'point', lat: pts[turnIdx].lat, lon: pts[turnIdx].lon, radius: 9, color: '#faad14', tooltip: t('🚩 引き返し地点', '🚩 Turn-back point'), openTooltip: true });
     }
     return f;
-  }, [reachImg, showReach, roverFeatures, dense, ev, route, turnIdx, lang]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [reachImg, showReach, footImg, roverFeatures, dense, ev, route, turnIdx, lang]); // eslint-disable-line react-hooks/exhaustive-deps
   // The same layers for the 3D view.
   const lines3d = useMemo<Line3D[]>(() => {
     const l: Line3D[] = [];
@@ -437,6 +451,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           <>
             <div className="kv"><span>{t('行き / 帰り（まっすぐ）', 'Out / back (straight)')}</span><b>{ev.out_km.toFixed(1)} km / {ev.back_km.toFixed(1)} km</b></div>
             <div className="kv"><span>{t('かかる時間', 'Time')}</span><b>{fmtH(ev.total_h)}</b></div>
+            {evFirm && ev.total_h - evFirm.total_h >= 1 / 60 && <div className="kv sub" id="foot-extra"><span>{t('うち足場で増えた時間', 'of which footing adds')}</span><b>+{fmtH(ev.total_h - evFirm.total_h)}</b></div>}
             <div className="kv"><span>{t('体力の消費 / 使える分', 'Effort used / usable')}</span><b>{ev.total_effort_h.toFixed(1)} / {ev.usable_h.toFixed(1)} h</b></div>
             <div className="kv"><span>{t('先に尽きるもの', 'Runs out first')}</span><b className={ev.limiting === 'water' ? 'water' : ''}>{ev.limiting === 'water' ? t('冷却水', 'Cooling water') : t('酸素', 'Oxygen')}</b></div>
             {reachImg && <div className="kv"><span>{t('歩いて帰れる範囲', 'Walk-home area')}</span><b>{reachImg.area.toFixed(0)} km²{t('（最遠 ', ' (farthest ')}{reachImg.max.toFixed(1)} km{t('）', ')')}</b></div>}
@@ -460,6 +475,12 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
             <input id="water" type="range" min={2} max={12} step={0.5} value={water} onChange={(e) => setWater(+e.target.value)} /></label>
           <label>{t('残しておく余裕', 'Reserve at arrival')} <b>{reserve}</b>%{t('（最低30分）', ' (at least 30 min)')}
             <input id="reserve" type="range" min={0} max={50} step={5} value={reserve} onChange={(e) => setReserve(+e.target.value)} /></label>
+          <label className="check" id="foot-toggle"><input type="checkbox" checked={footOn} onChange={(e) => setFootOn(e.target.checked)} /> {t('足場（地面のやわらかさ）を計算に入れる', 'Count the footing (how loose the ground is)')}</label>
+          {footModel && (
+            <p className="muted" id="ev-footing">{t(
+              `足場: Mars Odyssey THEMIS の熱慣性（100 m）と MGS TES のダスト被覆指数から、歩く時間（＝酸素・冷却水）を何倍にするかを決めています。熱慣性 ${footModel.ti_loose} 以下は細かい砂・ちり（Presley & Christensen 1997）で ×${footModel.eta_loose}（砂の上を歩くと平らな硬い地面の 1.6〜2.5 倍のエネルギー、Lejeune ほか 1998 の下限）、${footModel.ti_firm} 以上は岩・固まった地面（Putzig & Mellon 2007）で ×${footModel.eta_firm}（未舗装路の地形係数、Soule & Goldman 1972）。その間は熱慣性の対数で直線的に補間（目安）。ダスト被覆指数 ${footModel.dci_dusty} 未満のちりに覆われた所は ×${footModel.dust_extra}（目安）。岩の多さは熱慣性に含まれます（1 km より細かい岩の量の地図はないため）。`,
+              `Footing: from Mars Odyssey THEMIS thermal inertia (100 m) and the MGS TES dust cover index, a factor on walking time (and so O₂ and water). Thermal inertia ≤ ${footModel.ti_loose}: fine sand and dust (Presley & Christensen 1997), ×${footModel.eta_loose} (walking on sand costs 1.6–2.5× the energy of firm ground, Lejeune et al. 1998, low end); ≥ ${footModel.ti_firm}: rock or cemented ground (Putzig & Mellon 2007), ×${footModel.eta_firm} (dirt-road terrain coefficient, Soule & Goldman 1972). In between: linear in log thermal inertia (estimate). Dust cover index < ${footModel.dci_dusty}: ×${footModel.dust_extra} (estimate). Rock abundance is part of thermal inertia (no rock map finer than 1 km exists).`)}</p>
+          )}
           <p className="muted">{t('急いで歩くと冷却水は酸素の約1.15倍の速さで減ります（NASA の歩行帰還試験、Gernhardt 2010）。帰着時に30分・2割を残すのは Apollo 以来の慣例です。', 'Walking hard uses cooling water about 1.15× as fast as oxygen (NASA walkback tests, Gernhardt 2010). Arriving with 30 min / 20% left is Apollo-era practice.')}</p>
         </details>
 
@@ -486,6 +507,8 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           <summary>{t('地図の表示', 'Map layers')}</summary>
           <label className="check"><input type="checkbox" checked={showReach} onChange={(e) => setShowReach(e.target.checked)} /> {t('歩いて帰れる範囲', 'Walk-home area')}</label>
           <label className="check"><input type="checkbox" checked={showRover} onChange={(e) => setShowRover(e.target.checked)} /> {t('探査車の実走ルート', "Perseverance's real path")}</label>
+          <label className="check"><input type="checkbox" id="show-foot" checked={showFoot} onChange={(e) => setShowFoot(e.target.checked)} /> {t('足場の悪さ（熱慣性・ダスト）', 'Poor footing (thermal inertia, dust)')}</label>
+          {showFoot && <div className="foot-legend"><i /><span>{t('かたい地面', 'firm')}</span><span>{t('やわらかい砂・ちり（遅く・消費が増える）', 'loose sand / dust (slower, uses more)')}</span></div>}
           <p className="muted">{t('ルートの色: 緑 8°未満 / 黄 8〜15° / 赤 15°以上 / 灰 地形不明。帰れる範囲の黄色い縁が限界の線です。', 'Route colours: green under 8° / yellow 8–15° / red over 15° / grey unknown. The yellow edge of the walk-home area is the limit.')}</p>
         </details>
         <p id="ev-terrain" className={`muted src ${fl('terrain') ?? ''} ${fl('hokkaido_terrain') ?? ''}`}>{t('データ: Mars 2020 Perseverance 走行記録（NASA/JPL MMGIS）、MRO HiRISE 画像と地形（NASA/UArizona, USGS）、MGS MOLA 地形、Mars Odyssey THEMIS、MRO CTX、data.nasa.gov 船外活動記録、NASADEM（北海道の地形、NASA/JPL）。北海道の航空写真は国土地理院（表示のみ）。', 'Data: Mars 2020 Perseverance traverse (NASA/JPL MMGIS), MRO HiRISE images and terrain (NASA/UArizona, USGS), MGS MOLA, Mars Odyssey THEMIS, MRO CTX, data.nasa.gov EVA records, NASADEM (Hokkaido terrain, NASA/JPL). Hokkaido aerial photos: GSI Japan (display only).')}{data?.dem?.src ? ` ${t('地形グリッド', 'Terrain grid')}: ${data.dem.src}` : ''}</p>

@@ -8,6 +8,17 @@ export const LANDING: Waypoint = { lat: 18.4446, lon: 77.4509 };
 
 export interface HokkaidoSite { id: string; name: string; lat: number; lon: number; rows: number; cols: number; nulls: number }
 
+/** jezero_footing.json (scripts/build-jezero-footing.mjs). */
+export interface Footing { rows: number; cols: number; ti: (number | null)[]; dci: (number | null)[]; src: string }
+/** The footing JSON as text, handed to the Rust core when the footing is switched on. */
+export let footingText = '';
+let footingSet: boolean | null = null;
+/** Count the footing in the Rust core's Jezero grid or not (only calls into WASM on a change). */
+export function ensureFooting(core: Core, on: boolean) {
+  if (!footingText || footingSet === on) return;
+  try { core.setFooting(JEZERO, on ? footingText : ''); footingSet = on; } catch (e) { console.warn('footing', e); }
+}
+
 /** Elevation grid as stored in web/public/data (north-up, cell centres, metres or null). */
 export interface GridData { lat0: number; lon0: number; dlat: number; dlon: number; rows: number; cols: number; z: (number | null)[]; src?: string }
 
@@ -22,6 +33,8 @@ export interface WalkData {
   traverseRaw: [number, number, number][][];
   eva: EvaStats | null;
   hokkaido: HokkaidoSite[];
+  /** Footing per Jezero grid cell (THEMIS thermal inertia, TES dust cover index), for the map layer. */
+  footing: Footing | null;
   /** Datasets that failed to load: 'dem' | 'traverse' | 'eva' | 'hokkaido' (details in the console). */
   errors: string[];
 }
@@ -36,7 +49,7 @@ let cache: Promise<WalkData> | null = null;
 
 export function loadWalkData(core: Core): Promise<WalkData> {
   cache ??= (async () => {
-    const d: WalkData = { dem: null, demGrid: null, rover: null, traverse: [], traverseRaw: [], eva: null, hokkaido: [], errors: [] };
+    const d: WalkData = { dem: null, demGrid: null, rover: null, traverse: [], traverseRaw: [], eva: null, hokkaido: [], footing: null, errors: [] };
     await Promise.all([
       get('./data/jezero_dem.json').then((t) => {
         core.setGrid(JEZERO, t);
@@ -45,6 +58,8 @@ export function loadWalkData(core: Core): Promise<WalkData> {
         d.dem = meta;
         d.demGrid = g;
       }).catch((e) => (console.warn('jezero dem', e), d.errors.push('dem'))),
+      get('./data/jezero_footing.json').then((t) => { footingText = t; d.footing = JSON.parse(t); })
+        .catch((e) => (console.warn('footing', e), d.errors.push('footing'))),
       get('./data/m20_traverse.json').then((t) => {
         d.rover = core.setTraverse(t);
         const j = JSON.parse(t) as { drives: { sol: number; c: [number, number, number][] }[] };
@@ -56,6 +71,8 @@ export function loadWalkData(core: Core): Promise<WalkData> {
       get('./data/hokkaido/index.json').then((t) => { d.hokkaido = JSON.parse(t); })
         .catch((e) => (console.warn('hokkaido grids', e), d.errors.push('hokkaido'))),
     ]);
+    // The grid is set first (above); footing counts by default.
+    if (d.dem) ensureFooting(core, true);
     return d;
   })();
   return cache;

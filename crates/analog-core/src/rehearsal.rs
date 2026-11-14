@@ -205,6 +205,7 @@ mod tests {
             rows,
             cols,
             z,
+            foot: Vec::new(),
         }
     }
 

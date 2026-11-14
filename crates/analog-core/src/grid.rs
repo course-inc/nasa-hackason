@@ -24,6 +24,9 @@ pub struct Grid {
     pub cols: usize,
     /// Row-major elevations in metres; `None` where unknown.
     pub z: Vec<Option<f64>>,
+    /// Row-major footing factor η (crate::footing; 1.0 = firm); empty = not counted.
+    #[serde(default, skip_serializing)]
+    pub foot: Vec<f32>,
 }
 
 impl Grid {
@@ -58,6 +61,38 @@ impl Grid {
         let d = self.at(r1, c0)?;
         let e = self.at(r1, c1)?;
         Some((a * (1.0 - fc) + b * fc) * (1.0 - fr) + (d * (1.0 - fc) + e * fc) * fr)
+    }
+    /// Footing factor of cell `i` (1.0 where not set).
+    pub fn foot_cell(&self, i: usize) -> f64 {
+        self.foot.get(i).map_or(1.0, |&x| f64::from(x))
+    }
+    /// Footing factor at a point (nearest cell); `None` outside the grid or without footing.
+    pub fn foot_at(&self, lat: f64, lon: f64) -> Option<f64> {
+        if self.foot.is_empty() || !self.contains(lat, lon) {
+            return None;
+        }
+        let (r, c) = self.rc(lat, lon);
+        Some(self.foot_cell(r.round() as usize * self.cols + c.round() as usize))
+    }
+    /// Mean footing factor along the straight line a → b (about one sample per cell); 1.0 where
+    /// unknown.
+    pub fn foot_line(&self, a: (f64, f64), b: (f64, f64)) -> f64 {
+        if self.foot.is_empty() {
+            return 1.0;
+        }
+        let steps = (((b.0 - a.0) / self.dlat)
+            .abs()
+            .max(((b.1 - a.1) / self.dlon).abs())
+            .ceil() as usize)
+            .clamp(1, 4000);
+        let sum: f64 = (0..=steps)
+            .map(|k| {
+                let f = k as f64 / steps as f64;
+                self.foot_at(a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f)
+                    .unwrap_or(1.0)
+            })
+            .sum();
+        sum / (steps + 1) as f64
     }
     /// Cell size in metres (north-south, east-west) on a body.
     pub fn cell_m(&self, world: World) -> (f64, f64) {
@@ -153,8 +188,9 @@ fn line_cost(
     let mut prev = g.sample(a.0, a.1);
     for k in 1..=n {
         let f = k as f64 / n as f64;
-        let z = g.sample(a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f);
-        total += step_cost(p, prev, z, seg, max_slope)?;
+        let (la, lo) = (a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f);
+        let z = g.sample(la, lo);
+        total += step_cost(p, prev, z, seg, max_slope)? * g.foot_at(la, lo).unwrap_or(1.0);
         prev = z;
     }
     Some(total)
@@ -178,7 +214,11 @@ fn dijkstra(
     let (dy, dx) = g.cell_m(world);
     let max_slope = max_slope_deg.to_radians().tan();
     // Effort-hours to step from cell a to neighbour b.
-    let step = |a: usize, b: usize, dist: f64| step_cost(p, g.z[a], g.z[b], dist, max_slope);
+    // Footing: mean of the two cells (loose ground is slower and costs more per km).
+    let step = |a: usize, b: usize, dist: f64| {
+        step_cost(p, g.z[a], g.z[b], dist, max_slope)
+            .map(|h| h * (g.foot_cell(a) + g.foot_cell(b)) / 2.0)
+    };
     let dirs: [(i64, i64); 8] = [
         (-1, 0),
         (1, 0),
@@ -367,6 +407,7 @@ mod tests {
             rows,
             cols,
             z: vec![Some(0.0); rows * cols],
+            foot: Vec::new(),
         }
     }
     fn params() -> EvaParams {
