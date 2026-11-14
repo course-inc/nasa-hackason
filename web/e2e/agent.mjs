@@ -267,6 +267,11 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
       if (!/最短距離/.test(cmpText) || !/最大の坂/.test(cmpText)) fail('shortest vs safer comparison table');
       if (!/坂 \+\d+ 分/.test(await p.locator('#route-breakdown').innerText())) fail('cost breakdown per route');
       await p.locator('.search-viz button', { hasText: 'スキップ' }).click().catch(() => {});
+      // A click right on the route's end point still plans (no handles in destination mode).
+      await p.waitForTimeout(800);
+      const end = await p.evaluate(() => [...document.querySelectorAll('.leaflet-overlay-pane path')].length);
+      await p.mouse.click(box.x + box.width * 0.55, box.y + box.height * 0.3);
+      await p.waitForSelector('.search-viz', { timeout: 3000 }).then(() => p.locator('.search-viz button', { hasText: 'スキップ' }).click()).catch(() => fail(`a click on the route itself plans in destination mode (${end} paths)`));
     }
     await p.locator('.draw-toolbar a[data-m=pan]').click();
   }

@@ -694,7 +694,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           {hud && <Hud s={hud} limiting={ev.limiting} onStop={stop} rad={(h) => { try { return core.radiationExposure(h); } catch { return null; } }} />}
           {!hud && <Guide />}
           <SearchViz host={mapHost} trace={vizTrace} t={t} onDone={() => { if (vizRoute.current) setRoute(vizRoute.current); vizRoute.current = null; setVizTrace(null); }} />
-          <RouteEditor host={mapHost} route={route} drawing={mode === 'route' && !hud && !globeOn} onChange={setRoute}
+          <RouteEditor host={mapHost} editable={mode !== 'goal'} route={route} drawing={mode === 'route' && !hud && !globeOn} onChange={setRoute}
             preview={routePreview} connect={easy ? (a, b) => easyLeg(core, data, a, b, p) : undefined} onFinish={() => setMode('pan')} t={t} />
           {!globeOn && !view3d && !hud && (hist.current.past.length > 0 || hist.current.future.length > 0) && (
             <div className="undo-bar" role="group" aria-label={t('元に戻す', 'Undo')}>
