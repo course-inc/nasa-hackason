@@ -366,3 +366,6 @@ h1 small { font-size: 12px; margin-left: 6px; }
   color: #fff; background: rgba(200,40,40,.85); border: 1px solid #ff7875; border-radius: 8px; padding: 6px 14px; white-space: nowrap; }
 /* Mars 3D: butterscotch sky behind the transparent canvas, matching the distance haze. */
 .terrain3d.mars .terrain3d-canvas { background: linear-gradient(#5a3a2c 0%, #b07a58 38%, #d6a07a 62%, #c9926a 100%); }
+.globe { transition: opacity .6s ease; }
+.globe.fade-out, .globe.fade-in { opacity: 0; }
+.globe-label { pointer-events: auto; cursor: pointer; }

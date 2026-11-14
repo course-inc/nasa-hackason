@@ -40,6 +40,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const [view3d, setView3d] = useState(false);
   const [globeOn, setGlobeOn] = useState(false);
   const [globeCam, setGlobeCam] = useState<GlobeCamera | null>(null);
+  const [globeFromMap, setGlobeFromMap] = useState(false);
   // The map fills the screen; the panel floats over it and can be folded away (closed on phones).
   const [panelOpen, setPanelOpen] = useState(() => typeof matchMedia === 'undefined' || !matchMedia('(max-width: 820px)').matches);
   const [fly, setFly] = useState<FlyTarget | null>(null);
@@ -239,7 +240,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
       },
       setOverlay: (o) => { if (o.rover != null) setShowRover(o.rover); if (o.reach != null) setShowReach(o.reach); },
       flyTo: (lat, lon, z) => setFly({ lat, lon, z, seq: Date.now() }),
-      setGlobe: (on, cam) => { setGlobeOn(on); if (on && cam) setGlobeCam({ ...cam, seq: Date.now() }); },
+      setGlobe: (on, cam) => { setGlobeFromMap(!cam); setGlobeOn(on); if (on && cam) setGlobeCam({ ...cam, seq: Date.now() }); },
       importWalk: (text, file) => live$.current.loadWalk(text, file),
       importSample: () => live$.current.loadSample(),
       walk: () => live$.current.walkRec,
@@ -324,6 +325,13 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   }, [route]);
   const live = useMemo<Feature[]>(() => (walker ? [{ kind: 'walker', lat: walker[0], lon: walker[1], color: '#ff7a45' }] : []), [walker]);
   const overlays = useMemo(() => missionOverlay(core, WORLD), [core]);
+  // The Jezero HiRISE photo as a close-up patch on the globe (same bounds as the elevation grid).
+  const globePatch = useMemo(() => {
+    const d = data?.dem;
+    if (!d) return null;
+    const north = d.lat0 + d.dlat / 2, west = d.lon0 - d.dlon / 2;
+    return { url: './data/jezero_ortho.jpg', north, south: north - d.rows * d.dlat, west, east: west + d.cols * d.dlon };
+  }, [data]);
   const globeMarks = useMemo<GlobeMark[]>(() => [
     { lat: LANDING.lat, lon: LANDING.lon, kind: 'base', label: t('基地: Jezero クレーター（Perseverance 着陸地点）', 'Base: Jezero crater (Perseverance landing site)') },
     ...core.missions.landings.mars.filter((l) => !/Perseverance/i.test(l.name)).map((l) => ({ lat: l.lat, lon: l.lon, kind: 'site' as const, label: `${l.name} ${l.year}` })),
@@ -442,12 +450,13 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           )}
           {globeOn && (
             <div className="terrain-over globe-over">
-              <Globe marks={globeMarks} lines={data?.traverse ?? []} focus={LANDING} camera={globeCam} onEnter={() => setGlobeOn(false)} />
+              <Globe marks={globeMarks} lines={data?.traverse ?? []} focus={LANDING} camera={globeCam} patch={globePatch} startClose={globeFromMap ? LANDING : null}
+                onEnter={() => { setGlobeOn(false); setView3d(false); setFly({ lat: LANDING.lat, lon: LANDING.lon, z: 13, seq: Date.now() }); }} />
             </div>
           )}
           {data?.demGrid && (
             <div className="view-toggle" role="group" aria-label={t('地図の表示', 'Map view')}>
-              <button className={globeOn ? 'on' : ''} onClick={() => setGlobeOn(true)} title={t('火星全体を回して見る', 'Turn the whole planet')}>🌐 {t('全球', 'Globe')}</button>
+              <button className={globeOn ? 'on' : ''} onClick={() => { setGlobeFromMap(true); setGlobeOn(true); }} title={t('火星全体を回して見る', 'Turn the whole planet')}>🌐 {t('全球', 'Globe')}</button>
               <button className={!globeOn && !view3d ? 'on' : ''} onClick={() => { setGlobeOn(false); setView3d(false); }}>2D</button>
               <button className={!globeOn && view3d ? 'on' : ''} onClick={() => { setGlobeOn(false); setView3d(true); }}>3D</button>
             </div>
