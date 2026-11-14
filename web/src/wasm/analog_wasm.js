@@ -41,6 +41,56 @@ export function distanceKm(world, lat1, lon1, lat2, lon2) {
 }
 
 /**
+ * Least-effort walking path between two points on a stored grid: `[[lat, lon], …]` or `null`.
+ * @param {string} world
+ * @param {string} name
+ * @param {number} lat1
+ * @param {number} lon1
+ * @param {number} lat2
+ * @param {number} lon2
+ * @param {string} params
+ * @param {number} max_slope_deg
+ * @returns {string}
+ */
+export function easyPath(world, name, lat1, lon1, lat2, lon2, params, max_slope_deg) {
+    let deferred10_0;
+    let deferred10_1;
+    try {
+        const val4 = +lat1;
+        const val5 = +lon1;
+        const val6 = +lat2;
+        const val7 = +lon2;
+        const val8 = +max_slope_deg;
+        let ptr0, len0, ptr1, len1, ptr2, len2;
+        try {
+            ptr0 = passStringToWasm0(world, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passStringToWasm0(params, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len2 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 1, 1); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+            throw e;
+        }
+        const ret = wasm.easyPath(ptr0, len0, ptr1, len1, val4, val5, val6, val7, ptr2, len2, val8);
+        var ptr9 = ret[0];
+        var len9 = ret[1];
+        if (ret[3]) {
+            ptr9 = 0; len9 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred10_0 = ptr9;
+        deferred10_1 = len9;
+        return getStringFromWasm0(ptr9, len9);
+    } finally {
+        wasm.__wbindgen_free(deferred10_0, deferred10_1, 1);
+    }
+}
+
+/**
  * Share (0–1) of real EVAs longer than `hours`; -1 if the CSV is not loaded.
  * @param {number} hours
  * @returns {number}

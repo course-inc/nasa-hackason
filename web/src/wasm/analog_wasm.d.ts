@@ -12,6 +12,11 @@ export function bootstrap(): string;
 export function distanceKm(world: string, lat1: number, lon1: number, lat2: number, lon2: number): number;
 
 /**
+ * Least-effort walking path between two points on a stored grid: `[[lat, lon], …]` or `null`.
+ */
+export function easyPath(world: string, name: string, lat1: number, lon1: number, lat2: number, lon2: number, params: string, max_slope_deg: number): string;
+
+/**
  * Share (0–1) of real EVAs longer than `hours`; -1 if the CSV is not loaded.
  */
 export function evaLongerShare(hours: number): number;
@@ -143,6 +148,7 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly bootstrap: () => [number, number];
     readonly distanceKm: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+    readonly easyPath: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => [number, number, number, number];
     readonly evaLongerShare: (a: number) => number;
     readonly evaluateRoute: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly gaps: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];

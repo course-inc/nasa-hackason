@@ -3,6 +3,7 @@
 export const memory: WebAssembly.Memory;
 export const bootstrap: () => [number, number];
 export const distanceKm: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+export const easyPath: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => [number, number, number, number];
 export const evaLongerShare: (a: number) => number;
 export const evaluateRoute: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
 export const gaps: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
