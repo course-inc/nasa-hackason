@@ -7,13 +7,14 @@ import { getElevation } from '../elevation';
 import { PlanetMap, missionOverlay, type Feature, type FlyTarget } from '../map/PlanetMap';
 import { JEZERO, LANDING, ensureFooting, exampleRoute, loadWalkData, type WalkData } from '../walk/data';
 import { fmtH, footingImage, reachImage, slopeColor } from '../walk/geo';
-import { DEFAULT_START, WALKBACK_COLOR, WATER_PER_O2, WORLD, waterFactor, denseRoute, easyLeg, evaParams, planRoute, evaluate, reachFrom, rehearsalPoints, roverCheck, roverWalkbackSql, turnIndex, turnWaypoint, walkbackState } from '../walk/plan';
+import { DEFAULT_START, WALKBACK_COLOR, WATER_PER_O2, WORLD, waterFactor, denseRoute, easyLeg, evaParams, planRoute, routeMetrics, type RouteMetrics, evaluate, reachFrom, rehearsalPoints, roverCheck, roverWalkbackSql, turnIndex, turnWaypoint, walkbackState } from '../walk/plan';
 import { setWalkController, type EvidenceTopic } from '../walk/controller';
 import { useLang, useT } from '../i18n';
 import { GpxError, SAMPLE_GPX, atDistance, importWalk, type WalkImport } from '../walk/gpx';
 import { EarthWalkPanel, WalkImportCard } from '../walk/WalkRecord';
 import { Guide } from '../walk/Guide';
 import { SearchViz, type Trace } from '../walk/SearchViz';
+import type { RouteWeights } from '../core';
 import { RouteEditor, type Preview } from '../walk/RouteEditor';
 import { Hud, type HudState } from '../walk/Hud';
 import { EvaCard, RoverCard } from '../walk/Evidence';
@@ -172,9 +173,20 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   // Search animation: the trace of the last search; the route is applied when it finishes.
   const [vizTrace, setVizTrace] = useState<Trace | null>(null);
   const vizRoute = useRef<Waypoint[] | null>(null);
+  // Stage 2: the planner's weights (sliders) and a comparison with the fastest route.
+  const [weights, setWeights] = useState<Required<RouteWeights>>({ time: 1, slope: 1, footing: 1, margin: 1 });
+  const [compare, setCompare] = useState<{ fast: Waypoint[] | null; safe: Waypoint[] } | null>(null);
+  const cmp = useMemo(() => {
+    if (!compare) return null;
+    return { fast: compare.fast ? routeMetrics(core, data, compare.fast, p) : null, safe: routeMetrics(core, data, compare.safe, p) };
+  }, [core, data, compare, p]);
   const planTo = (lat: number, lon: number) => {
     const base = route[0] ?? LANDING;
-    const r = planRoute(core, data, base, { lat, lon, elev: undefined }, p);
+    const goal = { lat, lon, elev: undefined };
+    // Fastest first, then the weighted one, so the animation replays the weighted search.
+    const fast = planRoute(core, data, base, goal, p, { time: 1 });
+    const r = planRoute(core, data, base, goal, p, weights);
+    setCompare(r.route ? { fast: fast.route, safe: r.route } : null);
     if (r.route && data?.dem) {
       const { order, cost } = core.planTrace();
       const d = data.dem, north = d.lat0 + d.dlat / 2, west = d.lon0 - d.dlon / 2;
@@ -391,6 +403,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const turnIdx = turnIndex(ev);
   const features = useMemo<Feature[]>(() => {
     const f: Feature[] = [];
+    if (compare?.fast && !vizTrace) f.push({ kind: 'line', pts: compare.fast.map((w) => [w.lat, w.lon] as [number, number]), color: '#69c0ff', weight: 4, dash: '8 6', opacity: 0.95, tooltip: t('速さ優先の経路', 'Fastest route') });
     if (footImg) f.push({ kind: 'image', url: footImg.url, bounds: footImg.bounds, opacity: 0.7 });
     if (reachImg && showReach) f.push({ kind: 'image', url: reachImg.url, bounds: reachImg.bounds, opacity: 0.55 });
     f.push(...roverFeatures);
@@ -411,7 +424,8 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
     }
     // Hover a segment for its distance, steepest slope and time (summed from the engine's legs).
     // The waypoints themselves are drawn by RouteEditor as draggable handles.
-    for (let i = 0; i + 1 < dense.wp.length; i++) {
+    // (Not in destination mode: the invisible hover lines would catch the click meant for the map.)
+    for (let i = 0; mode !== 'goal' && i + 1 < dense.wp.length; i++) {
       const a = dense.wp[i], b = dense.wp[i + 1], legs = ev.legs.slice(a, b);
       if (!legs.length) continue;
       const km = legs.reduce((x, l) => x + l.km, 0), h = legs.reduce((x, l) => x + l.hours, 0);
@@ -423,7 +437,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
       f.push({ kind: 'point', lat: pts[turnIdx].lat, lon: pts[turnIdx].lon, radius: 9, color: '#faad14', tooltip: t('🚩 引き返し地点', '🚩 Turn-back point'), openTooltip: true });
     }
     return f;
-  }, [reachImg, showReach, footImg, roverFeatures, dense, ev, route, turnIdx, lang]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [reachImg, showReach, footImg, compare, vizTrace, mode, roverFeatures, dense, ev, route, turnIdx, lang]); // eslint-disable-line react-hooks/exhaustive-deps
   // The same layers for the 3D view.
   const lines3d = useMemo<Line3D[]>(() => {
     const l: Line3D[] = [];
@@ -493,6 +507,40 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
             {reachImg && <div className="kv"><span>{t('歩いて帰れる範囲', 'Walk-home area')}</span><b>{reachImg.area.toFixed(0)} km²{t('（最遠 ', ' (farthest ')}{reachImg.max.toFixed(1)} km{t('）', ')')}</b></div>}
             {ev.unknown_segments > 0 && <p className="warn">{t(`地形が分からない区間 ${ev.unknown_segments} か所は、急な登り（約17°）として安全側で計算しています。`, `${ev.unknown_segments} segments without terrain data are counted as a steep climb (~17°), to stay on the safe side.`)}</p>}
           </>
+        )}
+        {(mode === 'goal' || compare) && (
+          <div className="card route-plan" id="route-plan">
+            <h4>{t('🎯 目的地までの経路探索', '🎯 Route to a destination')}</h4>
+            <p className="muted">{t('地図をクリックすると、基地から帰れる範囲だけを通る経路を Dijkstra で探します。重みを変えてからもう一度クリック。', 'Click the map: Dijkstra searches a route from the base through the walk-home area only. Change the weights and click again.')}</p>
+            {([['time', t('速さ（時間・酸素）', 'Speed (time, O₂)')], ['slope', t('坂の急さを避ける', 'Avoid steep slopes')], ['footing', t('足場の悪さを避ける', 'Avoid poor footing')], ['margin', t('帰り道の余裕', 'Margin for the way home')]] as [keyof RouteWeights, string][]).map(([k, label]) => (
+              <label key={k} className="wt">{label} <b>{weights[k]}</b>
+                <input id={`w-${k}`} type="range" min={k === 'time' ? 0.5 : 0} max={3} step={0.5} value={weights[k]} onChange={(e) => setWeights((w) => ({ ...w, [k]: +e.target.value }))} /></label>
+            ))}
+            {cmp && (
+              <table className="cmp" id="route-compare">
+                <thead><tr><th /><th><span className="sw fast" />{t('速さ優先', 'Fastest')}</th><th><span className="sw safe" />{t('重み付き（安全重視）', 'Weighted (safer)')}</th></tr></thead>
+                <tbody>
+                  {([
+                    [t('行きの距離', 'Out'), (m: RouteMetrics) => `${m.km.toFixed(2)} km`],
+                    [t('往復の時間', 'Round trip'), (m: RouteMetrics) => fmtH(m.total_h)],
+                    [t('帰着時の O₂', 'O₂ at return'), (m: RouteMetrics) => `${Math.round(Math.max(0, m.o2_left) * 100)}%`],
+                    [t('最大の坂', 'Steepest'), (m: RouteMetrics) => `${m.max_slope.toFixed(1)}°`],
+                    [t('足場の悪い区間', 'Poor footing'), (m: RouteMetrics) => `${Math.round(m.poor_footing * 100)}%`],
+                    [t('判定', 'Verdict'), (m: RouteMetrics) => (m.ok ? t('帰れる', 'OK') : t('引き返す', 'Turn back'))],
+                  ] as [string, (m: RouteMetrics) => string][]).map(([label, f]) => (
+                    <tr key={label}><th>{label}</th><td>{cmp!.fast ? f(cmp!.fast) : '—'}</td><td>{cmp!.safe ? f(cmp!.safe) : '—'}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {compare && (
+              <div className="row">
+                {compare.fast && <button onClick={() => setRoute(compare.fast!)}>{t('速さ優先を使う', 'Use the fastest')}</button>}
+                <button onClick={() => setRoute(compare.safe)}>{t('重み付きを使う', 'Use the weighted')}</button>
+              </div>
+            )}
+            <p className="muted" id="ev-weights">{t('重みの中身（各歩のコスト ＝ 歩く時間 ×（速さ ＋ 坂 ×（坂/10°）² ＋ 足場 ×（η−1）/0.5 ＋ 余裕 × そのマスまで行って戻るのに使う割合））。歩く時間は判定と同じ計算（坂・足場・出発時刻の冷却水）。「足場の悪い区間」は η が かたい地面と砂の中間（1.35）以上の区間の割合。重みは好みの指定で、物理の係数ではありません。', 'Weights: the cost of each step = walking time × (speed + slope × (slope/10°)² + footing × (η−1)/0.5 + margin × the share of the budget used going there and back). Walking time is the verdict\'s own calculation (slope, footing, departure-time water). "Poor footing" = share of the route with η at or above the midpoint of firm and loose (1.35). Weights are preferences, not physical coefficients.')}</p>
+          </div>
         )}
         <div className="btns">
           <button className="primary" onClick={hud ? stop : play} disabled={n < 2}>{hud ? t('■ 止める', '■ Stop') : t('▶ ヘルメットで歩く', '▶ Walk it (helmet view)')}</button>

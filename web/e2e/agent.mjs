@@ -261,6 +261,12 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
     const hint = await p.locator('.draw-hint').innerText();
     console.log('goal:', hint.slice(0, 80));
     if (!/自動で経路|帰れる範囲の外|見つかりません/.test(hint)) fail('destination mode plans a route');
+    if (/自動で経路/.test(hint)) {
+      const cmpText = await p.locator('#route-compare').innerText({ timeout: 3000 }).catch(() => '');
+      console.log('compare:', cmpText.replace(/\s+/g, ' ').slice(0, 120));
+      if (!/速さ優先/.test(cmpText) || !/最大の坂/.test(cmpText)) fail('fastest vs weighted comparison table');
+      await p.locator('.search-viz button', { hasText: 'スキップ' }).click().catch(() => {});
+    }
     await p.locator('.draw-toolbar a[data-m=pan]').click();
   }
   // Desktop: the panel folds away to a chip and the map is full screen.

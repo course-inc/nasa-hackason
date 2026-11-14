@@ -153,3 +153,20 @@ export function planRoute(core: Core, data: WalkData | null, base: Waypoint, goa
     return { route, plan, ms: performance.now() - t0 };
   } catch { return { route: null, plan: null, ms: performance.now() - t0 }; }
 }
+
+/** Numbers to compare planned routes by (all from the Rust core: evaluation and footing). */
+export interface RouteMetrics { km: number; total_h: number; o2_left: number; max_slope: number; poor_footing: number; ok: boolean }
+export function routeMetrics(core: Core, data: WalkData | null, route: Waypoint[], p: EvaParams): RouteMetrics | null {
+  if (!data?.dem || route.length < 2) return null;
+  const dense = denseRoute(core, data, route);
+  const ev = evaluate(core, dense, p);
+  // Poor footing: η at or above the midpoint between firm and loose ground (footing.rs constants).
+  let poor = 0;
+  try {
+    const m = core.footingModel(), cut = (m.eta_firm + m.eta_loose) / 2;
+    const f = core.sampleFooting(JEZERO, dense.pts.map((w) => [w.lat, w.lon] as [number, number]));
+    const known = f.filter((x): x is number => x != null);
+    poor = known.length ? known.filter((x) => x >= cut).length / known.length : 0;
+  } catch { /* no footing */ }
+  return { km: ev.out_km, total_h: ev.total_h, o2_left: ev.usable_o2_h > 0 ? 1 - ev.total_effort_h / ev.usable_o2_h : 0, max_slope: ev.max_slope_deg, poor_footing: poor, ok: ev.ok };
+}
