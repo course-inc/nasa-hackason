@@ -347,3 +347,17 @@ h1 small { font-size: 12px; margin-left: 6px; }
   .rehearsal-card { max-height: 45%; overflow-y: auto; }
 }
 .walk-title small { display: block; margin-top: 2px; line-height: 1.4; }
+/* Whole-Mars globe */
+.globe-over { z-index: 1050; }
+.globe { position: absolute; inset: 0; background: #05070d; }
+.globe-canvas { position: absolute; inset: 0; touch-action: none; }
+.globe-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.globe-label { position: absolute; left: 0; top: 0; margin: -22px 0 0 8px; white-space: nowrap; font-size: 11px; color: #cfe2ff;
+  text-shadow: 0 1px 2px #000, 0 0 6px #000; }
+.globe-label.base { color: #fff; font-weight: 700; font-size: 12px; }
+.globe-label.jezero { color: #ffd666; font-weight: 700; }
+.globe-ctl { position: absolute; z-index: 2; bottom: 36px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.globe-ctl button { font-size: 12px; padding: 5px 10px; }
+.globe-ctl button.on { border-color: var(--accent); color: var(--accent); }
+.globe-msg { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #cfe2ff; font-size: 13px; }
+.globe-credit { position: absolute; right: 8px; bottom: 6px; font-size: 10px; color: #8a96a8; }

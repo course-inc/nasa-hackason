@@ -17,6 +17,7 @@ import { Hud, type HudState } from '../walk/Hud';
 import { EvaCard, RoverCard } from '../walk/Evidence';
 import { RehearsalPanel, useRehearsal } from '../walk/Rehearsal';
 import { Terrain3D, type Camera3D, type Line3D, type Point3D } from '../map/Terrain3D';
+import { Globe, type GlobeCamera, type GlobeMark } from '../map/Globe';
 import type { Reach, RoverWalkback } from '../core';
 
 type Mode = 'pan' | 'route' | 'base';
@@ -37,6 +38,8 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const [showReach, setShowReach] = useState(true);
   const [showRover, setShowRover] = useState(true);
   const [view3d, setView3d] = useState(false);
+  const [globeOn, setGlobeOn] = useState(false);
+  const [globeCam, setGlobeCam] = useState<GlobeCamera | null>(null);
   // The map fills the screen; the panel floats over it and can be folded away (closed on phones).
   const [panelOpen, setPanelOpen] = useState(() => typeof matchMedia === 'undefined' || !matchMedia('(max-width: 820px)').matches);
   const [fly, setFly] = useState<FlyTarget | null>(null);
@@ -230,6 +233,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
       },
       setOverlay: (o) => { if (o.rover != null) setShowRover(o.rover); if (o.reach != null) setShowReach(o.reach); },
       flyTo: (lat, lon, z) => setFly({ lat, lon, z, seq: Date.now() }),
+      setGlobe: (on, cam) => { setGlobeOn(on); if (on && cam) setGlobeCam({ ...cam, seq: Date.now() }); },
       importWalk: (text, file) => live$.current.loadWalk(text, file),
       importSample: () => live$.current.loadSample(),
       walk: () => live$.current.walkRec,
@@ -314,6 +318,10 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   }, [route]);
   const live = useMemo<Feature[]>(() => (walker ? [{ kind: 'walker', lat: walker[0], lon: walker[1], color: '#ff7a45' }] : []), [walker]);
   const overlays = useMemo(() => missionOverlay(core, WORLD), [core]);
+  const globeMarks = useMemo<GlobeMark[]>(() => [
+    { lat: LANDING.lat, lon: LANDING.lon, kind: 'base', label: t('基地: Jezero クレーター（Perseverance 着陸地点）', 'Base: Jezero crater (Perseverance landing site)') },
+    ...core.missions.landings.mars.filter((l) => !/Perseverance/i.test(l.name)).map((l) => ({ lat: l.lat, lon: l.lon, kind: 'site' as const, label: `${l.name} ${l.year}` })),
+  ], [core, lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const n = route.length;
   const tools: [Mode | 'undo' | 'clear' | 'example', string, string][] = [
@@ -424,10 +432,16 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
                 camera={camera} exaggeration={exag} />
             </div>
           )}
+          {globeOn && (
+            <div className="terrain-over globe-over">
+              <Globe marks={globeMarks} lines={data?.traverse ?? []} focus={LANDING} camera={globeCam} onEnter={() => setGlobeOn(false)} />
+            </div>
+          )}
           {data?.demGrid && (
             <div className="view-toggle" role="group" aria-label={t('地図の表示', 'Map view')}>
-              <button className={view3d ? '' : 'on'} onClick={() => setView3d(false)}>2D</button>
-              <button className={view3d ? 'on' : ''} onClick={() => setView3d(true)}>3D</button>
+              <button className={globeOn ? 'on' : ''} onClick={() => setGlobeOn(true)} title={t('火星全体を回して見る', 'Turn the whole planet')}>🌐 {t('全球', 'Globe')}</button>
+              <button className={!globeOn && !view3d ? 'on' : ''} onClick={() => { setGlobeOn(false); setView3d(false); }}>2D</button>
+              <button className={!globeOn && view3d ? 'on' : ''} onClick={() => { setGlobeOn(false); setView3d(true); }}>3D</button>
             </div>
           )}
           {hud && <Hud s={hud} limiting={ev.limiting} onStop={stop} />}

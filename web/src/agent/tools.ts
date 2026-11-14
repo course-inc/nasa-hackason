@@ -355,6 +355,20 @@ const view3d: ToolDef = {
   },
 };
 
+const viewGlobe: ToolDef = {
+  name: 'view_globe',
+  kind: 'view',
+  description: `Show the whole-Mars 3D globe (NASA Viking / MOLA mosaic) and turn it to a place (lat, lon in degrees; distance 1.1 close – 6 far). on=false goes back to the Jezero map. Zooming in over Jezero also opens the map. ${VIEW_NOTE}`,
+  parameters: { type: 'object', properties: { on: { type: 'boolean' }, lat: { type: 'number' }, lon: { type: 'number' }, distance: { type: 'number' } } },
+  async run(a: { on?: boolean; lat?: number; lon?: number; distance?: number } = {}) {
+    const c = await walkController();
+    await c.data();
+    const on = a.on ?? true;
+    c.setGlobe(on, on && a.lat != null && a.lon != null ? { lat: Number(a.lat), lon: Number(a.lon), distance: a.distance != null ? Number(a.distance) : undefined } : undefined);
+    return { text: on ? 'Showing the Mars globe.' : 'Back to the Jezero map.' };
+  },
+};
+
 const viewOverlay: ToolDef = {
   name: 'view_overlay',
   kind: 'view',
@@ -407,7 +421,7 @@ const viewWalk: ToolDef = {
   },
 };
 
-export const WALK_TOOLS: ToolDef[] = [walkbackCheck, roverWalkbackTool, importWalkTool, marsReplay, openEvidence, view3d, viewOverlay, viewSetParams, viewWalk];
+export const WALK_TOOLS: ToolDef[] = [walkbackCheck, roverWalkbackTool, importWalkTool, marsReplay, openEvidence, view3d, viewGlobe, viewOverlay, viewSetParams, viewWalk];
 
 /**
  * Register the WALKBACK tools and #10's Hokkaido tools.

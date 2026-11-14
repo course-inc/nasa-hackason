@@ -28,6 +28,8 @@ export interface WalkController {
   setRoverMode(on: boolean): void;
   /** Pan/zoom the 2D Jezero map. */
   flyTo(lat: number, lon: number, z: number): void;
+  /** Whole-Mars globe on/off; cam turns it to a point (distance: 1 = surface, about 1.1–6). */
+  setGlobe(on: boolean, cam?: { lat: number; lon: number; distance?: number }): void;
   /** A: load a GPX walk (text) and lay it onto Jezero; sets the route and the measured speed. */
   importWalk(text: string, file: string): Promise<WalkImport>;
   /** A: the bundled synthetic sample walk. */
