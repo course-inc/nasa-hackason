@@ -8,9 +8,15 @@ import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import type { Reach } from '../core';
 import type { GridData } from '../walk/data';
+import { useT } from '../i18n';
 
 export interface Line3D { pts: [number, number][]; color: string; width: number; opacity?: number }
 export interface Point3D { lat: number; lon: number; color: string; size: number }
+/**
+ * Camera request (agent view_3d tool). heading: direction the camera looks, degrees clockwise from
+ * north. tilt: how far it looks down from the horizon (90 = straight down). A new seq re-applies it.
+ */
+export interface Camera3D { target?: { lat: number; lon: number }; distance?: number; heading?: number; tilt?: number; seq: number }
 
 interface Props {
   grid: GridData;
@@ -24,9 +30,14 @@ interface Props {
   /** [[south, west], [north, east]] the camera frames first. */
   focus?: [[number, number], [number, number]] | null;
   label?: string;
+  /** Surface photo covering exactly the grid's extent (e.g. web/public/data/jezero_ortho.jpg). */
+  photo?: string;
+  camera?: Camera3D | null;
+  /** Height exaggeration set from outside (the ×1/×2/×4 buttons still work). */
+  exaggeration?: number;
 }
 
-const MAX_SIDE = 360;
+const MAX_SIDE = 720; // the Jezero grid (700 × 467) at full resolution
 
 /** Bilinear elevation at lat/lon; nulls fall back to the grid minimum. */
 function sampler(g: GridData) {
@@ -61,6 +72,34 @@ function ramp(t: number, palette: 'mars' | 'earth'): [number, number, number] {
 }
 
 /** Elevation colours with the walk-home area painted over them, one pixel per grid cell. */
+/** The surface photo with the walk-home area tinted over it (one reach cell per grid cell). */
+function photoTexture(g: GridData, img: HTMLImageElement, reach: Reach | null | undefined) {
+  const cv = document.createElement('canvas');
+  cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+  const ctx = cv.getContext('2d')!;
+  ctx.drawImage(img, 0, 0);
+  if (reach && reach.rows === g.rows && reach.cols === g.cols) {
+    const rc = document.createElement('canvas');
+    rc.width = g.cols; rc.height = g.rows;
+    const rctx = rc.getContext('2d')!, im = rctx.createImageData(g.cols, g.rows);
+    for (let i = 0; i < reach.ratio.length; i++) {
+      const q = reach.ratio[i];
+      if (q == null || q > 1) continue;
+      const o = i * 4;
+      // Over the photo: a light green tint inside, a thin yellow band at the limit.
+      if (q > 0.94) { im.data[o] = 255; im.data[o + 1] = 214; im.data[o + 2] = 102; im.data[o + 3] = 150; }
+      else { im.data[o] = 120; im.data[o + 1] = 220; im.data[o + 2] = 80; im.data[o + 3] = 26; }
+    }
+    rctx.putImageData(im, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(rc, 0, 0, cv.width, cv.height);
+  }
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return t;
+}
+
 function texture(g: GridData, palette: 'mars' | 'earth', reach: Reach | null | undefined) {
   const cv = document.createElement('canvas');
   cv.width = g.cols; cv.height = g.rows;
@@ -86,13 +125,28 @@ function texture(g: GridData, palette: 'mars' | 'earth', reach: Reach | null | u
   return t;
 }
 
-export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], reach, walker, focus, label }: Props) {
+export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], reach, walker, focus, label, camera, exaggeration, photo }: Props) {
+  const t = useT();
+  // Surface photo (when given) or the elevation colours; the photo loads once and stays.
+  const [img, setImg] = useState<HTMLImageElement | null>(null);
+  const [usePhoto, setUsePhoto] = useState(true);
+  useEffect(() => {
+    if (!photo) return;
+    let live = true;
+    const im = new Image();
+    im.onload = () => live && setImg(im);
+    im.src = photo;
+    return () => { live = false; };
+  }, [photo]);
+  const surface = () => (img && usePhoto ? photoTexture(grid, img, reach) : texture(grid, palette, reach));
   const host = useRef<HTMLDivElement>(null);
-  const [exag, setExag] = useState(palette === 'mars' ? 2 : 1.5);
+  const [exag, setExag] = useState(exaggeration ?? (palette === 'mars' ? 2 : 1.5));
+  useEffect(() => { if (exaggeration != null) setExag(exaggeration); }, [exaggeration]);
   const scene = useRef<{
     r: THREE.WebGLRenderer; s: THREE.Scene; cam: THREE.PerspectiveCamera; ctl: OrbitControls;
     project: (lat: number, lon: number, lift?: number) => THREE.Vector3; overlay: THREE.Group; walker: THREE.Mesh;
     terrain: THREE.Mesh; mats: LineMaterial[];
+    goal: { pos: THREE.Vector3; target: THREE.Vector3 } | null;
   } | null>(null);
 
   // Terrain mesh + renderer: rebuilt when the grid or the height scale changes.
@@ -125,15 +179,28 @@ export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], re
     geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     geo.setIndex(idx);
     geo.computeVertexNormals();
-    const mat = new THREE.MeshStandardMaterial({ map: texture(g, palette, reach), roughness: 0.95, metalness: 0 });
+    const mat = new THREE.MeshStandardMaterial({ map: surface(), roughness: 0.95, metalness: 0 });
     const terrain = new THREE.Mesh(geo, mat);
+    terrain.castShadow = true;
+    terrain.receiveShadow = true;
 
     const s = new THREE.Scene();
-    s.background = new THREE.Color(palette === 'mars' ? '#1d1210' : '#0f1a24');
+    const span0 = Math.max(g.cols * g.dlon * k * cosC, g.rows * g.dlat * k);
+    // Mars: no solid sky colour; the canvas is transparent over a butterscotch sky gradient (CSS),
+    // and a matching haze fades distant ground. Earth keeps a plain dark background.
+    if (palette === 'mars') s.fog = new THREE.Fog('#c9926a', span0 * 0.25, span0 * 1.6);
+    else s.background = new THREE.Color('#0f1a24');
     s.add(terrain);
-    s.add(new THREE.HemisphereLight(palette === 'mars' ? '#ffd9c2' : '#dfefff', '#2a1a14', 0.9));
-    const sun = new THREE.DirectionalLight('#ffffff', 2.2);
-    sun.position.set(-1, 1.1, -0.6).multiplyScalar(20000);
+    s.add(new THREE.HemisphereLight(palette === 'mars' ? '#ffd9c2' : '#dfefff', '#2a1a14', palette === 'mars' ? 0.55 : 0.9));
+    // Low afternoon sun from the west-north-west: long shadows make the relief stand out.
+    const sun = new THREE.DirectionalLight(palette === 'mars' ? '#fff1e0' : '#ffffff', palette === 'mars' ? 2.8 : 2.2);
+    sun.position.set(-1, palette === 'mars' ? 0.42 : 1.1, -0.45).normalize().multiplyScalar(span0 * 1.2);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    const sc0 = sun.shadow.camera as THREE.OrthographicCamera;
+    sc0.left = -span0 * 0.75; sc0.right = span0 * 0.75; sc0.top = span0 * 0.75; sc0.bottom = -span0 * 0.75;
+    sc0.near = span0 * 0.1; sc0.far = span0 * 3;
+    sun.shadow.bias = -0.0005;
     s.add(sun);
     const overlay = new THREE.Group();
     s.add(overlay);
@@ -142,8 +209,10 @@ export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], re
     walkerMesh.visible = false;
     s.add(walkerMesh);
 
-    const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: palette === 'mars' });
     r.setPixelRatio(Math.min(2, window.devicePixelRatio));
+    r.shadowMap.enabled = true;
+    r.shadowMap.type = THREE.PCFSoftShadowMap;
     el.appendChild(r.domElement);
     const cam = new THREE.PerspectiveCamera(45, 1, span / 2000, span * 10);
     const ctl = new OrbitControls(cam, r.domElement);
@@ -158,7 +227,8 @@ export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], re
     cam.position.copy(target).add(new THREE.Vector3(-0.55, 0.75, 0.9).normalize().multiplyScalar(fspan * 1.5));
 
     const mats: LineMaterial[] = [];
-    scene.current = { r, s, cam, ctl, project, overlay, walker: walkerMesh, terrain, mats };
+    scene.current = { r, s, cam, ctl, project, overlay, walker: walkerMesh, terrain, mats, goal: null };
+    ctl.addEventListener('start', () => { if (scene.current) scene.current.goal = null; }); // the user takes over
 
     const resize = () => {
       const w = el.clientWidth || 1, h = el.clientHeight || 1;
@@ -171,7 +241,14 @@ export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], re
     ro.observe(el);
     resize();
     let raf = 0;
-    const loop = () => { ctl.update(); r.render(s, cam); raf = requestAnimationFrame(loop); };
+    const loop = () => {
+      const goal = scene.current?.goal;
+      if (goal) { // ease towards a camera request
+        cam.position.lerp(goal.pos, 0.12); ctl.target.lerp(goal.target, 0.12);
+        if (cam.position.distanceTo(goal.pos) < span / 5000) { cam.position.copy(goal.pos); ctl.target.copy(goal.target); scene.current!.goal = null; }
+      }
+      ctl.update(); r.render(s, cam); raf = requestAnimationFrame(loop);
+    };
     loop();
     return () => {
       cancelAnimationFrame(raf); ro.disconnect(); ctl.dispose();
@@ -194,9 +271,9 @@ export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], re
     if (!sc) return;
     const m = sc.terrain.material as THREE.MeshStandardMaterial;
     m.map?.dispose();
-    m.map = texture(grid, palette, reach);
+    m.map = surface();
     m.needsUpdate = true;
-  }, [reach, grid, palette, exag]);
+  }, [reach, grid, palette, exag, img, usePhoto]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Lines and points draped on the terrain.
   useEffect(() => {
@@ -223,6 +300,21 @@ export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], re
     }
   }, [lines, points, exag, grid]);
 
+  // Camera requests: look at target from distance, heading and tilt (missing parts keep the current view).
+  useEffect(() => {
+    const sc = scene.current;
+    if (!sc || !camera) return;
+    const target = camera.target ? sc.project(camera.target.lat, camera.target.lon) : sc.ctl.target.clone();
+    const off = sc.cam.position.clone().sub(sc.ctl.target);
+    const dist = camera.distance ?? off.length();
+    const curHeading = Math.atan2(-off.x, off.z) * 180 / Math.PI;
+    const curTilt = Math.asin(Math.max(-1, Math.min(1, off.y / (off.length() || 1)))) * 180 / Math.PI;
+    const h = ((camera.heading ?? curHeading) * Math.PI) / 180;
+    const t = (Math.max(5, Math.min(89, camera.tilt ?? curTilt)) * Math.PI) / 180;
+    const pos = target.clone().add(new THREE.Vector3(-Math.sin(h) * Math.cos(t), Math.sin(t), Math.cos(h) * Math.cos(t)).multiplyScalar(dist));
+    sc.goal = { pos, target };
+  }, [camera?.seq, exag, grid]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     const sc = scene.current;
     if (!sc) return;
@@ -231,16 +323,22 @@ export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], re
   }, [walker, exag]);
 
   return (
-    <div className="terrain3d">
+    <div className={`terrain3d ${palette}`}>
       <div ref={host} className="terrain3d-canvas" />
       {label && <div className="maplabel">{label}</div>}
-      <div className="terrain3d-ctl" role="group" aria-label="高さの強調">
-        <span>高さ</span>
+      <div className="terrain3d-ctl" role="group" aria-label={t('表示', 'Display')}>
+        {photo && (
+          <>
+            <button className={img && usePhoto ? 'on' : ''} onClick={() => setUsePhoto(true)} disabled={!img}>{t('写真', 'Photo')}</button>
+            <button className={!usePhoto || !img ? 'on' : ''} onClick={() => setUsePhoto(false)}>{t('高さの色', 'Height colours')}</button>
+          </>
+        )}
+        <span>{t('高さ', 'Height')}</span>
         {[1, 2, 4].map((x) => (
           <button key={x} className={x === exag ? 'on' : ''} onClick={() => setExag(x)}>×{x}</button>
         ))}
       </div>
-      <div className="terrain3d-help">ドラッグで回転・右ドラッグで移動・ホイールで拡大</div>
+      <div className="terrain3d-help">{t('ドラッグで回転・右ドラッグで移動・ホイールで拡大', 'Drag to rotate, right-drag to pan, wheel to zoom')}</div>
     </div>
   );
 }

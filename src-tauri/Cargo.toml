@@ -17,3 +17,15 @@ tauri = { version = "2", features = [] }
 analog-core = { path = "../crates/analog-core" }
 serde.workspace = true
 serde_json.workspace = true
+# pi-rs agent harness (question panel in the desktop app). Build without it: --no-default-features
+pi-rs = { git = "https://github.com/quantum-box/pi-rs", rev = "0fca3dcc27f030d7d2e048719af3a82d3f5b3e84", features = ["anthropic", "ollama"], optional = true }
+tokio = { version = "1", features = ["sync", "time", "macros"], optional = true }
+async-trait = { version = "0.1", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["sync", "time", "macros", "rt-multi-thread"] }
+futures-util = "0.3"
+
+[features]
+default = ["agent"]
+agent = ["dep:pi-rs", "dep:tokio", "dep:async-trait"]

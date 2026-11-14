@@ -54,6 +54,12 @@ export interface RouteCheck {
 }
 export interface EvaRecord { id: string; country: string; crew: string; vehicle: string; date: string; hours: number }
 export interface EvaStats { count: number; median_h: number; p90_h: number; max_h: number; longest: EvaRecord | null; hours: number[]; apollo_hours: number[] }
+export interface WalkbackPoint { lat: number; lon: number; km: number; sol: number; ratio: number | null; inside: boolean }
+/** Crewed-rover breakdown check along Perseverance's path (analog-core traverse::walkback). */
+export interface RoverWalkback { points: WalkbackPoint[]; first_stranded: number | null; ok_share: number; inside_km: number; budget_h: number }
+/** #11 A: a recorded walk point; elevation from NASADEM, never from the GPS. t in seconds. */
+export interface TimedPoint { lat: number; lon: number; elev: number | null; t: number }
+export interface WalkSummary { km: number; elapsed_h: number; moving_h: number; climb_m: number; descent_m: number; flat_kmh: number; moving_kmh: number }
 export interface RehearsalMatch {
   pts: [number, number, number][]; rms_deg: number; score: number; rotation_deg: number; mirrored: boolean;
   climb_mars_m: number; climb_earth_m: number;
@@ -61,16 +67,18 @@ export interface RehearsalMatch {
 
 export interface ScanMeta {
   cell_km: number; lat0: number; lon0: number; dlat: number; dlon: number; rows: number; cols: number; n: number;
-  src: { dem?: string; climate?: string; built?: string };
+  src: { dem?: string; climate?: string; vegetation?: string; landcover?: string; built?: string };
 }
 export interface ScanCandidate {
   k: number; lat: number; lon: number; score: number; elev_m: number; slope_deg: number; shadow: number;
   near: [string, number] | null;
 }
-export interface ScanSiteCheck { earth_id: string; k: number | null; score: number | null; rank: number | null; percentile: number | null }
+export interface ScanSiteCheck { earth_id: string; k: number | null; score: number | null; rank: number | null; percentile: number | null; excluded: string | null }
 export interface ScanCell {
   k: number; lat: number; lon: number; elev_m: number; relief_m: number; slope_deg: number; slope_p90_deg: number;
-  shadow: number; land: number; climate: { tmin: number[]; tmax: number[]; precip: number } | null; score: PairScore;
+  shadow: number; land: number; ndvi: number | null; urban: number | null; crop: number | null; barren: number | null;
+  forest: number | null; water: number | null;
+  climate: { tmin: number[]; tmax: number[]; precip: number } | null; score: PairScore;
 }
 export interface Scan {
   meta: ScanMeta;
@@ -104,8 +112,15 @@ export interface Core extends Boot {
   setGrid: (name: string, g: Grid | string) => void;
   sampleGrid: (name: string, latlons: [number, number][]) => (number | null)[];
   reach: (world: World, grid: string, lat: number, lon: number, p: EvaParams, maxSlopeDeg: number) => Reach;
+  /** Least-effort walking path between two points on a grid, or null when none. */
+  easyPath: (world: World, grid: string, a: [number, number], b: [number, number], p: EvaParams, maxSlopeDeg: number) => [number, number][] | null;
   setTraverse: (json: string) => RoverStats;
   roverCheck: (pts: Waypoint[], nearM: number) => RouteCheck;
+  walkSummary: (pts: TimedPoint[]) => WalkSummary;
+  transplantWalk: (pts: TimedPoint[], baseLat: number, baseLon: number) => [number, number][];
+  roverWalkback: (world: World, grid: string, lat: number, lon: number, p: EvaParams, maxSlopeDeg: number) => RoverWalkback | null;
+  /** Same check on traverse rows read with SQL ([{drive, seq, sol, lat, lon, elev_m, km}]). */
+  roverWalkbackFrom: (world: World, grid: string, lat: number, lon: number, p: EvaParams, maxSlopeDeg: number, rows: unknown[]) => RoverWalkback;
   setEvaCsv: (csv: string) => EvaStats;
   evaLongerShare: (hours: number) => number;
   rehearse: (from: World, pts: Waypoint[], grid: string, stride: number, rotStepDeg: number, top: number) => RehearsalMatch[];
@@ -155,8 +170,13 @@ export function loadCore(): Promise<Core> {
       setGrid: (name, g) => wasm.setGrid(name, typeof g === 'string' ? g : JSON.stringify(g)),
       sampleGrid: (name, ll) => JSON.parse(wasm.sampleGrid(name, JSON.stringify(ll))),
       reach: (world, grid, lat, lon, p, max) => JSON.parse(wasm.reach(world, grid, lat, lon, JSON.stringify(p), max)),
+      easyPath: (world, grid, a, b, p, max) => JSON.parse(wasm.easyPath(world, grid, a[0], a[1], b[0], b[1], JSON.stringify(p), max)),
       setTraverse: (json) => JSON.parse(wasm.setTraverse(json)),
       roverCheck: (pts, near) => JSON.parse(wasm.roverCheck(JSON.stringify(pts), near)),
+      walkSummary: (pts) => JSON.parse(wasm.walkSummary(JSON.stringify(pts))),
+      transplantWalk: (pts, lat, lon) => JSON.parse(wasm.transplantWalk(JSON.stringify(pts), lat, lon)),
+      roverWalkback: (world, grid, lat, lon, p, max) => JSON.parse(wasm.roverWalkback(world, grid, lat, lon, JSON.stringify(p), max)),
+      roverWalkbackFrom: (world, grid, lat, lon, p, max, rows) => JSON.parse(wasm.roverWalkbackFrom(world, grid, lat, lon, JSON.stringify(p), max, JSON.stringify(rows))),
       setEvaCsv: (csv) => JSON.parse(wasm.setEvaCsv(csv)),
       evaLongerShare: (h) => wasm.evaLongerShare(h),
       rehearse: (from, pts, grid, stride, rot, top) => JSON.parse(wasm.rehearse(from, JSON.stringify(pts), grid, stride, rot, top)),

@@ -34,6 +34,7 @@ fi
 if $ALL || has '^(crates/|data/|web/|Cargo\.(toml|lock)$)'; then
   run mise run wasm
   run pnpm --dir web typecheck
+  run pnpm --dir web test
   run pnpm --dir web build
   if node -e "require('playwright')" 2>/dev/null || NODE_PATH="$(npm root -g)" node -e "require('playwright')" 2>/dev/null; then
     run scripts/e2e.sh

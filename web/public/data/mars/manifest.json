@@ -1,0 +1,72 @@
+{
+ "scale": 1,
+ "tables": {
+  "rover_traverse": {
+   "files": [
+    "rover_traverse/mission=m20/data.parquet"
+   ],
+   "rows": 10456,
+   "bytes": 240754,
+   "hive": true,
+   "columns": [
+    "mission",
+    "drive",
+    "seq",
+    "sol",
+    "lat",
+    "lon",
+    "elev_m",
+    "km"
+   ],
+   "source": {
+    "label": "Mars 2020 Perseverance traverse (NASA/JPL MMGIS)",
+    "url": "https://mars.nasa.gov/mmgis-maps/M20/Layers/json/M20_traverse.json"
+   },
+   "note": "km: distance driven since the start of the record, as computed by analog-core traverse::points"
+  },
+  "eva": {
+   "files": [
+    "eva.parquet"
+   ],
+   "rows": 368,
+   "bytes": 8631,
+   "columns": [
+    "id",
+    "country",
+    "crew",
+    "vehicle",
+    "date",
+    "hours"
+   ],
+   "source": {
+    "label": "data.nasa.gov: Extra-vehicular Activity (EVA) - US and Russia",
+    "url": "https://data.nasa.gov/docs/legacy/Extra-vehicular_Activity_EVA_-_US_and_Russia/Extra-vehicular_Activity_EVA_-_US_and_Russia_rows.csv"
+   }
+  },
+  "mars_names": {
+   "files": [
+    "mars_names.parquet"
+   ],
+   "rows": 2073,
+   "bytes": 77331,
+   "columns": [
+    "name",
+    "kind",
+    "type",
+    "lat",
+    "lon",
+    "diameter_km",
+    "origin",
+    "year",
+    "agency",
+    "link",
+    "source"
+   ],
+   "source": {
+    "label": "IAU/USGS Gazetteer of Planetary Nomenclature (Mars); landing sites; NASA crewed-landing Exploration Zones",
+    "url": "https://planetarynames.wr.usgs.gov/Page/MARS/target"
+   },
+   "note": "kind: feature (IAU name), landing (lander/rover), crewed (crewed-landing candidate). lon: degrees east, -180..180. diameter_km: IAU feature size"
+  }
+ }
+}

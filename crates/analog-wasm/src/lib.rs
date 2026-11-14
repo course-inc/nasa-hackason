@@ -141,6 +141,33 @@ pub fn reach(
     })
 }
 
+/// Least-effort walking path between two points on a stored grid: `[[lat, lon], …]` or `null`.
+#[wasm_bindgen(js_name = easyPath)]
+#[allow(clippy::too_many_arguments)]
+pub fn easy_path(
+    world: &str,
+    name: &str,
+    lat1: f64,
+    lon1: f64,
+    lat2: f64,
+    lon2: f64,
+    params: &str,
+    max_slope_deg: f64,
+) -> Result<String, JsError> {
+    let w = parse_world(world)?;
+    let p: route::EvaParams = serde_json::from_str(params).map_err(err)?;
+    with_grid(name, |g| {
+        json(&grid::easy_path(
+            w,
+            g,
+            (lat1, lon1),
+            (lat2, lon2),
+            &p,
+            max_slope_deg,
+        ))
+    })
+}
+
 /// Store the simplified Perseverance traverse (`{drives: [{sol, c: [[lon, lat, z], …]}]}`).
 #[wasm_bindgen(js_name = setTraverse)]
 pub fn set_traverse(traverse_json: &str) -> Result<String, JsError> {
@@ -148,6 +175,76 @@ pub fn set_traverse(traverse_json: &str) -> Result<String, JsError> {
     let s = traverse::stats(&t, 25.0);
     TRAVERSE.with(|c| *c.borrow_mut() = Some(t));
     Ok(json(&s))
+}
+
+/// #11 A: summary of a recorded walk (`[{lat, lon, elev, t}]`, elevation from a DEM) on Earth.
+#[wasm_bindgen(js_name = walkSummary)]
+pub fn walk_summary(points: &str) -> Result<String, JsError> {
+    let pts: Vec<analog_core::walk::TimedPoint> = serde_json::from_str(points).map_err(err)?;
+    Ok(json(&analog_core::walk::summary(world::World::Earth, &pts)))
+}
+
+/// #11 A: lay a walk recorded on Earth onto Mars from `base` (same east/north metres).
+#[wasm_bindgen(js_name = transplantWalk)]
+pub fn transplant_walk(points: &str, base_lat: f64, base_lon: f64) -> Result<String, JsError> {
+    let pts: Vec<analog_core::walk::TimedPoint> = serde_json::from_str(points).map_err(err)?;
+    let base = world::LatLon {
+        lat: base_lat,
+        lon: base_lon,
+    };
+    Ok(json(&analog_core::walk::transplant(
+        world::World::Earth,
+        &pts,
+        world::World::Mars,
+        base,
+    )))
+}
+
+/// Crewed-rover breakdown check along the stored traverse: from each point, could the crew walk
+/// back to the base (grid `name`, same EvaParams as the walk-home area)?
+#[wasm_bindgen(js_name = roverWalkback)]
+pub fn rover_walkback(
+    world: &str,
+    name: &str,
+    lat: f64,
+    lon: f64,
+    params: &str,
+    max_slope_deg: f64,
+) -> Result<String, JsError> {
+    let w = parse_world(world)?;
+    let p: route::EvaParams = serde_json::from_str(params).map_err(err)?;
+    with_grid(name, |g| {
+        let home = grid::home_ratio(w, g, lat, lon, &p, max_slope_deg);
+        TRAVERSE.with(|c| {
+            c.borrow()
+                .as_ref()
+                .map(|t| json(&traverse::walkback(t, g, &home, p.budget())))
+                .unwrap_or_else(|| "null".into())
+        })
+    })
+}
+
+/// Crewed-rover breakdown check on traverse rows read with SQL (`[{drive, seq, sol, lat, lon,
+/// elev_m, km}]` in drive/seq order, from the rover_traverse parquet). Same calculation as
+/// `roverWalkback`; only where the path comes from differs.
+#[wasm_bindgen(js_name = roverWalkbackFrom)]
+pub fn rover_walkback_from(
+    world: &str,
+    name: &str,
+    lat: f64,
+    lon: f64,
+    params: &str,
+    max_slope_deg: f64,
+    rows: &str,
+) -> Result<String, JsError> {
+    let w = parse_world(world)?;
+    let p: route::EvaParams = serde_json::from_str(params).map_err(err)?;
+    let rows: Vec<traverse::TraversePoint> = serde_json::from_str(rows).map_err(err)?;
+    let t = traverse::from_points(&rows);
+    with_grid(name, |g| {
+        let home = grid::home_ratio(w, g, lat, lon, &p, max_slope_deg);
+        json(&traverse::walkback(&t, g, &home, p.budget()))
+    })
 }
 
 /// Compare densified route points (with elevation) with the stored traverse.
@@ -305,5 +402,63 @@ pub fn scan_gaps(k: usize, body_id: &str, test: &str) -> Result<String, JsError>
             return json(&Vec::<analog_core::target::Gap>::new());
         }
         json(&analog_core::target::gaps(&s.site(k), b, test))
+    })
+}
+
+/// Every land cell as columns (for the duckdb `cells` table in web/src/db.ts): terrain, MODIS
+/// shares as fractions (null = no data), height-corrected NASA POWER climate and the land-cover
+/// screen reason (null = open ground). Same units as `scanCell`.
+#[wasm_bindgen(js_name = scanColumns)]
+pub fn scan_columns() -> Result<String, JsError> {
+    #[derive(Serialize, Default)]
+    struct Cols {
+        k: Vec<usize>,
+        lat: Vec<f64>,
+        lon: Vec<f64>,
+        elev_m: Vec<f64>,
+        relief_m: Vec<f64>,
+        slope_deg: Vec<f64>,
+        slope_p90_deg: Vec<f64>,
+        shadow: Vec<f64>,
+        ndvi: Vec<Option<f64>>,
+        urban: Vec<Option<f64>>,
+        crop: Vec<Option<f64>>,
+        forest: Vec<Option<f64>>,
+        water: Vec<Option<f64>>,
+        barren: Vec<Option<f64>>,
+        tmin_jan_c: Vec<Option<f64>>,
+        tmax_aug_c: Vec<Option<f64>>,
+        precip_mm: Vec<Option<f64>>,
+        screened: Vec<Option<String>>,
+    }
+    fn opt(v: &[f64], k: usize, div: f64) -> Option<f64> {
+        v.get(k).copied().filter(|x| *x >= 0.0).map(|x| x / div)
+    }
+    with_scan(|s| {
+        let c = &s.cells;
+        let mut o = Cols::default();
+        for k in 0..s.len() {
+            let (lat, lon) = s.latlon(k);
+            let cl = s.climate(k);
+            o.k.push(k);
+            o.lat.push(lat);
+            o.lon.push(lon);
+            o.elev_m.push(c.elev[k]);
+            o.relief_m.push(c.relief[k]);
+            o.slope_deg.push(c.slope[k] / 10.0);
+            o.slope_p90_deg.push(c.p90[k] / 10.0);
+            o.shadow.push(c.shadow[k] / 1000.0);
+            o.ndvi.push(opt(&c.ndvi, k, 1000.0));
+            o.urban.push(opt(&c.urban, k, 100.0));
+            o.crop.push(opt(&c.crop, k, 100.0));
+            o.forest.push(opt(&c.forest, k, 100.0));
+            o.water.push(opt(&c.water, k, 100.0));
+            o.barren.push(opt(&c.barren, k, 100.0));
+            o.tmin_jan_c.push(cl.map(|x| x.tmin[0]));
+            o.tmax_aug_c.push(cl.map(|x| x.tmax[7]));
+            o.precip_mm.push(cl.map(|x| x.precip));
+            o.screened.push(analog_core::scan::screen_reason(s, k));
+        }
+        json(&o)
     })
 }

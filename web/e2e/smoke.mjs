@@ -9,7 +9,8 @@ const { chromium } = createRequire(import.meta.url)('playwright');
 const BASE = process.env.BASE_URL ?? 'http://localhost:4173';
 const fail = (m) => { console.error('FAIL', m); process.exitCode = 1; };
 const b = await chromium.launch();
-const p = await b.newPage({ viewport: { width: 1280, height: 800 } });
+const p = await b.newPage({ viewport: { width: 1280, height: 800 }, locale: 'ja-JP' });
+await p.addInitScript(() => { try { localStorage.setItem('walkback.guide.closed', '1'); } catch { /* */ } });
 const errs = [];
 p.on('pageerror', (e) => errs.push(e.message));
 p.on('console', (m) => m.type() === 'error' && !/Failed to load resource/.test(m.text()) && errs.push(m.text()));
@@ -50,6 +51,10 @@ await p.screenshot({ path: 'e2e/shot-target.png' });
 // Whole-Hokkaido scan: the grid loads, the heat map and best candidates appear, sites are checked.
 await p.locator('#mode-tabs button[data-mode=scan]').click();
 await p.waitForSelector('#scan-top li', { timeout: 20000 }).catch(() => fail('scan candidates'));
+// Treasure hunt: the sweep finishes with the scan's #1 card (with its caveats).
+await p.waitForSelector('#scan-best', { timeout: 20000 }).catch(() => fail('scan #1 card'));
+console.log('scan #1:', (await p.locator('#scan-best').innerText()).replace(/\s+/g, ' ').slice(0, 160));
+if (!/岩石|Rock type/.test(await p.locator('#scan-best').innerText())) fail('scan #1 card states what is not scored');
 const nTop = await p.locator('#scan-top li').count();
 console.log('scan top', nTop, '|', await p.locator('#scan .scan-head').innerText());
 if (nTop < 1) fail('scan top');
@@ -59,6 +64,31 @@ await p.waitForSelector('#scan-cell .total b');
 console.log('scan check:', await p.locator('#scan .check-line').innerText());
 await p.screenshot({ path: 'e2e/shot-scan.png' });
 
+// #10 inside #11: Mars by default; explore_hokkaido runs DuckDB over the scan; view_scan drives the view.
+await p.goto(`${BASE}/?fresh#target`); // new document: no state from the scan above
+await p.waitForSelector('#rank-list li');
+const defBody = await p.locator('#target-body').inputValue();
+console.log('default target', defBody); if (defBody !== 'jezero') fail('default target jezero');
+const ex = await p.evaluate(async () => {
+  for (let i = 0; i < 100 && !window.analogScan; i++) await new Promise((r) => setTimeout(r, 100));
+  const r = await window.analogScan.explore({ target: 'jezero', test: 'walk', n: 5, where: 'elev_m >= 500' });
+  const bare = await window.analogScan.explore({ target: 'jezero', test: 'walk', n: 5, bare_only: true });
+  const km = (a, b) => Math.hypot((a.lat - b.lat) * 111.32, (a.lon - b.lon) * 111.32 * Math.cos((a.lat + b.lat) / 2 * Math.PI / 180));
+  const minKm = Math.min(...r.data.flatMap((a, i) => r.data.slice(i + 1).map((b) => km(a, b))));
+  return { n: r.data.length, top: r.data[0], sql: r.sql, text: r.text, sources: r.sources.length, minKm,
+    bareN: bare.data.length, bareOk: bare.data.every((x) => x.ndvi !== null && x.ndvi < 0.4) };
+}).catch((e) => ({ error: String(e) }));
+console.log('explore_hokkaido:', ex.text ?? ex.error);
+console.log('explore spacing', ex.minKm?.toFixed(1), 'km | bare_only rows', ex.bareN);
+if (!(ex.minKm >= 15) || !(ex.bareN >= 1) || !ex.bareOk) fail('explore spacing / bare_only');
+if (!(ex.n >= 1) || !/FROM cells c JOIN score_jezero_walk/.test(ex.sql ?? '') || !(ex.top?.elev_m >= 500)) fail('explore_hokkaido');
+const bad = await p.evaluate(() => window.analogScan.explore({ where: 'elev_m > 0; DROP TABLE cells' }).then(() => 'ran', (e) => String(e)));
+if (!/where:/.test(bad)) fail('explore where validation');
+await p.evaluate((t) => window.analogScan.view({ target: 'arcadia', test: 'landing', mode: 'scan', focus: { lat: t.lat, lon: t.lon } }), ex.top);
+await p.waitForSelector('#scan-cell .total b', { timeout: 20000 }).catch(() => fail('view_scan cell'));
+const cellHead = await p.locator('#scan-cell h4').first().innerText();
+console.log('view_scan:', await p.locator('#target-body').inputValue(), '|', cellHead);
+if ((await p.locator('#target-body').inputValue()) !== 'arcadia' || !cellHead.includes(ex.top.lat.toFixed(3))) fail('view_scan');
 
 await p.goto(`${BASE}/#analogs`);
 await p.waitForSelector('#site-list li');

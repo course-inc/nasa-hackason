@@ -93,8 +93,8 @@ pub fn profiles() -> Vec<Profile> {
         ),
         mk(
             "geology",
-            "地質（仮）",
-            "Geology",
+            "地質重視",
+            "Geology-focused",
             false,
             [0.15, 0.50, 0.10, 0.05, 0.20],
         ),
@@ -311,23 +311,24 @@ fn regolith(e: &EarthSite) -> DimScore {
     let bare_ndvi = e.ndvi_min.map_or(0.0, |n| clamp01((0.6 - n) / 0.6));
     let bare = bare_ndvi.max(e.barren_frac.unwrap_or(0.0));
     let dry = clamp01(1.0 - e.precip_mm_yr.unwrap_or(2000.0) / 2000.0);
-    let fmt = |v: Option<f64>| v.map_or("–".to_string(), |x| x.to_string());
+    let ndvi = |v: Option<f64>| v.map_or("–".to_string(), |x| format!("{x:.2}"));
+    let mm = |v: Option<f64>| v.map_or("–".to_string(), |x| format!("{}", x.round()));
     dim(
         "regolith",
         0.6 * bare + 0.4 * dry,
         format!(
             "裸地 {}%（NDVI最小 {}）・乾燥 {}%（年降水 {} mm）",
             (bare * 100.0).round(),
-            fmt(e.ndvi_min),
+            ndvi(e.ndvi_min),
             (dry * 100.0).round(),
-            fmt(e.precip_mm_yr)
+            mm(e.precip_mm_yr)
         ),
         format!(
             "Bare ground {}% (min NDVI {}) · dryness {}% (precipitation {} mm/yr)",
             (bare * 100.0).round(),
-            fmt(e.ndvi_min),
+            ndvi(e.ndvi_min),
             (dry * 100.0).round(),
-            fmt(e.precip_mm_yr)
+            mm(e.precip_mm_yr)
         ),
         "0.6 × bare-ground index + 0.4 × dryness index",
     )
