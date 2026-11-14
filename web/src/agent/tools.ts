@@ -3,7 +3,7 @@
 import type { Core, Waypoint } from '../core';
 import { LANDING, exampleRoute, loadHokkaidoGrid, type WalkData } from '../walk/data';
 import { fmtH } from '../walk/geo';
-import { DEFAULT_START, computePlan, evaParams, evaluate, planRoute, rehearsalPoints, roverWalkbackSql, turnIndex, turnWaypoint, WATER_PER_O2, type PlanParams } from '../walk/plan';
+import { DEFAULT_START, MAX_SLOPE, computePlan, evaParams, evaluate, planRoute, steepLeg, rehearsalPoints, roverWalkbackSql, turnIndex, turnWaypoint, WATER_PER_O2, type PlanParams } from '../walk/plan';
 import { nextFrame, walkController, type EvidenceTopic } from '../walk/controller';
 import { registerTool, setToolsReady } from './port';
 import { getLang } from '../i18n';
@@ -119,6 +119,9 @@ const walkbackCheck: ToolDef = {
     else lines.push(t(l,
       `判定: 帰れない。途中で引き返す（WP${turnWaypoint(ev, dense)} の手前、出発から ${r1(ev.ticks[ti!]?.km ?? 0)} km 地点）。`,
       `Verdict: cannot complete it. Turn back before WP${turnWaypoint(ev, dense)} (${r1(ev.ticks[ti!]?.km ?? 0)} km from the base).`));
+    const st = steepLeg(ev);
+    if (st != null) lines.push(t(l, `ただし ${Math.abs(ev.legs[st].slope_deg).toFixed(0)}° の通れない坂がある（上限 ${MAX_SLOPE}°＝火星の砂丘の安息角、Atwood-Stone & McEwen 2013）。`,
+      `But the route has an impassable ${Math.abs(ev.legs[st].slope_deg).toFixed(0)}° slope (limit ${MAX_SLOPE}°, the angle of repose of Martian dunes, Atwood-Stone & McEwen 2013).`));
     lines.push(t(l,
       `行き ${r1(ev.out_km)} km / 帰り（まっすぐ）${r1(ev.back_km)} km、かかる時間 ${fmtH(ev.total_h)}、体力の消費 ${r1(ev.total_effort_h)} / 使える分 ${r1(ev.usable_h)} h、先に尽きるもの: ${ev.limiting === 'water' ? '冷却水' : '酸素'}。`,
       `Out ${r1(ev.out_km)} km / back (straight) ${r1(ev.back_km)} km, time ${fmtH(ev.total_h)}, effort ${r1(ev.total_effort_h)} of ${r1(ev.usable_h)} usable h, runs out first: ${ev.limiting === 'water' ? 'cooling water' : 'oxygen'}.`));
