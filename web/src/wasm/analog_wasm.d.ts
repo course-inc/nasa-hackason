@@ -172,6 +172,11 @@ export function setScan(json_str: string): string;
 export function setTraverse(traverse_json: string): string;
 
 /**
+ * Store the Jezero hourly weather (jezero_weather.json, Perseverance MEDA).
+ */
+export function setWeather(json_str: string): void;
+
+/**
  * #11 A: lay a walk recorded on Earth onto Mars from `base` (same east/north metres).
  */
 export function transplantWalk(points: string, base_lat: number, base_lon: number): string;
@@ -180,6 +185,17 @@ export function transplantWalk(points: string, base_lat: number, base_lon: numbe
  * #11 A: summary of a recorded walk (`[{lat, lon, elev, t}]`, elevation from a DEM) on Earth.
  */
 export function walkSummary(points: string): string;
+
+/**
+ * Weather model constants for the evidence text.
+ */
+export function weatherModel(): string;
+
+/**
+ * Cooling-water factor for a walk from local solar hour `start_h` lasting `hours`, plus the air
+ * temperature and pressure at the start: {water_factor, temp_k, pressure_pa}; factor 1 without data.
+ */
+export function weatherWalk(start_h: number, hours: number): string;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -217,8 +233,11 @@ export interface InitOutput {
     readonly setGrid: (a: number, b: number, c: number, d: number) => [number, number];
     readonly setScan: (a: number, b: number) => [number, number, number, number];
     readonly setTraverse: (a: number, b: number) => [number, number, number, number];
+    readonly setWeather: (a: number, b: number) => [number, number];
     readonly transplantWalk: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly walkSummary: (a: number, b: number) => [number, number, number, number];
+    readonly weatherModel: () => [number, number];
+    readonly weatherWalk: (a: number, b: number) => [number, number];
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
