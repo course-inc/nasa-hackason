@@ -24,6 +24,8 @@ export type AgentEvent =
   | { type: 'tool_call'; id: string; name: string; args: unknown }
   | { type: 'tool_result'; id: string; name: string; result: ToolResult; ok: boolean }
   | { type: 'error'; message: string }
+  /** Progress the panel shows while waiting (e.g. an in-browser model loading); '' clears it. */
+  | { type: 'status'; text: string }
   | { type: 'done' };
 
 export interface AgentPort {
