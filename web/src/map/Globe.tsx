@@ -12,6 +12,10 @@ export interface GlobeCamera { lat: number; lon: number; distance?: number; seq:
 
 interface Props {
   marks: GlobeMark[];
+  /** Close-up photo patch draped on the sphere (e.g. the Jezero HiRISE mosaic) and its bounds. */
+  patch?: { url: string; north: number; south: number; west: number; east: number } | null;
+  /** Open already close over this point and pull back (coming back from the map). */
+  startClose?: { lat: number; lon: number } | null;
   /** Polylines as [lat, lon] (Perseverance's path). */
   lines: [number, number][][];
   /** Where "enter" zooms to (Jezero / the base). */
@@ -29,18 +33,40 @@ export function toVec(lat: number, lon: number, r = R) {
 }
 
 const ENTER_DISTANCE = 1.32; // camera distance from the centre at which a zoom over the focus enters
+/** Final camera distance over the focus: ~6 km above the surface, about what the 2D map shows at
+ * zoom 13 on a laptop screen, so the hand-over does not jump. */
+const CLOSE = 1 + 6.3 / 3389.5;
+const FLY_MS = 2600;
+const ease = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
 
-export function Globe({ marks, lines, focus, camera, onEnter }: Props) {
+export function Globe({ marks, lines, focus, camera, onEnter, patch, startClose }: Props) {
   const t = useT();
   const host = useRef<HTMLDivElement>(null);
   const labels = useRef<HTMLDivElement>(null);
   const [tex, setTex] = useState<'viking' | 'mola'>('viking');
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [fading, setFading] = useState<'in' | 'out' | null>(startClose ? 'in' : null);
   const sc = useRef<{ cam: THREE.PerspectiveCamera; ctl: OrbitControls; mat: THREE.MeshStandardMaterial;
-    goal: THREE.Vector3 | null; marks: { v: THREE.Vector3; el: HTMLElement }[]; entered: boolean } | null>(null);
+    goal: THREE.Vector3 | null; marks: { v: THREE.Vector3; el: HTMLElement }[]; entered: boolean;
+    fly: { t0: number; d0: THREE.Vector3; d1: THREE.Vector3; r0: number; r1: number; bump: number; done?: () => void } | null } | null>(null);
   const enterRef = useRef(onEnter);
   enterRef.current = onEnter;
+  /** Continuous flight to (lat, lon) at distance r1 (1 = surface). */
+  const flyTo = (lat: number, lon: number, r1: number, done?: () => void) => {
+    const s = sc.current;
+    if (!s) return;
+    const d0 = s.cam.position.clone().normalize(), d1 = toVec(lat, lon).normalize();
+    const angle = Math.acos(Math.max(-1, Math.min(1, d0.dot(d1))));
+    const r0 = s.cam.position.length();
+    s.goal = null;
+    s.ctl.enabled = false;
+    s.fly = { t0: performance.now(), d0, d1, r0, r1, bump: Math.min(1.2, angle * 0.7) * Math.min(1, r0), done };
+  };
+  const flyRef = useRef(flyTo);
+  flyRef.current = flyTo;
+  /** Fade the globe out over the map, then hand over. */
+  const enter = () => { setFading('out'); setTimeout(() => enterRef.current(), 650); };
 
   useEffect(() => {
     const el = host.current!;
@@ -74,17 +100,29 @@ export function Globe({ marks, lines, focus, camera, onEnter }: Props) {
       const g = new THREE.BufferGeometry().setFromPoints(l.map(([la, lo]) => toVec(la, lo, R * 1.0008)));
       scene.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: '#36cfc9' })));
     }
+    // Close-up photo patch: a piece of sphere spanning exactly the photo's bounds (three's sphere
+    // angles: phi from longitude −180°, theta from the north pole), so its UVs map the image 1:1.
+    if (patch) {
+      const d = Math.PI / 180;
+      const geo = new THREE.SphereGeometry(R * 1.00003, 96, 64, (patch.west + 180) * d, (patch.east - patch.west) * d, (90 - patch.north) * d, (patch.north - patch.south) * d);
+      const pm = new THREE.MeshStandardMaterial({ roughness: 1, metalness: 0, transparent: true, opacity: 0 });
+      new THREE.TextureLoader().load(patch.url, (tx) => { tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 8; pm.map = tx; pm.opacity = 1; pm.needsUpdate = true; });
+      scene.add(new THREE.Mesh(geo, pm));
+    }
     // Marks: a dot on the sphere and an HTML label placed every frame.
     const markObjs: { v: THREE.Vector3; el: HTMLElement }[] = [];
+    const dots: THREE.Mesh[] = [];
     for (const m of marks) {
       const v = toVec(m.lat, m.lon, R * 1.001);
       const dot = new THREE.Mesh(new THREE.SphereGeometry(m.kind === 'site' ? 0.006 : 0.009, 12, 8),
         new THREE.MeshBasicMaterial({ color: m.kind === 'base' ? '#ffffff' : m.kind === 'jezero' ? '#ffd666' : '#9ec5ff' }));
       dot.position.copy(v);
       scene.add(dot);
+      dots.push(dot);
       const lab = document.createElement('div');
       lab.className = `globe-label ${m.kind}`;
       lab.textContent = m.label;
+      lab.addEventListener('click', () => flyRef.current(m.lat, m.lon, 1.06));
       labels.current?.appendChild(lab);
       markObjs.push({ v, el: lab });
     }
@@ -97,9 +135,10 @@ export function Globe({ marks, lines, focus, camera, onEnter }: Props) {
     ctl.rotateSpeed = 0.5;
     ctl.zoomSpeed = 0.8;
     const f = toVec(focus.lat, focus.lon);
-    cam.position.copy(f.clone().multiplyScalar(3.2).add(new THREE.Vector3(0, 0.6, 0)));
+    ctl.minDistance = 1.0005;
+    cam.position.copy(startClose ? toVec(startClose.lat, startClose.lon, CLOSE) : f.clone().multiplyScalar(3.2).add(new THREE.Vector3(0, 0.6, 0)));
     ctl.target.set(0, 0, 0);
-    sc.current = { cam, ctl, mat, goal: null, marks: markObjs, entered: false };
+    sc.current = { cam, ctl, mat, goal: null, marks: markObjs, entered: !!startClose, fly: null };
     ctl.addEventListener('start', () => { if (sc.current) sc.current.goal = null; });
 
     const resize = () => {
@@ -116,12 +155,31 @@ export function Globe({ marks, lines, focus, camera, onEnter }: Props) {
     let raf = 0;
     const loop = () => {
       const s = sc.current!;
-      if (s.goal) {
+      if (s.fly) {
+        // One continuous move: turn along the great circle while the height follows an ease
+        // curve, rising a little in the middle for long hops (like Google Earth).
+        const u = Math.min(1, (performance.now() - s.fly.t0) / FLY_MS), e = ease(u);
+        const dir = new THREE.Vector3().copy(s.fly.d0).lerp(s.fly.d1, e).normalize();
+        const q = new THREE.Quaternion().setFromUnitVectors(s.fly.d0, s.fly.d1);
+        const dir2 = s.fly.d0.clone().applyQuaternion(new THREE.Quaternion().slerp(q, e));
+        if (Number.isFinite(dir2.x)) dir.copy(dir2);
+        const r = s.fly.r0 + (s.fly.r1 - s.fly.r0) * e + s.fly.bump * Math.sin(Math.PI * u);
+        cam.position.copy(dir.multiplyScalar(r));
+        cam.up.set(0, 1, 0);
+        if (u >= 1) { const done = s.fly.done; s.fly = null; ctl.enabled = true; done?.(); }
+      } else if (s.goal) {
         cam.position.lerp(s.goal, 0.08);
         if (cam.position.distanceTo(s.goal) < 0.002) s.goal = null;
       }
+      // Near plane follows the altitude, so the surface stays sharp when close.
+      const alt = cam.position.length() - R;
+      // Marker dots keep about the same size on screen (sized for the whole-planet view).
+      const k = Math.min(1, alt / 1.2);
+      for (const d of dots) d.scale.setScalar(k);
+      const near = Math.max(alt * 0.05, 1e-6);
+      if (Math.abs(cam.near - near) / near > 0.2) { cam.near = near; cam.far = Math.max(10, alt * 50 + 10); cam.updateProjectionMatrix(); }
       // Slower turning when close to the surface.
-      ctl.rotateSpeed = Math.min(0.5, (cam.position.length() - R) * 0.6);
+      ctl.rotateSpeed = Math.min(0.5, Math.max(0.02, (cam.position.length() - R) * 0.6));
       ctl.update();
       r.render(scene, cam);
       // Labels: project; hide those on the far side.
@@ -135,7 +193,7 @@ export function Globe({ marks, lines, focus, camera, onEnter }: Props) {
       // Close over the focus → hand over to the Jezero map.
       const d = cam.position.length();
       const over = camDir.dot(toVec(focus.lat, focus.lon).normalize()) > Math.cos((8 * Math.PI) / 180);
-      if (!s.entered && d < ENTER_DISTANCE && over && !s.goal) { s.entered = true; enterRef.current(); }
+      if (!s.entered && d < ENTER_DISTANCE && over && !s.goal && !s.fly) { s.entered = true; flyRef.current(focus.lat, focus.lon, CLOSE, () => enter()); }
       if (d > ENTER_DISTANCE + 0.1) s.entered = false;
       raf = requestAnimationFrame(loop);
     };
@@ -179,14 +237,20 @@ export function Globe({ marks, lines, focus, camera, onEnter }: Props) {
   useEffect(() => {
     const s = sc.current;
     if (!s || !camera) return;
-    s.goal = toVec(camera.lat, camera.lon, camera.distance ?? 2.2);
     s.entered = false;
+    flyTo(camera.lat, camera.lon, camera.distance ?? 2.2);
   }, [camera?.seq]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const zoomTo = () => { const s = sc.current; if (s) { s.goal = toVec(focus.lat, focus.lon, 1.2); s.entered = false; } };
+  const zoomTo = () => { const s = sc.current; if (s) { s.entered = true; flyTo(focus.lat, focus.lon, CLOSE, enter); } };
+  // Coming back from the map: start close (faded in) and pull back out to the whole planet.
+  useEffect(() => {
+    if (!startClose) return;
+    const id = setTimeout(() => { setFading(null); flyTo(startClose.lat, startClose.lon, 2.6); }, 60);
+    return () => clearTimeout(id);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="globe">
+    <div className={`globe${fading === 'out' ? ' fade-out' : fading === 'in' ? ' fade-in' : ''}`}>
       <div ref={host} className="globe-canvas" />
       <div ref={labels} className="globe-labels" aria-hidden="true" />
       <div className="maplabel">{t('火星（全球）', 'Mars (whole planet)')}</div>
