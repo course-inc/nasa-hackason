@@ -405,7 +405,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   }, [data]);
   const globeMarks = useMemo<GlobeMark[]>(() => [
     { lat: LANDING.lat, lon: LANDING.lon, kind: 'base', label: t('基地: Jezero クレーター（Perseverance 着陸地点）', 'Base: Jezero crater (Perseverance landing site)') },
-    ...core.missions.landings.mars.filter((l) => !/Perseverance/i.test(l.name)).map((l) => ({ lat: l.lat, lon: l.lon, kind: 'site' as const, label: `${l.name} ${l.year}` })),
+    // Other landing sites come from the gazetteer layer (with a card each).
   ], [core, lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const n = route.length;

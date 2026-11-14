@@ -38,6 +38,12 @@ describe('rules agent routing', () => {
     expect(names('ローバーが壊れたら？')).toEqual(['rover_walkback']);
     expect(plan('An ice test in February', ALL)[0].args).toMatchObject({ test: 'ice' });
   });
+  it('gazetteer questions use mars_names', () => {
+    expect(plan('過去の着陸地点を全部教えて', ALL).find((c) => c.name === 'query_nasa')?.args.sql).toMatch(/kind = 'landing'/);
+    expect(plan('有人着陸の候補はどこ？', ALL).find((c) => c.name === 'query_nasa')?.args.sql).toMatch(/kind = 'crewed'/);
+    expect(plan('Gusev クレーターはどこ？', ALL).find((c) => c.name === 'query_nasa')?.args.sql).toMatch(/ILIKE '%Gusev%'/);
+    expect(plan('Where is Olympus Mons?', ALL)[0].args.sql).toMatch(/ILIKE '%Olympus Mons%'/);
+  });
   it('globe', () => {
     expect(names('火星の全球を見せて')).toEqual(['view_globe']);
   });
