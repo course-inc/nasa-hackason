@@ -62,7 +62,7 @@ window.OXIDES = {
   andesite:            { label: '安山岩', v: [57.9, 7.0, 0.9, 17.0, 3.3, 6.8], src: 'Le Maitre 1976' },
   dacite:              { label: 'デイサイト', v: [65.0, 4.5, 0.6, 15.9, 1.8, 4.3], src: 'Le Maitre 1976' },
   rhyolite:            { label: '流紋岩', v: [72.8, 2.0, 0.3, 13.3, 0.4, 1.2], src: 'Le Maitre 1976' },
-  sediment:            { label: '堆積物（仮）', v: [65.0, 5.0, 0.7, 14.0, 2.0, 3.0], src: 'generic (low confidence)' },
+  sediment:            { label: '堆積物（組成のばらつき大）', v: [65.0, 5.0, 0.7, 14.0, 2.0, 3.0], src: 'generic (low confidence)' },
 };
 
 // Map GSJ lithology text → oxide class. Order matters (most specific first).
