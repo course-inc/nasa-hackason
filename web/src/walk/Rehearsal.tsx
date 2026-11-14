@@ -1,9 +1,10 @@
 // "Rehearse it in Hokkaido": find the place where the same walk (same length, same climbs)
 // can be practised, on the elevation grids around the #10 Hokkaido candidate sites.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Core, RehearsalMatch, Waypoint } from '../core';
 import { PlanetMap, type Feature } from '../map/PlanetMap';
-import { loadHokkaidoGrid, type HokkaidoSite } from './data';
+import { Terrain3D, type Line3D } from '../map/Terrain3D';
+import { loadHokkaidoGrid, type GridData, type HokkaidoSite } from './data';
 
 export interface Found { site: HokkaidoSite; m: RehearsalMatch }
 
@@ -64,6 +65,15 @@ export function RehearsalPanel({ core, mars, found, selected, onSelect }: {
   core: Core; mars: Waypoint[]; found: Found[]; selected: number; onSelect: (i: number) => void;
 }) {
   const f = found[selected];
+  const [is3d, setIs3d] = useState(false);
+  const [grid, setGrid] = useState<GridData | null>(null);
+  useEffect(() => {
+    if (!f) return;
+    let live = true;
+    loadHokkaidoGrid(core, f.site.id).then((g) => live && setGrid(g)).catch(() => live && setGrid(null));
+    return () => { live = false; };
+  }, [core, f]);
+  const lines3d = useMemo<Line3D[]>(() => (f ? [{ pts: f.m.pts.map((p) => [p[0], p[1]] as [number, number]), color: '#40a9ff', width: 5 }] : []), [f]);
   const features = useMemo<Feature[]>(() => {
     if (!f) return [];
     const pts = f.m.pts.map((p) => [p[0], p[1]] as [number, number]);
@@ -82,7 +92,19 @@ export function RehearsalPanel({ core, mars, found, selected, onSelect }: {
   return (
     <div className="mapwrap rehearsal">
       <PlanetMap core={core} world="earth" view={[f.site.lat, f.site.lon, 13]} fit={fit} baseKey="gsiphoto" features={features} />
-      <div className="maplabel">北海道の練習コース: {f.site.name}</div>
+      {is3d && grid && (
+        <div className="terrain-over">
+          <Terrain3D key={f.site.id} grid={grid} radiusKm={6371} palette="earth" lines={lines3d}
+            points={[{ lat: f.m.pts[0][0], lon: f.m.pts[0][1], color: '#52c41a', size: 2 }]} focus={fit?.bounds ?? null} />
+        </div>
+      )}
+      <div className="maplabel">北海道の練習コース: {f.site.name}{is3d ? '（3D）' : ''}</div>
+      {grid && (
+        <div className="view-toggle" role="group" aria-label="地図の表示">
+          <button className={is3d ? '' : 'on'} onClick={() => setIs3d(false)}>2D</button>
+          <button className={is3d ? 'on' : ''} onClick={() => setIs3d(true)}>3D</button>
+        </div>
+      )}
       <div className="rehearsal-card">
         <div className="tabs">
           {found.slice(0, 3).map((x, i) => (

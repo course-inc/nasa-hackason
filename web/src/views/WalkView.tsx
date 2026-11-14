@@ -10,6 +10,8 @@ import { densify, fmtH, reachImage, slopeColor } from '../walk/geo';
 import { Hud, type HudState } from '../walk/Hud';
 import { EvaCard, RoverCard } from '../walk/Evidence';
 import { RehearsalPanel, useRehearsal } from '../walk/Rehearsal';
+import { Terrain3D, type Line3D, type Point3D } from '../map/Terrain3D';
+import type { Reach } from '../core';
 
 type Mode = 'pan' | 'route' | 'base';
 export interface WalkParams { world?: World; lat?: number; lon?: number; z?: number }
@@ -29,6 +31,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const [reserve, setReserve] = useState(20);
   const [showReach, setShowReach] = useState(true);
   const [showRover, setShowRover] = useState(true);
+  const [view3d, setView3d] = useState(false);
   const [fly, setFly] = useState<FlyTarget | null>(null);
   const [view] = useState<[number, number, number]>(() =>
     params.lat != null ? [params.lat, params.lon!, params.z ?? 13] : [LANDING.lat, LANDING.lon - 0.015, 13]);
@@ -55,6 +58,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
 
   // Walk-home area (recomputed shortly after the base or the budget changes).
   const base = route[0];
+  const [reachRaw, setReachRaw] = useState<Reach | null>(null);
   const [reachImg, setReachImg] = useState<{ url: string; bounds: [[number, number], [number, number]]; area: number; max: number } | null>(null);
   useEffect(() => {
     if (!data?.dem || !base) return;
@@ -62,7 +66,8 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
       try {
         const r = core.reach(WORLD, JEZERO, base.lat, base.lon, p, MAX_SLOPE);
         setReachImg({ ...reachImage(r, data.dem!), area: r.area_km2, max: r.max_km });
-      } catch { setReachImg(null); }
+        setReachRaw(r);
+      } catch { setReachImg(null); setReachRaw(null); }
     }, 60);
     return () => clearTimeout(id);
   }, [core, data, base?.lat, base?.lon, p]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -92,7 +97,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
     const OUT_MS = 11000 * Math.min(1, Math.max(0.4, turn / 120)), BACK_MS = 5000, HOLD = 1400;
     const t0 = performance.now();
     const frame = (now: number) => {
-      const el = now - t0;
+      const el = Math.max(0, now - t0); // rAF time can be slightly before t0
       if (el < OUT_MS) {
         const f = (el / OUT_MS) * turn, i = Math.floor(f), j = Math.min(turn, i + 1), u = f - i;
         const a = ticks[i], b = ticks[j];
@@ -161,6 +166,23 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
     }
     return f;
   }, [reachImg, showReach, roverFeatures, dense, ev, route, turnIdx]);
+  // The same layers for the 3D view.
+  const lines3d = useMemo<Line3D[]>(() => {
+    const l: Line3D[] = [];
+    if (data && showRover) for (const t of data.traverse) l.push({ pts: t, color: '#36cfc9', width: 2.5, opacity: 0.9 });
+    for (const f of features) if (f.kind === 'line') l.push({ pts: f.pts, color: f.color, width: (f.weight ?? 3) >= 5 ? 5 : 2, opacity: f.opacity });
+    return l;
+  }, [data, showRover, features]);
+  const points3d = useMemo<Point3D[]>(() => {
+    const ps: Point3D[] = route.map((w, i) => ({ lat: w.lat, lon: w.lon, color: i === 0 ? '#ffffff' : '#ffd666', size: i === 0 ? 2.2 : 1.2 }));
+    if (turnIdx != null && dense.pts[turnIdx]) ps.push({ lat: dense.pts[turnIdx].lat, lon: dense.pts[turnIdx].lon, color: '#faad14', size: 2 });
+    return ps;
+  }, [route, turnIdx, dense]);
+  const focus3d = useMemo(() => {
+    if (route.length < 2) return null;
+    const la = route.map((w) => w.lat), lo = route.map((w) => w.lon);
+    return [[Math.min(...la), Math.min(...lo)], [Math.max(...la), Math.max(...lo)]] as [[number, number], [number, number]];
+  }, [route]);
   const live = useMemo<Feature[]>(() => (walker ? [{ kind: 'walker', lat: walker[0], lon: walker[1], color: '#ff7a45' }] : []), [walker]);
   const overlays = useMemo(() => missionOverlay(core, WORLD), [core]);
 
@@ -239,6 +261,18 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
               ))}
             </div>
           </PlanetMap>
+          {view3d && data?.demGrid && (
+            <div className="terrain-over">
+              <Terrain3D grid={data.demGrid} radiusKm={core.world(WORLD).radius_km} palette="mars" lines={lines3d} points={points3d}
+                reach={showReach ? reachRaw : null} walker={walker} focus={focus3d} label="Jezero クレーター（3D）" />
+            </div>
+          )}
+          {data?.demGrid && (
+            <div className="view-toggle" role="group" aria-label="地図の表示">
+              <button className={view3d ? '' : 'on'} onClick={() => setView3d(false)}>2D</button>
+              <button className={view3d ? 'on' : ''} onClick={() => setView3d(true)}>3D</button>
+            </div>
+          )}
           {hud && <Hud s={hud} limiting={ev.limiting} onStop={stop} />}
         </div>
         {rehOpen && reh.found.length > 0 && (
