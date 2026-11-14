@@ -255,6 +255,62 @@ export function gaps(earth_id, body_id, test) {
 }
 
 /**
+ * Plan a walk from the base to a destination on a stored grid (grid.rs plan_route): only cells
+ * of the walk-home area, weighted cost; `weights` = {time, slope, footing, margin} (missing = 0,
+ * time 1). Returns {path: [[lat, lon], …], status, goal_ratio}.
+ * @param {string} world
+ * @param {string} name
+ * @param {number} lat1
+ * @param {number} lon1
+ * @param {number} lat2
+ * @param {number} lon2
+ * @param {string} params
+ * @param {number} max_slope_deg
+ * @param {string} weights
+ * @returns {string}
+ */
+export function planRoute(world, name, lat1, lon1, lat2, lon2, params, max_slope_deg, weights) {
+    let deferred11_0;
+    let deferred11_1;
+    try {
+        const val5 = +lat1;
+        const val6 = +lon1;
+        const val7 = +lat2;
+        const val8 = +lon2;
+        const val9 = +max_slope_deg;
+        let ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3;
+        try {
+            ptr0 = passStringToWasm0(world, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passStringToWasm0(params, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len2 = WASM_VECTOR_LEN;
+            ptr3 = passStringToWasm0(weights, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len3 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr3) { wasm.__wbindgen_free(ptr3, len3 * 1, 1); }
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 1, 1); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+            throw e;
+        }
+        const ret = wasm.planRoute(ptr0, len0, ptr1, len1, val5, val6, val7, val8, ptr2, len2, val9, ptr3, len3);
+        var ptr10 = ret[0];
+        var len10 = ret[1];
+        if (ret[3]) {
+            ptr10 = 0; len10 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred11_0 = ptr10;
+        deferred11_1 = len10;
+        return getStringFromWasm0(ptr10, len10);
+    } finally {
+        wasm.__wbindgen_free(deferred11_0, deferred11_1, 1);
+    }
+}
+
+/**
  * Radiation dose for `hours` on the surface (Curiosity RAD rate, NASA limits): {dose_msv,
  * career_share, hours_to_career_limit}.
  * @param {number} hours
