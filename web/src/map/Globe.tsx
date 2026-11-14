@@ -1,0 +1,204 @@
+// Whole-Mars 3D globe (drag to turn, wheel to zoom), textured with a NASA global mosaic bundled in
+// web/public/data/globe/ (Viking MDIM 2.1 colour or MOLA shaded relief, 4096 × 2048,
+// equirectangular). Marks the landing sites, Jezero, the base and Perseverance's path. Zooming in
+// close over Jezero hands over to the Jezero map (onEnter).
+import { useEffect, useRef, useState } from 'react';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { useT } from '../i18n';
+
+export interface GlobeMark { lat: number; lon: number; label: string; kind: 'base' | 'site' | 'jezero' }
+export interface GlobeCamera { lat: number; lon: number; distance?: number; seq: number }
+
+interface Props {
+  marks: GlobeMark[];
+  /** Polylines as [lat, lon] (Perseverance's path). */
+  lines: [number, number][][];
+  /** Where "enter" zooms to (Jezero / the base). */
+  focus: { lat: number; lon: number };
+  camera?: GlobeCamera | null;
+  onEnter: () => void;
+}
+
+const R = 1;
+/** lat/lon (degrees) → point on the sphere, matching three's SphereGeometry UVs for an
+ * equirectangular image that starts at longitude −180° on its left edge. */
+export function toVec(lat: number, lon: number, r = R) {
+  const la = (lat * Math.PI) / 180, lo = (lon * Math.PI) / 180;
+  return new THREE.Vector3(r * Math.cos(la) * Math.cos(lo), r * Math.sin(la), -r * Math.cos(la) * Math.sin(lo));
+}
+
+const ENTER_DISTANCE = 1.32; // camera distance from the centre at which a zoom over the focus enters
+
+export function Globe({ marks, lines, focus, camera, onEnter }: Props) {
+  const t = useT();
+  const host = useRef<HTMLDivElement>(null);
+  const labels = useRef<HTMLDivElement>(null);
+  const [tex, setTex] = useState<'viking' | 'mola'>('viking');
+  const [ready, setReady] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const sc = useRef<{ cam: THREE.PerspectiveCamera; ctl: OrbitControls; mat: THREE.MeshStandardMaterial;
+    goal: THREE.Vector3 | null; marks: { v: THREE.Vector3; el: HTMLElement }[]; entered: boolean } | null>(null);
+  const enterRef = useRef(onEnter);
+  enterRef.current = onEnter;
+
+  useEffect(() => {
+    const el = host.current!;
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#05070d');
+    const cam = new THREE.PerspectiveCamera(40, 1, 0.01, 100);
+    const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    r.setPixelRatio(Math.min(2, window.devicePixelRatio));
+    el.appendChild(r.domElement);
+
+    const mat = new THREE.MeshStandardMaterial({ color: '#b5643a', roughness: 1, metalness: 0 });
+    const globe = new THREE.Mesh(new THREE.SphereGeometry(R, 128, 64), mat);
+    scene.add(globe);
+    // Thin atmosphere rim.
+    scene.add(new THREE.Mesh(new THREE.SphereGeometry(R * 1.015, 64, 32),
+      new THREE.MeshBasicMaterial({ color: '#e8a27a', transparent: true, opacity: 0.08, side: THREE.BackSide })));
+    scene.add(new THREE.AmbientLight('#ffffff', 0.55));
+    const sun = new THREE.DirectionalLight('#fff4e8', 1.6);
+    sun.position.set(3, 1.5, 4);
+    scene.add(sun);
+
+    // Stars.
+    const sg = new THREE.BufferGeometry(), sp = new Float32Array(1500 * 3);
+    for (let i = 0; i < sp.length; i++) sp[i] = (Math.random() - 0.5) * 80;
+    sg.setAttribute('position', new THREE.BufferAttribute(sp, 3));
+    scene.add(new THREE.Points(sg, new THREE.PointsMaterial({ color: '#8899aa', size: 0.08 })));
+
+    // Perseverance's path, lifted a hair above the surface.
+    for (const l of lines) {
+      if (l.length < 2) continue;
+      const g = new THREE.BufferGeometry().setFromPoints(l.map(([la, lo]) => toVec(la, lo, R * 1.0008)));
+      scene.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: '#36cfc9' })));
+    }
+    // Marks: a dot on the sphere and an HTML label placed every frame.
+    const markObjs: { v: THREE.Vector3; el: HTMLElement }[] = [];
+    for (const m of marks) {
+      const v = toVec(m.lat, m.lon, R * 1.001);
+      const dot = new THREE.Mesh(new THREE.SphereGeometry(m.kind === 'site' ? 0.006 : 0.009, 12, 8),
+        new THREE.MeshBasicMaterial({ color: m.kind === 'base' ? '#ffffff' : m.kind === 'jezero' ? '#ffd666' : '#9ec5ff' }));
+      dot.position.copy(v);
+      scene.add(dot);
+      const lab = document.createElement('div');
+      lab.className = `globe-label ${m.kind}`;
+      lab.textContent = m.label;
+      labels.current?.appendChild(lab);
+      markObjs.push({ v, el: lab });
+    }
+
+    const ctl = new OrbitControls(cam, r.domElement);
+    ctl.enableDamping = true;
+    ctl.enablePan = false;
+    ctl.minDistance = 1.08;
+    ctl.maxDistance = 6;
+    ctl.rotateSpeed = 0.5;
+    ctl.zoomSpeed = 0.8;
+    const f = toVec(focus.lat, focus.lon);
+    cam.position.copy(f.clone().multiplyScalar(3.2).add(new THREE.Vector3(0, 0.6, 0)));
+    ctl.target.set(0, 0, 0);
+    sc.current = { cam, ctl, mat, goal: null, marks: markObjs, entered: false };
+    ctl.addEventListener('start', () => { if (sc.current) sc.current.goal = null; });
+
+    const resize = () => {
+      const w = el.clientWidth || 1, h = el.clientHeight || 1;
+      r.setSize(w, h, false);
+      r.domElement.style.width = '100%'; r.domElement.style.height = '100%';
+      cam.aspect = w / h; cam.updateProjectionMatrix();
+    };
+    const ro = new ResizeObserver(resize);
+    ro.observe(el);
+    resize();
+
+    const tmp = new THREE.Vector3();
+    let raf = 0;
+    const loop = () => {
+      const s = sc.current!;
+      if (s.goal) {
+        cam.position.lerp(s.goal, 0.08);
+        if (cam.position.distanceTo(s.goal) < 0.002) s.goal = null;
+      }
+      // Slower turning when close to the surface.
+      ctl.rotateSpeed = Math.min(0.5, (cam.position.length() - R) * 0.6);
+      ctl.update();
+      r.render(scene, cam);
+      // Labels: project; hide those on the far side.
+      const w = el.clientWidth, h = el.clientHeight, camDir = cam.position.clone().normalize();
+      for (const m of s.marks) {
+        const facing = m.v.clone().normalize().dot(camDir) > 0.15;
+        tmp.copy(m.v).project(cam);
+        m.el.style.display = facing ? '' : 'none';
+        if (facing) m.el.style.transform = `translate(${((tmp.x + 1) / 2) * w}px, ${((1 - tmp.y) / 2) * h}px)`;
+      }
+      // Close over the focus → hand over to the Jezero map.
+      const d = cam.position.length();
+      const over = camDir.dot(toVec(focus.lat, focus.lon).normalize()) > Math.cos((8 * Math.PI) / 180);
+      if (!s.entered && d < ENTER_DISTANCE && over && !s.goal) { s.entered = true; enterRef.current(); }
+      if (d > ENTER_DISTANCE + 0.1) s.entered = false;
+      raf = requestAnimationFrame(loop);
+    };
+    loop();
+    return () => {
+      cancelAnimationFrame(raf); ro.disconnect(); ctl.dispose();
+      scene.traverse((o) => {
+        const m = o as THREE.Mesh;
+        m.geometry?.dispose();
+        const mm = m.material as THREE.Material | undefined;
+        (mm as THREE.MeshStandardMaterial | undefined)?.map?.dispose();
+        mm?.dispose();
+      });
+      r.dispose(); el.removeChild(r.domElement);
+      if (labels.current) labels.current.innerHTML = '';
+      sc.current = null;
+    };
+    // marks/lines/focus are fixed for a mounted globe.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Texture (bundled, so it loads offline in the desktop app).
+  useEffect(() => {
+    const s = sc.current;
+    if (!s) return;
+    let live = true;
+    new THREE.TextureLoader().load(`./data/globe/mars_${tex}.jpg`, (texture) => {
+      if (!live || !sc.current) { texture.dispose(); return; }
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = 8;
+      s.mat.map?.dispose();
+      s.mat.map = texture;
+      s.mat.color.set('#ffffff');
+      s.mat.needsUpdate = true;
+      setReady(true);
+    }, undefined, () => live && setFailed(true));
+    return () => { live = false; };
+  }, [tex]);
+
+  // Camera requests (view_globe tool, "go to Jezero").
+  useEffect(() => {
+    const s = sc.current;
+    if (!s || !camera) return;
+    s.goal = toVec(camera.lat, camera.lon, camera.distance ?? 2.2);
+    s.entered = false;
+  }, [camera?.seq]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const zoomTo = () => { const s = sc.current; if (s) { s.goal = toVec(focus.lat, focus.lon, 1.2); s.entered = false; } };
+
+  return (
+    <div className="globe">
+      <div ref={host} className="globe-canvas" />
+      <div ref={labels} className="globe-labels" aria-hidden="true" />
+      <div className="maplabel">{t('火星（全球）', 'Mars (whole planet)')}</div>
+      <div className="globe-ctl" role="group" aria-label={t('全球の表示', 'Globe view')}>
+        <button className={tex === 'viking' ? 'on' : ''} onClick={() => setTex('viking')}>{t('写真（Viking）', 'Photo (Viking)')}</button>
+        <button className={tex === 'mola' ? 'on' : ''} onClick={() => setTex('mola')}>{t('高さ（MOLA）', 'Height (MOLA)')}</button>
+        <button className="primary" onClick={zoomTo}>{t('Jezero へ降りる', 'Fly down to Jezero')}</button>
+      </div>
+      {!ready && !failed && <div className="globe-msg">{t('火星の全球画像を読み込み中…', 'Loading the Mars mosaic…')}</div>}
+      {failed && <div className="globe-msg warn">{t('全球画像を読み込めませんでした。2D の地図に戻って使えます。', 'Could not load the Mars mosaic. The 2D map still works.')}</div>}
+      <div className="terrain3d-help">{t('ドラッグで回転・ホイールで拡大。Jezero に近づくと地図に切り替わります', 'Drag to turn, wheel to zoom. Zooming in over Jezero opens the map')}</div>
+      <div className="globe-credit">{tex === 'viking' ? 'Viking MDIM 2.1 (NASA/USGS)' : 'MGS MOLA shaded relief (NASA/GSFC)'} · NASA Solar System Treks</div>
+    </div>
+  );
+}

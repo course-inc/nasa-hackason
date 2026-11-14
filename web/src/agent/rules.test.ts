@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { extractKm, extractParams, plan } from './rules';
 
-const ALL = new Set(['walkback_check', 'rover_walkback', 'import_walk', 'mars_replay', 'open_evidence', 'explore_hokkaido', 'view_scan', 'view_3d', 'view_overlay', 'view_set_params', 'view_walk']);
+const ALL = new Set(['view_globe', 'walkback_check', 'rover_walkback', 'import_walk', 'mars_replay', 'open_evidence', 'explore_hokkaido', 'view_scan', 'view_3d', 'view_overlay', 'view_set_params', 'view_walk']);
 const names = (q: string) => plan(q, ALL).map((s) => s.name);
 
 describe('rules agent routing', () => {
@@ -27,6 +27,9 @@ describe('rules agent routing', () => {
   it('recorded walk', () => {
     expect(names('歩いた記録で火星を歩いて見せて')).toEqual(['import_walk', 'mars_replay']);
     expect(names('この散歩、火星なら帰れた？')).toEqual(['import_walk']);
+  });
+  it('globe', () => {
+    expect(names('火星の全球を見せて')).toEqual(['view_globe']);
   });
   it('bare ground and season keywords', () => {
     expect(plan('火山っぽい裸地で訓練するならどこ？', ALL)[0].args).toMatchObject({ bare_only: true });

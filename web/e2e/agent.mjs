@@ -158,6 +158,20 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
   if (o2 !== '6') fail(`O2 slider moved to 6 (${o2})`);
 }
 
+// Globe: the whole-Mars globe opens, shows the landing sites, and flying down opens the Jezero map.
+{
+  const { chips } = await ask('火星の全球を見せて');
+  if (!chips.includes('view_globe:ok')) fail('view_globe called');
+  await p.waitForSelector('.globe canvas', { timeout: 10000 }).catch(() => fail('globe shown'));
+  await p.waitForFunction(() => !document.querySelector('.globe-msg'), null, { timeout: 15000 }).catch(() => fail('globe mosaic loaded'));
+  const labs = await p.locator('.globe-label').evaluateAll((e) => e.filter((x) => x.style.display !== 'none').map((x) => x.textContent));
+  console.log('\nglobe labels', labs.join(' | '));
+  if (!labs.some((l) => /Jezero/.test(l))) fail('globe marks the base at Jezero');
+  await shot('globe');
+  await p.locator('.globe-ctl button.primary').click();
+  await p.waitForFunction(() => !document.querySelector('.globe'), null, { timeout: 15000 }).catch(() => fail('flying down opens the Jezero map'));
+}
+
 // Empty state: with only the base left, the panel says what to do next.
 {
   await p.goto(`${BASE}/#walk`);

@@ -84,6 +84,7 @@ export function plan(question: string, available: Set<string>): Step[] {
     for (const topic of topics.length ? topics : ['rover', 'eva', 'consumables']) add('open_evidence', { topic, lang });
   }
   if (!wantExplore && has(q, /季節|冬|夏|重み|season|winter|summer|weight/i)) add('view_scan', { target: 'jezero', test: 'walk', mode: 'scan' });
+  if (has(q, /全球|地球儀|火星全体|火星の全体|globe|whole planet|whole mars/i)) add('view_globe', { on: true });
   if (!wantWalkRec && (want3d || (!steps.length && has(q, /見せて|show/i)))) add('view_3d', { on: true });
   if (wantPlay && !wantWalkRec) add('view_walk', { action: 'play' });
   if (!steps.length && Object.keys(params).length === 0) return [];
