@@ -12,7 +12,7 @@ export interface WorldInfo {
 export interface EarthSite {
   id: string; name: string; en?: string; lat: number; lon: number;
   elev_m?: number | null; slope_mean_deg: number; relief_m?: number | null;
-  landcover_center?: string | null; lithology_ja?: string | null; age_ja?: string | null;
+  landcover_center?: string | null; lithology_ja?: string | null; lithology_en?: string | null; age_ja?: string | null;
 }
 export interface Body {
   id: string; world: World; name: string; ja: string; lat: number; lon: number;
@@ -21,10 +21,15 @@ export interface Body {
 }
 export interface Landing { name: string; year: number; agency: string; lat: number; lon: number }
 export interface Preset { id: string; name: string; lat: number; lon: number; z: number }
-export interface Profile { id: string; label: string; w: Record<string, number> }
-export interface DimScore { key: string; label: string; s: number; why: string; formula: string }
+export interface Profile { id: string; label: string; en: string; test: boolean; season: string; season_en: string; w: Record<string, number> }
+export interface DimScore { key: string; label: string; label_en: string; s: number; why: string; why_en: string; formula: string }
 export interface PairScore { body_id: string; total: number; raw: number; excluded: string | null; dims: DimScore[] }
 export interface SiteRanking { earth_id: string; ranks: PairScore[] }
+export interface SiteScore extends PairScore { earth_id: string }
+export interface Gap {
+  key: 'gravity' | 'vacuum' | 'cold' | 'hot' | 'sun' | 'radiation';
+  label: string; label_en: string; value: string; detail: string; detail_en: string; critical: boolean;
+}
 export interface Waypoint { lat: number; lon: number; elev?: number | null }
 export interface EvaParams {
   speed_kmh: number; o2_h: number; reserve: number;
@@ -66,6 +71,8 @@ export interface Boot {
 export interface Core extends Boot {
   world: (w: World) => WorldInfo;
   rankAll: (profileId: string) => SiteRanking[];
+  rankSites: (bodyId: string, profileId: string) => SiteScore[];
+  gaps: (earthId: string, bodyId: string, test: string) => Gap[];
   evaluateRoute: (world: World, pts: Waypoint[], p: EvaParams) => RouteEval;
   distanceKm: (world: World, a: { lat: number; lng: number }, b: { lat: number; lng: number }) => number;
   setGrid: (name: string, g: Grid | string) => void;
@@ -88,6 +95,8 @@ export function loadCore(): Promise<Core> {
       ...boot,
       world: (w) => worlds[w],
       rankAll: (id) => JSON.parse(wasm.rankAll(id)),
+      rankSites: (b, p) => JSON.parse(wasm.rankSites(b, p)),
+      gaps: (e, b, t) => JSON.parse(wasm.gaps(e, b, t)),
       evaluateRoute: (world, pts, p) => JSON.parse(wasm.evaluateRoute(world, JSON.stringify(pts), JSON.stringify(p))),
       distanceKm: (world, a, b) => wasm.distanceKm(world, a.lat, a.lng, b.lat, b.lng),
       setGrid: (name, g) => wasm.setGrid(name, typeof g === 'string' ? g : JSON.stringify(g)),

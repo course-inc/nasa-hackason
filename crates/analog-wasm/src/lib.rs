@@ -207,3 +207,15 @@ pub fn rehearse(
         ))
     })
 }
+
+/// Every Hokkaido site ranked for one Moon/Mars target and rehearsal test (profile id).
+#[wasm_bindgen(js_name = rankSites)]
+pub fn rank_sites(body_id: &str, profile_id: &str) -> String {
+    json(&analog_core::target::rank_sites(body_id, profile_id))
+}
+
+/// What Hokkaido cannot reproduce for this target, with numbers; critical-for-test first.
+#[wasm_bindgen(js_name = gaps)]
+pub fn gaps(earth_id: &str, body_id: &str, test: &str) -> String {
+    json(&analog_core::target::gaps_by_id(earth_id, body_id, test))
+}

@@ -25,6 +25,29 @@ await p.route('**/*', (r) => {
   return r.fulfill({ status: 204 });
 });
 
+// #10 target-first: Mons Mouton × each test ranks every site, shows numbered gaps, both languages.
+await p.goto(`${BASE}/#target/mons_mouton/ice`);
+await p.waitForSelector('#rank-list li');
+const nr = await p.locator('#rank-list li').count();
+console.log('target ranking', nr); if (nr < 10) fail('target ranking');
+const ov = await p.locator('#overview tbody tr').count();
+console.log('overview tests', ov); if (ov !== 5) fail('overview rows');
+const cold = await p.locator('#gaps .gap.critical', { hasText: 'ΔT' }).first().innerText().catch(() => '');
+console.log('cold gap', cold); if (!/ΔT \d+ K/.test(cold)) fail('cold gap');
+await p.locator('#test-tabs button[data-test=walk]').click();
+await p.locator('#rank-list li').nth(2).click();
+await p.waitForTimeout(300);
+if (!(await p.evaluate(() => location.hash)).startsWith('#target/mons_mouton/walk/')) fail('target hash');
+await p.locator('.target .lang button', { hasText: '日本語' }).click();
+const ja = await p.locator('#gaps h4').innerText();
+console.log('ja gaps title', ja); if (!/再現できない/.test(ja)) fail('japanese');
+await p.locator('.target .lang button', { hasText: 'EN' }).click();
+await p.locator('#target-body').selectOption('jezero');
+await p.waitForTimeout(300);
+const air = await p.locator('#gaps').innerText();
+if (!/CO₂/.test(air)) fail('mars atmosphere gap');
+await p.screenshot({ path: 'e2e/shot-target.png' });
+
 await p.goto(`${BASE}/#analogs`);
 await p.waitForSelector('#site-list li');
 const n = await p.locator('#site-list li').count();

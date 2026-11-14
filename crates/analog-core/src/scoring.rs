@@ -14,20 +14,34 @@ pub const DIMS: [(&str, &str); 5] = [
     ("regolith", "表土"),
 ];
 
+/// English labels for [`DIMS`], same order.
+pub const DIMS_EN: [&str; 5] = ["Terrain", "Geology", "Temperature", "Sunlight", "Regolith"];
+
 pub type Weights = BTreeMap<String, f64>;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Profile {
     pub id: &'static str,
     pub label: &'static str,
+    pub en: &'static str,
+    /// True for the five rehearsal tests shown in the target-first view.
+    pub test: bool,
+    /// Rule-of-thumb season for the test in Hokkaido (until monthly data is in).
+    pub season: &'static str,
+    pub season_en: &'static str,
     pub w: Weights,
 }
 
 /// Only "ice" and "landing" weights come from the Drive notes; others are team placeholders.
+/// Order of `w`: topography, geology, temperature, lighting, regolith.
 pub fn profiles() -> Vec<Profile> {
-    let mk = |id, label, w: [f64; 5]| Profile {
+    let mk = |id, label, en, test, w: [f64; 5]| Profile {
         id,
         label,
+        en,
+        test,
+        season: season(id).0,
+        season_en: season(id).1,
         w: DIMS
             .iter()
             .zip(w)
@@ -35,12 +49,69 @@ pub fn profiles() -> Vec<Profile> {
             .collect(),
     };
     vec![
-        mk("balanced", "バランス", [0.2, 0.2, 0.2, 0.2, 0.2]),
-        mk("ice", "氷・ISRU", [0.15, 0.15, 0.40, 0.15, 0.15]),
-        mk("landing", "着陸・走行", [0.50, 0.125, 0.125, 0.125, 0.125]),
-        mk("geology", "地質（仮）", [0.15, 0.50, 0.10, 0.05, 0.20]),
-        mk("caves", "洞窟（仮）", [0.35, 0.15, 0.35, 0.05, 0.10]),
+        mk(
+            "balanced",
+            "バランス",
+            "Balanced",
+            false,
+            [0.2, 0.2, 0.2, 0.2, 0.2],
+        ),
+        mk(
+            "landing",
+            "着陸・走行",
+            "Landing & roving",
+            true,
+            [0.50, 0.125, 0.125, 0.125, 0.125],
+        ),
+        mk(
+            "ice",
+            "氷・ISRU",
+            "Ice prospecting",
+            true,
+            [0.15, 0.15, 0.40, 0.15, 0.15],
+        ),
+        mk(
+            "walk",
+            "歩行・船外活動",
+            "Walking EVA",
+            true,
+            [0.40, 0.10, 0.15, 0.15, 0.20],
+        ),
+        mk(
+            "caves",
+            "縦穴・洞窟",
+            "Pits & caves",
+            true,
+            [0.35, 0.15, 0.35, 0.05, 0.10],
+        ),
+        mk(
+            "build",
+            "建設・表土利用",
+            "Construction & regolith use",
+            true,
+            [0.20, 0.30, 0.05, 0.05, 0.40],
+        ),
+        mk(
+            "geology",
+            "地質（仮）",
+            "Geology",
+            false,
+            [0.15, 0.50, 0.10, 0.05, 0.20],
+        ),
     ]
+}
+
+fn season(id: &str) -> (&'static str, &'static str) {
+    match id {
+        "ice" => ("1〜2月（夜が一番冷える）", "Jan–Feb (coldest nights)"),
+        "caves" => (
+            "通年（夏に地下の氷が見せ場）",
+            "All year (summer ground ice is the highlight)",
+        ),
+        "walk" => ("8〜9月（雪が消えた後）", "Aug–Sep (after snowmelt)"),
+        "landing" | "build" => ("7〜9月（雪がない）", "Jul–Sep (snow-free)"),
+        _ => ("", ""),
+    }
 }
 
 pub fn profile(id: &str) -> Profile {
@@ -56,6 +127,10 @@ pub struct DimScore {
     pub label: String,
     pub s: f64,
     pub why: String,
+    #[serde(default)]
+    pub label_en: String,
+    #[serde(default)]
+    pub why_en: String,
     pub formula: String,
 }
 
@@ -85,19 +160,30 @@ fn clamp01(x: f64) -> f64 {
     x.clamp(0.0, 1.0)
 }
 
-fn dim(key: &str, s: f64, why: String, formula: &str) -> DimScore {
-    let label = DIMS
-        .iter()
-        .find(|(k, _)| *k == key)
-        .map(|(_, l)| *l)
-        .unwrap_or(key);
+fn dim(key: &str, s: f64, why: String, why_en: String, formula: &str) -> DimScore {
+    let i = DIMS.iter().position(|(k, _)| *k == key);
     DimScore {
         key: key.into(),
-        label: label.into(),
+        label: i.map_or(key, |i| DIMS[i].1).into(),
+        label_en: i.map_or(key, |i| DIMS_EN[i]).into(),
         s,
         why,
+        why_en,
         formula: formula.into(),
     }
+}
+
+/// Earth surface temperature range in K: (January night, August day), MODIS LST or POWER T2M.
+pub fn earth_temps_k(e: &EarthSite) -> (f64, f64) {
+    let tmin = e
+        .lst_night_jan_k
+        .or(e.t2m_min_jan_c.map(|c| c + 273.15))
+        .unwrap_or(f64::NAN);
+    let tmax = e
+        .lst_day_aug_k
+        .or(e.t2m_max_aug_c.map(|c| c + 273.15))
+        .unwrap_or(f64::NAN);
+    (tmin, tmax)
 }
 
 fn topography(e: &EarthSite, b: &Body) -> DimScore {
@@ -111,7 +197,13 @@ fn topography(e: &EarthSite, b: &Body) -> DimScore {
             b.slope_mean_deg,
             r1(d)
         ),
-        "exp(−|Δ平均傾斜| / 10°)",
+        format!(
+            "Mean slope {}° vs {}° (Δ {}°)",
+            r1(e.slope_mean_deg),
+            b.slope_mean_deg,
+            r1(d)
+        ),
+        "exp(−|Δ mean slope| / 10°)",
     )
 }
 
@@ -146,19 +238,23 @@ fn geology(e: &EarthSite, b: &Body) -> DimScore {
                 ""
             }
         ),
-        "exp(−‖Δ酸化物6種 wt%‖ / 20)",
+        format!(
+            "{} vs {} (major-oxide distance {} wt%){}",
+            ec.replace('_', " "),
+            b.oxides.replace('_', " "),
+            r1(d),
+            if ec == "sediment" {
+                " · composition unknown, capped at 0.3"
+            } else {
+                ""
+            }
+        ),
+        "exp(−‖Δ 6 major oxides wt%‖ / 20)",
     )
 }
 
 fn temperature(e: &EarthSite, b: &Body) -> DimScore {
-    let tmin = e
-        .lst_night_jan_k
-        .or(e.t2m_min_jan_c.map(|c| c + 273.15))
-        .unwrap_or(f64::NAN);
-    let tmax = e
-        .lst_day_aug_k
-        .or(e.t2m_max_aug_c.map(|c| c + 273.15))
-        .unwrap_or(f64::NAN);
+    let (tmin, tmax) = earth_temps_k(e);
     let d = (tmin - b.tmin).hypot(tmax - b.tmax);
     let s = if d.is_finite() {
         (-d / 150.0).exp()
@@ -170,6 +266,13 @@ fn temperature(e: &EarthSite, b: &Body) -> DimScore {
         s,
         format!(
             "地表温度 {}–{} K vs {}–{} K",
+            tmin.round(),
+            tmax.round(),
+            b.tmin,
+            b.tmax
+        ),
+        format!(
+            "Surface temperature {}–{} K vs {}–{} K",
             tmin.round(),
             tmax.round(),
             b.tmin,
@@ -193,7 +296,14 @@ fn lighting(e: &EarthSite, b: &Body) -> DimScore {
             b0.round(),
             b1.round()
         ),
-        "exp(−‖Δ年間の南中高度(最小,最大)‖ / 40°)",
+        format!(
+            "Noon sun elevation {}–{}° vs {}–{}°",
+            e0.round(),
+            e1.round(),
+            b0.round(),
+            b1.round()
+        ),
+        "exp(−‖Δ yearly noon sun elevation (min, max)‖ / 40°)",
     )
 }
 
@@ -212,7 +322,14 @@ fn regolith(e: &EarthSite) -> DimScore {
             (dry * 100.0).round(),
             fmt(e.precip_mm_yr)
         ),
-        "0.6×裸地指数 + 0.4×乾燥指数",
+        format!(
+            "Bare ground {}% (min NDVI {}) · dryness {}% (precipitation {} mm/yr)",
+            (bare * 100.0).round(),
+            fmt(e.ndvi_min),
+            (dry * 100.0).round(),
+            fmt(e.precip_mm_yr)
+        ),
+        "0.6 × bare-ground index + 0.4 × dryness index",
     )
 }
 
