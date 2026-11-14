@@ -3,7 +3,7 @@
 import type { Core, Waypoint } from '../core';
 import { LANDING, exampleRoute, loadHokkaidoGrid, type WalkData } from '../walk/data';
 import { fmtH } from '../walk/geo';
-import { DEFAULT_START, MAX_SLOPE, computePlan, evaParams, evaluate, planRoute, steepLeg, rehearsalPoints, roverWalkbackSql, turnIndex, turnWaypoint, WATER_PER_O2, type PlanParams } from '../walk/plan';
+import { DEFAULT_START, MAX_SLOPE, computePlan, evaluateRouteMaterial, evaParams, evaluate, planRoute, steepLeg, rehearsalPoints, roverWalkbackSql, turnIndex, turnWaypoint, WATER_PER_O2, type PlanParams } from '../walk/plan';
 import { nextFrame, walkController, type EvidenceTopic } from '../walk/controller';
 import { registerTool, setToolsReady } from './port';
 import { getLang } from '../i18n';
@@ -445,6 +445,28 @@ const viewWalk: ToolDef = {
   },
 };
 
+/** evaluate_route: the evaluation material of the current route (plan.ts evaluateRouteMaterial). */
+const evaluateRouteTool: ToolDef = {
+  name: 'evaluate_route',
+  kind: 'compute',
+  description: 'Evaluation material of the route on screen (or the given one): totals (distance, round trip, climb/descent, max/mean slope, legs over the 30° slope limit, poor footing share, verdict, margin, radiation, closeness to Perseverance\'s path), O₂ and cooling water left for departures at 6/9/12/15/18 h local time, and per-segment numbers, each with its source. Use it to compare or explain a route; quote its numbers as they are.',
+  parameters: { type: 'object', properties: { route: { description: 'Same as walkback_check route (omit for the route on screen)' }, lang: { type: 'string', enum: ['ja', 'en'] } } },
+  async run(a) {
+    const c = await walkController();
+    const data = await c.data();
+    const route = a.route ? resolveRoute(c.core, data, a.route, c.route()) : c.route();
+    const m = evaluateRouteMaterial(c.core, data, route, evaParams(c.params()));
+    if (!m) throw new Error('no route to evaluate');
+    const T = m.totals, l = a.lang === 'en' ? 'en' : 'ja';
+    const verdict = T.verdict === 'ok' ? (l === 'ja' ? '帰れる' : 'can walk back') : T.verdict === 'impassable' ? (l === 'ja' ? '通れない坂がある' : 'impassable slope') : (l === 'ja' ? '途中で引き返す' : 'turn back');
+    const dep = m.by_departure.map((d) => `${d.start_h}:00 O₂ ${Math.round(d.o2_left * 100)}% / ${l === 'ja' ? '冷却水' : 'water'} ${Math.round(d.water_left * 100)}%`).join(', ');
+    const text = l === 'ja'
+      ? `評価: ${verdict}。行き ${T.out_km.toFixed(2)} km・往復 ${fmtH(T.round_trip_h)}・登り ${Math.round(T.climb_m)} m / 下り ${Math.round(T.descent_m)} m・最大の坂 ${T.max_slope_deg.toFixed(1)}°（平均 ${T.mean_slope_deg.toFixed(1)}°、上限超え ${T.over_limit_legs} 区間）・足場の悪い区間 ${Math.round(T.poor_footing * 100)}%・放射線 ${T.radiation_msv?.toFixed(2) ?? '—'} mSv。出発時刻別: ${dep}。区間 ${m.segments.length} 個。`
+      : `Evaluation: ${verdict}. Out ${T.out_km.toFixed(2)} km, round trip ${fmtH(T.round_trip_h)}, climb ${Math.round(T.climb_m)} m / descent ${Math.round(T.descent_m)} m, steepest ${T.max_slope_deg.toFixed(1)}° (mean ${T.mean_slope_deg.toFixed(1)}°, ${T.over_limit_legs} legs over the limit), poor footing ${Math.round(T.poor_footing * 100)}%, radiation ${T.radiation_msv?.toFixed(2) ?? '—'} mSv. By departure: ${dep}. ${m.segments.length} segments.`;
+    return { text, data: m, sources: Object.values(m.sources).map((label) => ({ label })) };
+  },
+};
+
 /** plan_route: the route to a destination, searched by the Rust core (grid.rs plan_route), then judged. */
 const planRouteTool: ToolDef = {
   name: 'plan_route',
@@ -477,7 +499,7 @@ const planRouteTool: ToolDef = {
   },
 };
 
-export const WALK_TOOLS: ToolDef[] = [walkbackCheck, planRouteTool, roverWalkbackTool, importWalkTool, marsReplay, openEvidence, view3d, viewGlobe, viewOverlay, viewSetParams, viewWalk];
+export const WALK_TOOLS: ToolDef[] = [walkbackCheck, planRouteTool, evaluateRouteTool, roverWalkbackTool, importWalkTool, marsReplay, openEvidence, view3d, viewGlobe, viewOverlay, viewSetParams, viewWalk];
 
 /**
  * Register the WALKBACK tools and #10's Hokkaido tools.

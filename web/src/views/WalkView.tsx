@@ -7,7 +7,7 @@ import { getElevation } from '../elevation';
 import { PlanetMap, missionOverlay, type Feature, type FlyTarget } from '../map/PlanetMap';
 import { JEZERO, LANDING, ensureFooting, exampleRoute, loadWalkData, type WalkData } from '../walk/data';
 import { fmtH, footingImage, reachImage, slopeColor } from '../walk/geo';
-import { DEFAULT_START, WALKBACK_COLOR, WATER_PER_O2, WORLD, waterFactor, denseRoute, easyLeg, steepLeg, MAX_SLOPE, evaParams, planRoute, routeMetrics, type RouteMetrics, evaluate, reachFrom, rehearsalPoints, roverCheck, roverWalkbackSql, turnIndex, turnWaypoint, walkbackState } from '../walk/plan';
+import { DEFAULT_START, WALKBACK_COLOR, WATER_PER_O2, WORLD, waterFactor, denseRoute, easyLeg, steepLeg, MAX_SLOPE, evaluateRouteMaterial, evaParams, planRoute, routeMetrics, type RouteMetrics, evaluate, reachFrom, rehearsalPoints, roverCheck, roverWalkbackSql, turnIndex, turnWaypoint, walkbackState } from '../walk/plan';
 import { setWalkController, type EvidenceTopic } from '../walk/controller';
 import { useLang, useT } from '../i18n';
 import { GpxError, SAMPLE_GPX, atDistance, importWalk, type WalkImport } from '../walk/gpx';
@@ -109,6 +109,8 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
     catch { return null; } finally { ensureFooting(core, footOn); }
   }, [core, dense, data, footOn]); // eslint-disable-line react-hooks/exhaustive-deps
   const [profHi, setProfHi] = useState<number | null>(null);
+  // Evaluation material (existing results gathered per route; plan.ts evaluateRouteMaterial).
+  const evalMat = useMemo(() => evaluateRouteMaterial(core, data, route, p), [core, data, route, p]);
   const footModel = useMemo(() => { try { return core.footingModel(); } catch { return null; } }, [core]);
   const wx = useMemo(() => {
     if (!data?.weather) return null;
@@ -580,6 +582,34 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           </div>
         )}
         {dense.pts.length > 1 && <RouteProfile pts={dense.pts} ev={ev} foot={profFoot} turn={turnIdx} onHover={setProfHi} t={t} />}
+        {evalMat && (
+          <details className="card route-eval" id="route-eval">
+            <summary>{t('経路の評価（材料）', 'Route evaluation (material)')}</summary>
+            <table className="cmp"><tbody>
+              {([
+                [t('判定', 'Verdict'), evalMat.totals.verdict === 'ok' ? t('帰れる', 'can walk back') : evalMat.totals.verdict === 'impassable' ? t('通れない坂', 'impassable slope') : t('途中で引き返す', 'turn back')],
+                [t('行き / 帰り（まっすぐ）', 'Out / back (straight)'), `${evalMat.totals.out_km.toFixed(2)} / ${evalMat.totals.back_km.toFixed(2)} km`],
+                [t('往復の時間', 'Round trip'), fmtH(evalMat.totals.round_trip_h)],
+                [t('登り / 下りの累計（行き）', 'Climb / descent (out)'), `${Math.round(evalMat.totals.climb_m)} / ${Math.round(evalMat.totals.descent_m)} m`],
+                [t('最大 / 平均の坂', 'Max / mean slope'), `${evalMat.totals.max_slope_deg.toFixed(1)}° / ${evalMat.totals.mean_slope_deg.toFixed(1)}°`],
+                [t(`上限 ${MAX_SLOPE}° を超える区間`, `Legs over ${MAX_SLOPE}°`), String(evalMat.totals.over_limit_legs)],
+                [t('足場の悪い区間', 'Poor footing'), `${Math.round(evalMat.totals.poor_footing * 100)}%`],
+                [t('引き返しまでの余裕', 'Margin'), evalMat.totals.margin_h != null ? `${evalMat.totals.margin_h.toFixed(1)} h` : evalMat.totals.turn_back_km != null ? t(`${evalMat.totals.turn_back_km.toFixed(1)} km で引き返し`, `turn back at ${evalMat.totals.turn_back_km.toFixed(1)} km`) : '—'],
+                [t('放射線', 'Radiation'), evalMat.totals.radiation_msv != null ? `${evalMat.totals.radiation_msv.toFixed(2)} mSv` : '—'],
+                [t('Perseverance の走行路から 100 m 以内', 'Within 100 m of Perseverance\'s path'), evalMat.totals.near_rover_path != null ? `${Math.round(evalMat.totals.near_rover_path * 100)}%` : '—'],
+              ] as [string, string][]).map(([k, v]) => <tr key={k}><th>{k}</th><td>{v}</td></tr>)}
+            </tbody></table>
+            <h5>{t('出発時刻ごと（気温: Perseverance MEDA）', 'By departure (air: Perseverance MEDA)')}</h5>
+            <table className="cmp" id="eval-departure"><thead><tr><th>{t('出発', 'Start')}</th><th>{t('気温', 'Air')}</th><th>{t('冷却水', 'Water')}</th><th>{t('帰着時 O₂', 'O₂ left')}</th><th>{t('冷却水の残り', 'Water left')}</th></tr></thead><tbody>
+              {evalMat.by_departure.map((d) => <tr key={d.start_h}><th>{d.start_h}:00</th><td>{d.temp_c != null ? `${d.temp_c.toFixed(0)} °C` : '—'}</td><td>×{d.water_factor.toFixed(2)}</td><td>{Math.round(d.o2_left * 100)}%</td><td>{Math.round(d.water_left * 100)}%</td></tr>)}
+            </tbody></table>
+            <h5>{t('区間ごと（断面グラフと同じ区切り）', 'By segment (same cuts as the profile)')}</h5>
+            <table className="cmp" id="eval-segments"><thead><tr><th>{t('区間', 'Leg')}</th><th>km</th><th>{t('時間', 'Time')}</th><th>{t('登り/下り', 'Up/down')}</th><th>{t('最大の坂', 'Max')}</th><th>{t('足場', 'Footing')}</th></tr></thead><tbody>
+              {evalMat.segments.map((g) => <tr key={g.from_wp} className={g.over_limit ? 'over' : ''}><th>{g.from_wp === 0 ? t('基地', 'Base') : `WP${g.from_wp}`}→WP{g.to_wp}</th><td>{g.km.toFixed(2)}</td><td>{fmtH(g.hours)}</td><td>{Math.round(g.climb_m)}/{Math.round(g.descent_m)} m</td><td>{g.max_slope_deg.toFixed(0)}°</td><td>{Math.round(g.poor_footing * 100)}%</td></tr>)}
+            </tbody></table>
+            <p className="muted">{Object.values(evalMat.sources).join(' / ')}</p>
+          </details>
+        )}
         <div className="btns">
           <button className="primary" onClick={hud ? stop : play} disabled={n < 2}>{hud ? t('■ 止める', '■ Stop') : t('▶ ヘルメットで歩く', '▶ Walk it (helmet view)')}</button>
           <button onClick={startRehearsal} disabled={marsForReh.length < 3 || !data?.hokkaido.length || reh.status === 'running'}>

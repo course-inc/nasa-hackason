@@ -70,6 +70,10 @@ await step('3. WALKBACK でルートを引く', async () => {
   if (!/km/.test(prof)) fail('route profile under the plan');
   await p.locator('#route-profile .rp-tabs button', { hasText: 'O₂' }).click().catch(() => fail('profile O₂ tab'));
   await p.locator('#route-profile .rp-tabs button', { hasText: '標高' }).click().catch(() => {});
+  // Evaluation material: totals, by departure time, by segment.
+  await p.locator('#route-eval summary').click().catch(() => fail('route evaluation card'));
+  const evalText = await p.locator('#route-eval').innerText().catch(() => '');
+  if (!/登り/.test(evalText) || !/18:00/.test(evalText) || !/WP1/.test(evalText)) fail('route evaluation totals, departures and segments');
   await tiles('walk');
   if (SHOTS) await p.screenshot({ path: 'e2e/demo-2-route.png' });
 });
