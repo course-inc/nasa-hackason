@@ -558,7 +558,8 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
         </div>
         {walkRec && <EarthWalkPanel core={core} rec={walkRec} walker={earthWalker} />}
         {!walkRec && rehOpen && reh.found.length > 0 && (
-          <RehearsalPanel core={core} mars={marsForReh} found={reh.found} selected={Math.min(rehSel, reh.found.length - 1)} onSelect={setRehSel} />
+          <RehearsalPanel core={core} mars={marsForReh} found={reh.found} selected={Math.min(rehSel, reh.found.length - 1)} onSelect={setRehSel}
+            params={p} onImportFile={onDropFile} />
         )}
         {rehOpen && reh.status === 'done' && reh.found.length === 0 && (
           <p className="warn floating">{t('北海道の候補地の範囲（約21km四方）に収まるコースが見つかりませんでした。ルートを短くして（★で例のルートに戻すのが早いです）、もう一度探してください。', 'No Hokkaido practice course fits (each area is about 21 km across). Shorten the route (★ restores the example) and search again.')}</p>

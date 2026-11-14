@@ -80,6 +80,9 @@ await step('5. 北海道で練習コースを探す', async () => {
   await p.waitForSelector('.rehearsal-card .tabs button, .warn.floating', { timeout: 60000 });
   const top = await p.locator('.rehearsal-card .tabs button').first().innerText().catch(() => '(none)');
   console.log('  top course:', top.replace(/\s+/g, ' '));
+  const ch = await p.locator('#challenge').innerText({ timeout: 5000 }).catch(() => '');
+  console.log('  challenge:', ch.replace(/\s+/g, ' ').slice(0, 200));
+  if (!/片道 [\d.]+ km/.test(ch) || !/目安タイム/.test(ch)) fail('same-slope challenge card with distance and target time');
   await tiles('rehearsal');
   if (SHOTS) await p.screenshot({ path: 'e2e/demo-4-rehearsal.png' });
 });

@@ -1,7 +1,7 @@
 // Question panel: a dock on every tab. Pick an agent (rules / pi-rs), ask, and see each tool call as
 // a chip (name, arguments, sources, SQL). Answers only quote tool results.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { getAgent, getTools, listAgents, onRegistryChange } from './port';
+import { getAgent, getTools, listAgents, onRegistryChange, toolsReady } from './port';
 import { NoModelError, lastModel } from './pirs';
 import type { AgentEvent, ToolResult } from './types';
 import { useLang, useT } from '../i18n';
@@ -90,6 +90,14 @@ export function AgentPanel() {
   const [items, setItems] = useState<Item[]>([]);
   const [busy, setBusy] = useState(false);
   const abort = useRef<AbortController | null>(null);
+  // A card that should come to the front (the same-slope challenge) folds the panel away, unless
+  // the panel was just used (its answer is what the person is reading).
+  const lastUse = useRef(0);
+  useEffect(() => {
+    const onFront = () => { if (Date.now() - lastUse.current > 4000) setOpen(false); };
+    window.addEventListener('walkback:front', onFront);
+    return () => window.removeEventListener('walkback:front', onFront);
+  }, []);
   const answerText = useRef('');
   // Voice: whisper.cpp in the desktop app, the browser's speech recognition on the web.
   const [voice, setVoice] = useState<VoiceStatus>({ mode: 'none' });
@@ -143,11 +151,14 @@ export function AgentPanel() {
     if (!prompt || busy) return;
     setQ('');
     setBusy(true);
+    lastUse.current = Date.now() + 600000; // busy: never fold mid-answer
     answerText.current = '';
     const ctl = new AbortController();
     abort.current = ctl;
     let agent = getAgent(chosen) ?? getAgent('rules')!;
     setItems((xs) => [...xs, { kind: 'user', text: prompt }, { kind: 'agent', agent: agent.id, text: '', calls: [], done: false }]);
+    // The lazily loaded tools may still be on their way right after the page opens.
+    await Promise.race([toolsReady(), new Promise((r) => setTimeout(r, 8000))]);
     try {
       try {
         await agent.ask(prompt, getTools(), onEvent, ctl.signal);
@@ -165,6 +176,7 @@ export function AgentPanel() {
       patchLast((it) => ({ ...it, done: true }));
       if (answerText.current) publishAnswer({ q: prompt, a: answerText.current, at: Date.now() });
       setBusy(false);
+      lastUse.current = Date.now();
       abort.current = null;
     }
   };

@@ -5,7 +5,7 @@ import { LANDING, exampleRoute, loadHokkaidoGrid, type WalkData } from '../walk/
 import { fmtH } from '../walk/geo';
 import { computePlan, evaParams, rehearsalPoints, roverWalkbackSql, turnIndex, turnWaypoint, WATER_PER_O2, type PlanParams } from '../walk/plan';
 import { nextFrame, walkController, type EvidenceTopic } from '../walk/controller';
-import { registerTool } from './port';
+import { registerTool, setToolsReady } from './port';
 import { getLang } from '../i18n';
 import type { ToolDef, ToolResult } from './types';
 
@@ -432,10 +432,10 @@ export function registerAgentTools(core: Core): () => void {
   let live = true;
   const off = WALK_TOOLS.map(registerTool);
   // query_nasa: read-only SQL over the NASA tables (loads DuckDB only when called).
-  import('./queryNasa').then((m) => { if (live) off.push(registerTool(m.makeQueryNasa(core))); }).catch(() => undefined);
+  const q = import('./queryNasa').then((m) => { if (live) off.push(registerTool(m.makeQueryNasa(core))); }).catch(() => undefined);
   // #10's explore.ts (explore_hokkaido, view_scan, …): every exported make…Tool(core). Loaded lazily
   // so duckdb-wasm stays out of the first load.
-  import('./explore').then((m) => {
+  const ex = import('./explore').then((m) => {
     if (!live) return;
     for (const [name, f] of Object.entries(m as Record<string, unknown>)) {
       if (/^make\w*Tool$/.test(name) && typeof f === 'function') {
@@ -457,5 +457,6 @@ export function registerAgentTools(core: Core): () => void {
       }
     }
   }).catch(() => undefined);
+  setToolsReady(Promise.all([q, ex]).then(() => undefined));
   return () => { live = false; off.forEach((f) => f()); };
 }

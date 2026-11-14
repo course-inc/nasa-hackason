@@ -1,7 +1,8 @@
 // "Rehearse it in Hokkaido": find the place where the same walk (same length, same climbs)
 // can be practised, on the elevation grids around the #10 Hokkaido candidate sites.
-import { useEffect, useMemo, useState } from 'react';
-import type { Core, RehearsalMatch, Waypoint } from '../core';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Core, EvaParams, RehearsalMatch, Waypoint } from '../core';
+import { fmtH } from './geo';
 import { PlanetMap, type Feature } from '../map/PlanetMap';
 import { Terrain3D, type Line3D } from '../map/Terrain3D';
 import { loadHokkaidoGrid, type GridData, type HokkaidoSite } from './data';
@@ -71,11 +72,28 @@ function Profile({ mars, earth }: { mars: Waypoint[]; earth: [number, number, nu
   );
 }
 
-export function RehearsalPanel({ core, mars, found, selected, onSelect }: {
+export function RehearsalPanel({ core, mars, found, selected, onSelect, params, onImportFile }: {
   core: Core; mars: Waypoint[]; found: Found[]; selected: number; onSelect: (i: number) => void;
+  /** Walking conditions (speed etc.) the challenge's target time is computed with. */
+  params?: EvaParams;
+  /** A recorded walk (GPX) chosen from the challenge card. */
+  onImportFile?: (f: File) => void;
 }) {
   const t = useT();
   const f = found[selected];
+  // Same-slope challenge: the course on Earth, evaluated by the same Rust engine (distance, steepest
+  // slope, time at the planned flat speed). Comes to the front when a search finishes.
+  const challenge = useMemo(() => {
+    if (!f || !params) return null;
+    try {
+      const ev = core.evaluateRoute('earth', f.m.pts.map(([lat, lon, elev]) => ({ lat, lon, elev })), params);
+      return { km: ev.out_km, h: ev.out_h, steep: ev.max_slope_deg };
+    } catch { return null; }
+  }, [core, f, params]);
+  const [chOpen, setChOpen] = useState(true);
+  const chRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { setChOpen(true); window.dispatchEvent(new Event('walkback:front')); chRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [found]);
   const [is3d, setIs3d] = useState(false);
   const [grid, setGrid] = useState<GridData | null>(null);
   useEffect(() => {
@@ -128,6 +146,24 @@ export function RehearsalPanel({ core, mars, found, selected, onSelect }: {
         <div className="legend"><span className="lg-mars">{t('火星のルート', 'Mars route')}</span><span className="lg-earth">{t('北海道のコース', 'Hokkaido course')}</span></div>
         <div className="kv"><span>{t('坂の違い（平均）', 'Slope difference (mean)')}</span><b>{f.m.rms_deg.toFixed(1)}°</b></div>
         <div className="kv"><span>{t('登りの合計 火星 / 北海道', 'Total climb Mars / Hokkaido')}</span><b>{Math.round(f.m.climb_mars_m)} m / {Math.round(f.m.climb_earth_m)} m</b></div>
+        {challenge && (chOpen ? (
+          <div className="challenge" id="challenge" ref={chRef}>
+            <div className="challenge-head"><b>🥾 {t('同じ坂チャレンジ', 'Same-slope challenge')}</b>
+              <button className="linkish" onClick={() => setChOpen(false)} aria-label={t('たたむ', 'Fold')}>—</button></div>
+            <p>{t(`${f.site.name.replace(/（.*）/, '')}で、火星のルートと同じ坂を歩く: 片道 ${challenge.km.toFixed(1)} km・登り ${Math.round(f.m.climb_earth_m)} m・いちばん急な所 ${Math.round(challenge.steep)}°。`,
+              `Walk the same slopes as the Mars route at ${f.site.name.replace(/（.*）/, '')}: ${challenge.km.toFixed(1)} km one way, ${Math.round(f.m.climb_earth_m)} m of climbing, steepest ${Math.round(challenge.steep)}°.`)}</p>
+            <p>{t(`目安タイム（行き）: ${fmtH(challenge.h)}（平地 ${params!.speed_kmh} km/h で計算）`, `Target time (out): ${fmtH(challenge.h)} (at ${params!.speed_kmh} km/h on the flat)`)}</p>
+            {onImportFile && (
+              <>
+                <button className="primary" onClick={() => fileRef.current?.click()}>{t('歩いた記録（GPX）で答え合わせ', 'Check with your recorded walk (GPX)')}</button>
+                <input ref={fileRef} type="file" accept=".gpx,application/gpx+xml" hidden onChange={(e) => { const x = e.target.files?.[0]; if (x) onImportFile(x); e.target.value = ''; }} />
+                <p className="muted">{t('記録を読み込むと、同じ形の道を火星で歩いたら帰れたかを判定します。', 'Load the record to see whether the same walk would have got you back on Mars.')}</p>
+              </>
+            )}
+          </div>
+        ) : (
+          <button className="challenge-chip" onClick={() => setChOpen(true)}>🥾 {t('同じ坂チャレンジ', 'Same-slope challenge')}</button>
+        ))}
         <p className="muted">{t('地球では再現できない点: 重力（火星は地球の38%なので、同じ坂でも地球の方が体への負担は約2.6倍）、薄い大気と低温、宇宙服の重さ。', 'What Earth cannot reproduce: gravity (Mars has 38% of Earth\'s, so the same slope is about 2.6× harder on Earth), the thin cold air, and the weight of the suit.')}</p>
       </div>
     </div>
