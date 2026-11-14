@@ -24,7 +24,7 @@ use tokio::sync::{oneshot, Mutex};
 
 /// Names the tools for each kind of question: small local models pick the right tool and
 /// arguments far more often with this than with a generic prompt (see the `bench` test).
-pub const SYSTEM_PROMPT: &str = "あなたは火星の船外活動計画の相棒。質問には必ず先にツールを呼ぶ。帰れるか・距離・時間・酸素や冷却水の条件の質問は walkback_check（数値条件は o2_h などの引数に入れる。「Nkm先」は route={\"away_km\":N}）。練習コースは walkback_check に with_rehearsal=true。ローバーが壊れたら・どこで引き返すかは rover_walkback。根拠・出典は open_evidence（topic は rover, eva, consumables など）。北海道のどこで・いつ訓練するかは explore_hokkaido。歩いた記録・GPX は import_walk。見せてと言われたら表示ツール（view_3d, view_walk など）で地図を動かす。件数・範囲・一覧など、ほかのツールで答えられない質問は query_nasa に読み取り専用の SELECT を1つ渡して表から引く（集計や WHERE で絞る）。答えに書く数字はツールの結果の文に出てくる数字だけを、そのまま写す。自分で計算・換算・四捨五入しない。最後に出典（sources）を一言添える。ユーザーの言語で短く答える。";
+pub const SYSTEM_PROMPT: &str = "あなたは火星の船外活動計画の相棒。質問には必ず先にツールを呼ぶ。帰れるか・距離・時間・酸素や冷却水の条件の質問は walkback_check（数値条件は o2_h などの引数に入れる。「Nkm先」は route={\"away_km\":N}）。練習コースは walkback_check に with_rehearsal=true。ローバーが壊れたら・どこで引き返すかは rover_walkback。根拠・出典は open_evidence（topic は rover, eva, consumables など）。北海道のどこで・いつ訓練するかは explore_hokkaido。歩いた記録・GPX は import_walk。見せてと言われたら表示ツール（view_3d, view_walk など）で地図を動かす。件数・範囲・一覧など、ほかのツールで答えられない質問は query_nasa に読み取り専用の SELECT を1つ渡して表から引く（集計や WHERE で絞る）。Perseverance が何 km 走ったか・sol ごとの位置は query_nasa で rover_traverse を引く（例: SELECT max(km) FROM rover_traverse WHERE sol <= 1000）。船外活動の回数や時間は eva 表。walkback_check は歩く計画の判定だけに使う。答えに書く数字はツールの結果の文に出てくる数字だけを、そのまま写す。自分で計算・換算・四捨五入しない。最後に出典（sources）を一言添える。ユーザーの言語で短く答える。";
 const ANTHROPIC_URL: &str = "https://api.anthropic.com/v1/messages";
 const OLLAMA_URL: &str = "http://127.0.0.1:11434/v1/chat/completions";
 const OLLAMA_DEFAULT: &str = "qwen2.5:7b";
@@ -489,7 +489,7 @@ mod tests {
         v.as_f64()
             .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
     }
-    const QUESTIONS: [Q; 5] = [
+    const QUESTIONS: [Q; 8] = [
         Q {
             text: "基地から3km先まで歩いて帰れる？",
             ok: |c| {
@@ -524,6 +524,33 @@ mod tests {
         Q {
             text: "根拠を見せて",
             ok: |c| called(c, "open_evidence", |a| a["topic"].is_string()),
+        },
+        Q {
+            text: "8時間を超えた船外活動は何回？",
+            ok: |c| {
+                called(c, "query_nasa", |a| {
+                    let q = a["sql"].as_str().unwrap_or("").to_lowercase();
+                    q.contains("eva") && q.contains('8') && q.contains("count")
+                })
+            },
+        },
+        Q {
+            text: "sol 1000 までに Perseverance は何 km 走った？",
+            ok: |c| {
+                called(c, "query_nasa", |a| {
+                    let q = a["sql"].as_str().unwrap_or("").to_lowercase();
+                    q.contains("rover_traverse") && q.contains("1000") && q.contains("km")
+                })
+            },
+        },
+        Q {
+            text: "いちばん長い船外活動は何時間で、だれが行った？",
+            ok: |c| {
+                called(c, "query_nasa", |a| {
+                    let q = a["sql"].as_str().unwrap_or("").to_lowercase();
+                    q.contains("eva") && (q.contains("max") || q.contains("order by"))
+                })
+            },
         },
     ];
 
