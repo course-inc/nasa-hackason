@@ -4,6 +4,7 @@ import type { Core, Waypoint } from '../core';
 import type { WalkData } from './data';
 import type { PlanParams } from './plan';
 import type { Found } from './Rehearsal';
+import type { WalkImport } from './gpx';
 
 export interface Camera3D {
   lat?: number; lon?: number; distance_m?: number; heading_deg?: number; tilt_deg?: number;
@@ -23,6 +24,15 @@ export interface WalkController {
   set3d(on: boolean): void;
   setCamera(c: Camera3D & { exaggeration?: number }): void;
   setOverlay(o: { rover?: boolean; reach?: boolean }): void;
+  /** B: colour Perseverance's path by whether a crew could walk home from there. */
+  setRoverMode(on: boolean): void;
+  /** Pan/zoom the 2D Jezero map. */
+  flyTo(lat: number, lon: number, z: number): void;
+  /** A: load a GPX walk (text) and lay it onto Jezero; sets the route and the measured speed. */
+  importWalk(text: string, file: string): Promise<WalkImport>;
+  /** A: the bundled synthetic sample walk. */
+  importSample(): Promise<WalkImport>;
+  walk(): WalkImport | null;
   play(): void;
   stop(): void;
   openEvidence(topic: EvidenceTopic): void;

@@ -160,10 +160,9 @@ async function nasademTile(lat, lon) {
   return p;
 }
 
-async function siteGridNasadem(site) {
-  // Same footprint as the old GSI version: about 0.26° (lon) × 0.19° (lat) around the site.
-  const dlat = CELL_DEG, dlon = CELL_DEG / Math.cos((site.lat * Math.PI) / 180);
-  const halfLat = 0.095, halfLon = 0.13;
+async function siteGridNasadem(site, { halfLat = 0.095, halfLon = 0.13, cell = CELL_DEG, src = 'bilinear to ~83 m', lakes = true } = {}) {
+  // Default footprint is the old GSI version's: about 0.26° (lon) × 0.19° (lat) around the site.
+  const dlat = cell, dlon = cell / Math.cos((site.lat * Math.PI) / 180);
   const north = site.lat + halfLat, south = site.lat - halfLat, west = site.lon - halfLon, east = site.lon + halfLon;
   const rows = Math.floor((north - south) / dlat), cols = Math.floor((east - west) / dlon);
   const lat0 = north - dlat / 2, lon0 = west + dlon / 2;
@@ -200,8 +199,8 @@ async function siteGridNasadem(site) {
     // perfect match for flat Mars stretches. (Hokkaido has no dry land at or below sea level.)
     z.push(v == null || v <= 0 ? null : Math.round(v * 10) / 10);
   }
-  maskLakes(z, rows, cols);
-  return { id: site.id, name: site.name, lat0, lon0, dlat, dlon, rows, cols, z, src: 'NASADEM (NASA/JPL, 1 arc-second; via Microsoft Planetary Computer), bilinear to ~83 m' };
+  if (lakes) maskLakes(z, rows, cols);
+  return { id: site.id, name: site.name, lat0, lon0, dlat, dlon, rows, cols, z, src: `NASADEM (NASA/JPL, 1 arc-second; via Microsoft Planetary Computer), ${src}` };
 }
 
 // Lakes (支笏湖, 洞爺湖, 摩周湖 …) are one flat elevation in both NASADEM and the GSI DEM, so a flat
@@ -219,6 +218,24 @@ function maskLakes(z, rows, cols) {
   });
   flat.forEach((f, i) => { if (f) z[i] = null; });
 }
+
+// ---- Walk areas for imported GPX walks (#11 A): NASADEM at ~2 arc-seconds, no lake masking ----
+// Sapporo city: the team records its walks here. Elevation of a GPX walk is taken from this grid,
+// never from the GPS.
+const WALK_AREAS = [{ id: 'sapporo', name: '札幌市街', lat: 43.05, lon: 141.33, halfLat: 0.09, halfLon: 0.14 }];
+if (!process.argv.includes('--no-walks')) {
+  fs.mkdirSync(path.join(outDir, 'walks'), { recursive: true });
+  const index = [];
+  for (const a of WALK_AREAS) {
+    try {
+      const g = await siteGridNasadem(a, { halfLat: a.halfLat, halfLon: a.halfLon, cell: 1 / 1800, src: 'bilinear to ~62 m', lakes: false });
+      write(`walks/${a.id}_dem.json`, JSON.stringify(g));
+      index.push({ id: a.id, name: a.name, lat0: g.lat0, lon0: g.lon0, dlat: g.dlat, dlon: g.dlon, rows: g.rows, cols: g.cols });
+    } catch (e) { console.warn(`skip walk area ${a.id}: ${e.message}`); }
+  }
+  write('walks/index.json', JSON.stringify(index, null, 1));
+}
+if (process.argv.includes('--only-walks')) process.exit(0);
 
 const demArg = process.argv.indexOf('--dem');
 const DEM = demArg > 0 ? process.argv[demArg + 1] : 'nasadem';

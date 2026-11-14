@@ -217,6 +217,18 @@ impl AgentState {
         info: ModelInfo,
         emit: Emit,
     ) -> Result<ModelInfo, String> {
+        self.start_with_prompt(specs, model, info, emit, SYSTEM_PROMPT)
+    }
+
+    /// `start` with another system prompt (the bench compares prompts).
+    pub fn start_with_prompt(
+        &self,
+        specs: Vec<ToolSpec>,
+        model: Arc<dyn Model>,
+        info: ModelInfo,
+        emit: Emit,
+        system_prompt: &str,
+    ) -> Result<ModelInfo, String> {
         let mut live = self.live.lock().unwrap();
         if let Some(l) = live.as_ref() {
             if l.specs == specs && l.info.model == info.model && l.info.provider == info.provider {
@@ -225,7 +237,7 @@ impl AgentState {
         }
         let bridge = WalkbackBridge::new(&specs, emit.clone(), self.pending.clone());
         let session = SessionBuilder::new(model, info.model.clone())
-            .system_prompt(SYSTEM_PROMPT)
+            .system_prompt(system_prompt)
             .extension(Arc::new(bridge))
             .and_then(|b| b.in_memory())
             .map_err(|e| e.to_string())?;
@@ -452,5 +464,277 @@ mod tests {
         println!("answer: {answer}");
         assert!(called.load(Ordering::SeqCst) >= 1, "model called the tool");
         assert!(answer.contains("6.1"), "answer quotes the tool");
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Bench: fixed questions × runs × local Ollama models against the app's real tools.
+    //   (serve a DUCKDB_LOCAL build, e.g. on :4188)
+    //   BENCH_BRIDGE="node scripts/agent-bench/bridge.mjs" BENCH_MODELS=qwen2.5:7b,qwen3.5:4b \
+    //   BENCH_RUNS=5 cargo test -p analog-finder --lib bench -- --ignored --nocapture
+    // Optional BENCH_PROMPT=improved uses BENCH_SYSTEM_PROMPT_IMPROVED below.
+
+    const BENCH_SYSTEM_PROMPT_IMPROVED: &str = "あなたは火星の船外活動計画の相棒。質問には必ず先にツールを呼ぶ。帰れるか・距離・時間・酸素や冷却水の条件の質問は walkback_check（数値条件は o2_h などの引数に入れる。「Nkm先」は route={\"away_km\":N}）。練習コースは walkback_check に with_rehearsal=true。ローバーが壊れたら・どこで引き返すかは rover_walkback。根拠・出典は open_evidence（topic は rover, eva, consumables など）。答えに書く数字はツールの結果の文に出てくる数字だけを、そのまま写す。自分で計算・換算・四捨五入しない。最後に出典（sources）を一言添える。ユーザーの言語で短く答える。";
+
+    struct Q {
+        text: &'static str,
+        ok: fn(&[(String, Value)]) -> bool,
+    }
+    fn called(c: &[(String, Value)], name: &str, f: impl Fn(&Value) -> bool) -> bool {
+        c.iter().any(|(n, a)| n == name && f(a))
+    }
+    fn num(v: &Value) -> Option<f64> {
+        v.as_f64()
+            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+    }
+    const QUESTIONS: [Q; 5] = [
+        Q {
+            text: "基地から3km先まで歩いて帰れる？",
+            ok: |c| {
+                called(c, "walkback_check", |a| {
+                    let r = &a["route"];
+                    num(&r["away_km"]) == Some(3.0)
+                        || num(&a["away_km"]) == Some(3.0)
+                        || num(&r["along_rover_km"]) == Some(3.0)
+                })
+            },
+        },
+        Q {
+            text: "酸素が6時間なら？",
+            ok: |c| {
+                called(c, "walkback_check", |a| num(&a["o2_h"]) == Some(6.0))
+                    || (called(c, "view_set_params", |a| num(&a["o2_h"]) == Some(6.0))
+                        && called(c, "walkback_check", |_| true))
+            },
+        },
+        Q {
+            text: "同じ坂の練習コースを北海道で探して",
+            ok: |c| called(c, "walkback_check", |a| a["with_rehearsal"] == json!(true)),
+        },
+        Q {
+            text: "ローバーが壊れたらどこで引き返す？",
+            ok: |c| called(c, "rover_walkback", |_| true),
+        },
+        Q {
+            text: "根拠を見せて",
+            ok: |c| called(c, "open_evidence", |a| a["topic"].is_string()),
+        },
+    ];
+
+    /// Numbers written in `s` ("6.1", "1359", "72"), as text with a trailing ".0" removed.
+    fn numbers(s: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut cur = String::new();
+        let flush = |cur: &mut String, out: &mut Vec<String>| {
+            let t = cur.trim_end_matches('.').to_string();
+            if !t.is_empty() {
+                out.push(t.strip_suffix(".0").map(str::to_string).unwrap_or(t));
+            }
+            cur.clear();
+        };
+        for ch in s.chars() {
+            let ch = match ch {
+                '０'..='９' => char::from_u32(ch as u32 - 0xFEE0).unwrap(),
+                '．' => '.',
+                c => c,
+            };
+            if ch.is_ascii_digit() || (ch == '.' && !cur.is_empty() && !cur.contains('.')) {
+                cur.push(ch);
+            } else {
+                flush(&mut cur, &mut out);
+            }
+        }
+        flush(&mut cur, &mut out);
+        out
+    }
+
+    #[derive(Debug)]
+    struct Run {
+        first_s: Option<f64>,
+        total_s: f64,
+        tool_ok: bool,
+        nums_ok: bool,
+        answer: String,
+        calls: Vec<(String, Value)>,
+        bad: Vec<String>,
+    }
+
+    #[test]
+    #[ignore]
+    fn bench() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::process::{Command, Stdio};
+        use std::time::Instant;
+        let bridge = std::env::var("BENCH_BRIDGE")
+            .unwrap_or_else(|_| "node scripts/agent-bench/bridge.mjs".into());
+        let models: Vec<String> = std::env::var("BENCH_MODELS")
+            .unwrap_or_else(|_| "qwen2.5:7b".into())
+            .split(',')
+            .map(str::to_string)
+            .collect();
+        let runs: usize = std::env::var("BENCH_RUNS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(5);
+        let prompt = if std::env::var("BENCH_PROMPT").as_deref() == Ok("improved") {
+            BENCH_SYSTEM_PROMPT_IMPROVED
+        } else {
+            SYSTEM_PROMPT
+        };
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg(&bridge)
+            .current_dir(&root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("bridge");
+        let stdin = Arc::new(StdMutex::new(child.stdin.take().unwrap()));
+        let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+        let first: Value = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
+        let specs: Vec<ToolSpec> = serde_json::from_value(first["tools"].clone()).unwrap();
+        // Bridge replies → whichever AgentState is current.
+        let current: Arc<StdMutex<Option<Arc<AgentState>>>> = Arc::default();
+        let outputs: Arc<StdMutex<Vec<String>>> = Arc::default();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
+        {
+            let (current, outputs) = (current.clone(), outputs.clone());
+            std::thread::spawn(move || {
+                for line in lines {
+                    let v: Value = match line.ok().and_then(|l| serde_json::from_str(&l).ok()) {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    if v["type"] == "ready" {
+                        let _ = ready_tx.send(());
+                        continue;
+                    }
+                    let out = v["output"].as_str().unwrap_or("").to_string();
+                    outputs.lock().unwrap().push(out.clone());
+                    if let Some(st) = current.lock().unwrap().clone() {
+                        st.tool_result(
+                            v["id"].as_str().unwrap_or(""),
+                            ToolReply {
+                                ok: v["ok"] == json!(true),
+                                output: out,
+                                details: v["details"].clone(),
+                            },
+                        );
+                    }
+                }
+            });
+        }
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut report = String::from("| model | question | first text s (median / max) | done s (median / max) | right tool+args | numbers match |\n|---|---|---|---|---|---|\n");
+        for m in &models {
+            for q in &QUESTIONS {
+                let mut rs: Vec<Run> = Vec::new();
+                for _ in 0..runs {
+                    writeln!(stdin.lock().unwrap(), "{}", json!({"type":"reset"})).unwrap();
+                    ready_rx.recv().unwrap();
+                    outputs.lock().unwrap().clear();
+                    let state = Arc::new(AgentState::default());
+                    *current.lock().unwrap() = Some(state.clone());
+                    let calls: Arc<StdMutex<Vec<(String, Value)>>> = Arc::default();
+                    let first_text: Arc<StdMutex<Option<Instant>>> = Arc::default();
+                    let (c2, f2, si) = (calls.clone(), first_text.clone(), stdin.clone());
+                    let emit: Emit = Arc::new(move |e: &str, v: Value| {
+                        if e == "agent-tool-call" {
+                            c2.lock()
+                                .unwrap()
+                                .push((v["name"].as_str().unwrap_or("").into(), v["args"].clone()));
+                            writeln!(si.lock().unwrap(), "{v}").map_err(|e| e.to_string())?;
+                        } else if e == "agent-event" && v["type"] == "text" {
+                            f2.lock().unwrap().get_or_insert_with(Instant::now);
+                        }
+                        Ok(())
+                    });
+                    let model: Arc<dyn Model> =
+                        Arc::new(pi_rs::ollama::Ollama::new(OLLAMA_URL, None).unwrap());
+                    let t0 = Instant::now();
+                    let answer = rt.block_on(async {
+                        state
+                            .start_with_prompt(
+                                specs.clone(),
+                                model,
+                                ModelInfo {
+                                    provider: "ollama",
+                                    model: m.clone(),
+                                },
+                                emit,
+                                prompt,
+                            )
+                            .unwrap();
+                        tokio::time::timeout(Duration::from_secs(240), state.prompt(q.text.into()))
+                            .await
+                    });
+                    let total_s = t0.elapsed().as_secs_f64();
+                    let answer = match answer {
+                        Ok(Ok(a)) => a,
+                        Ok(Err(e)) => format!("ERROR {e}"),
+                        Err(_) => "TIMEOUT".into(),
+                    };
+                    let calls = calls.lock().unwrap().clone();
+                    let tool_text = outputs.lock().unwrap().join("\n");
+                    let have: std::collections::HashSet<String> = numbers(&tool_text)
+                        .into_iter()
+                        .chain(numbers(q.text))
+                        .collect();
+                    let bad: Vec<String> = numbers(&answer)
+                        .into_iter()
+                        .filter(|n| !have.contains(n))
+                        .collect();
+                    let first_s = first_text
+                        .lock()
+                        .unwrap()
+                        .map(|t| t.duration_since(t0).as_secs_f64());
+                    let tool_ok = (q.ok)(&calls);
+                    let nums_ok = tool_ok
+                        && !answer.starts_with("ERROR")
+                        && answer != "TIMEOUT"
+                        && bad.is_empty()
+                        && !numbers(&answer).is_empty();
+                    eprintln!("[{m}] {} {:.1}s tool={tool_ok} nums={nums_ok} calls={:?} bad={bad:?}\n  → {}", q.text, total_s, calls, answer.replace('\n', " "));
+                    rs.push(Run {
+                        first_s,
+                        total_s,
+                        tool_ok,
+                        nums_ok,
+                        answer,
+                        calls,
+                        bad,
+                    });
+                }
+                let stat = |mut v: Vec<f64>| -> String {
+                    if v.is_empty() {
+                        return "–".into();
+                    }
+                    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    format!("{:.1} / {:.1}", v[v.len() / 2], v[v.len() - 1])
+                };
+                report += &format!(
+                    "| {m} | {} | {} | {} | {}/{runs} | {}/{runs} |\n",
+                    q.text,
+                    stat(rs.iter().filter_map(|r| r.first_s).collect()),
+                    stat(rs.iter().map(|r| r.total_s).collect()),
+                    rs.iter().filter(|r| r.tool_ok).count(),
+                    rs.iter().filter(|r| r.nums_ok).count()
+                );
+                let _ = (&rs[0].answer, &rs[0].calls, &rs[0].bad);
+            }
+        }
+        drop(stdin);
+        let _ = child.kill();
+        let _ = child.wait();
+        println!(
+            "\nprompt: {}\n{report}",
+            if prompt == SYSTEM_PROMPT {
+                "default"
+            } else {
+                "improved"
+            }
+        );
+        let out = std::env::var("BENCH_OUT").unwrap_or_else(|_| "/dev/null".into());
+        let _ = std::fs::write(out, &report);
     }
 }

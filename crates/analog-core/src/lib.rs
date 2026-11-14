@@ -21,4 +21,5 @@ pub mod scan;
 pub mod scoring;
 pub mod target;
 pub mod traverse;
+pub mod walk;
 pub mod world;

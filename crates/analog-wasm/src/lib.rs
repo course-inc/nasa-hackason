@@ -150,6 +150,53 @@ pub fn set_traverse(traverse_json: &str) -> Result<String, JsError> {
     Ok(json(&s))
 }
 
+/// #11 A: summary of a recorded walk (`[{lat, lon, elev, t}]`, elevation from a DEM) on Earth.
+#[wasm_bindgen(js_name = walkSummary)]
+pub fn walk_summary(points: &str) -> Result<String, JsError> {
+    let pts: Vec<analog_core::walk::TimedPoint> = serde_json::from_str(points).map_err(err)?;
+    Ok(json(&analog_core::walk::summary(world::World::Earth, &pts)))
+}
+
+/// #11 A: lay a walk recorded on Earth onto Mars from `base` (same east/north metres).
+#[wasm_bindgen(js_name = transplantWalk)]
+pub fn transplant_walk(points: &str, base_lat: f64, base_lon: f64) -> Result<String, JsError> {
+    let pts: Vec<analog_core::walk::TimedPoint> = serde_json::from_str(points).map_err(err)?;
+    let base = world::LatLon {
+        lat: base_lat,
+        lon: base_lon,
+    };
+    Ok(json(&analog_core::walk::transplant(
+        world::World::Earth,
+        &pts,
+        world::World::Mars,
+        base,
+    )))
+}
+
+/// Crewed-rover breakdown check along the stored traverse: from each point, could the crew walk
+/// back to the base (grid `name`, same EvaParams as the walk-home area)?
+#[wasm_bindgen(js_name = roverWalkback)]
+pub fn rover_walkback(
+    world: &str,
+    name: &str,
+    lat: f64,
+    lon: f64,
+    params: &str,
+    max_slope_deg: f64,
+) -> Result<String, JsError> {
+    let w = parse_world(world)?;
+    let p: route::EvaParams = serde_json::from_str(params).map_err(err)?;
+    with_grid(name, |g| {
+        let home = grid::home_ratio(w, g, lat, lon, &p, max_slope_deg);
+        TRAVERSE.with(|c| {
+            c.borrow()
+                .as_ref()
+                .map(|t| json(&traverse::walkback(t, g, &home, p.budget())))
+                .unwrap_or_else(|| "null".into())
+        })
+    })
+}
+
 /// Compare densified route points (with elevation) with the stored traverse.
 #[wasm_bindgen(js_name = roverCheck)]
 pub fn rover_check(points: &str, near_m: f64) -> Result<String, JsError> {

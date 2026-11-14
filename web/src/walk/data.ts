@@ -22,6 +22,7 @@ export interface WalkData {
   traverseRaw: [number, number, number][][];
   eva: EvaStats | null;
   hokkaido: HokkaidoSite[];
+  /** Datasets that failed to load: 'dem' | 'traverse' | 'eva' | 'hokkaido' (details in the console). */
   errors: string[];
 }
 
@@ -43,17 +44,17 @@ export function loadWalkData(core: Core): Promise<WalkData> {
         const { z: _z, ...meta } = g;
         d.dem = meta;
         d.demGrid = g;
-      }).catch((e) => d.errors.push(`地形: ${e.message}`)),
+      }).catch((e) => (console.warn('jezero dem', e), d.errors.push('dem'))),
       get('./data/m20_traverse.json').then((t) => {
         d.rover = core.setTraverse(t);
         const j = JSON.parse(t) as { drives: { sol: number; c: [number, number, number][] }[] };
         d.traverseRaw = j.drives.map((x) => x.c);
         d.traverse = j.drives.map((x) => x.c.map((p) => [p[1], p[0]] as [number, number]));
-      }).catch((e) => d.errors.push(`走行ルート: ${e.message}`)),
+      }).catch((e) => (console.warn('traverse', e), d.errors.push('traverse'))),
       get('./data/eva.csv').then((t) => { d.eva = core.setEvaCsv(t); })
-        .catch((e) => d.errors.push(`船外活動: ${e.message}`)),
+        .catch((e) => (console.warn('eva', e), d.errors.push('eva'))),
       get('./data/hokkaido/index.json').then((t) => { d.hokkaido = JSON.parse(t); })
-        .catch((e) => d.errors.push(`北海道の地形: ${e.message}`)),
+        .catch((e) => (console.warn('hokkaido grids', e), d.errors.push('hokkaido'))),
     ]);
     return d;
   })();
