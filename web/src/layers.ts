@@ -4,7 +4,11 @@
 // URLs were checked on 2026-11-14 (HTTP 200 + CORS *), see docs/data/*.md.
 import L from 'leaflet';
 
-export interface LayerDef { name: string; url: string; opts: L.TileLayerOptions }
+export interface LayerDef {
+  name: string; url: string; opts: L.TileLayerOptions;
+  /** Bundled copy under web/public/tiles (scripts/fetch-walk-tiles.mjs): `<dir>/{z}/{y}/{x}.<ext>`. Tried first. */
+  local?: string;
+}
 
 const GIBS = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best';
 const TREK = 'https://trek.nasa.gov/tiles';
@@ -28,7 +32,7 @@ export const LAYERS: Record<string, Record<string, LayerDef>> = {
       url: 'https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',
       opts: { maxNativeZoom: 18, maxZoom: 18, attribution: '国土地理院' } },
     'gsiphoto': { name: '地理院 航空写真',
-      url: 'https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg',
+      url: 'https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', local: 'earth-gsiphoto/{z}/{y}/{x}.jpg',
       opts: { maxNativeZoom: 18, maxZoom: 18, attribution: '国土地理院' } },
     'modis': { name: `MODIS Terra True Color (${GIBS_DATE})`,
       url: `${GIBS}/MODIS_Terra_CorrectedReflectance_TrueColor/default/${GIBS_DATE}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`,
@@ -70,17 +74,21 @@ export const LAYERS: Record<string, Record<string, LayerDef>> = {
   },
 
   mars: {
-    'viking': { name: 'Viking MDIM2.1 Color', ...trek('Mars', 'Mars_Viking_MDIM21_ClrMosaic_global_232m', 'jpg', 7) },
-    'mola': { name: 'MOLA Color Shaded Relief', ...trek('Mars', 'Mars_MGS_MOLA_ClrShade_merge_global_463m', 'jpg', 7) },
+    'viking': { name: 'Viking MDIM2.1 Color', ...trek('Mars', 'Mars_Viking_MDIM21_ClrMosaic_global_232m', 'jpg', 7), local: 'mars-viking/{z}/{y}/{x}.jpg' },
+    'mola': { name: 'MOLA Color Shaded Relief', ...trek('Mars', 'Mars_MGS_MOLA_ClrShade_merge_global_463m', 'jpg', 7), local: 'mars-mola/{z}/{y}/{x}.jpg' },
     'hrsc': { name: 'MOLA+HRSC Color Shade (ESA)', ...trek('Mars', 'Mars_MOLA_blend200ppx_HRSC_ClrShade_clon0dd_200mpp_lzw', 'jpg', 8,
               { attribution: 'NASA/ESA/DLR/FU Berlin via NASA Solar System Treks' }) },
-    'themis': { name: 'THEMIS Day IR 100m', ...trek('Mars', 'THEMIS_DayIR_ControlledMosaics_100m_v2_oct2018', 'png', 9) },
+    'themis': { name: 'THEMIS Day IR 100m', ...trek('Mars', 'THEMIS_DayIR_ControlledMosaics_100m_v2_oct2018', 'png', 9), local: 'mars-themis/{z}/{y}/{x}.png' },
     'ctx': { name: 'CTX Global Mosaic 5m (Caltech)',
       url: 'https://astro.arcgis.com/arcgis/rest/services/OnMars/CTX/MapServer/tile/{z}/{y}/{x}',
       opts: { tileSize: 512, zoomOffset: -1, maxNativeZoom: 13, maxZoom: 15, noWrap: true,
               attribution: 'MRO CTX Global Mosaic (Caltech Murray Lab) via Esri' } },
   },
   marsOverlay: {
+    // Jezero only: HiRISE 25 cm orthomosaic (PNG, levels up to 17; checked 2026-11-14 on the Mac).
+    'hirise': { name: 'HiRISE 25cm Jezero（MRO）', ...ov(trek('Mars', 'JEZ_hirise_soc_006_orthoMosaic_25cm_Eqc_latTs0_lon0_first_dd', 'png', 17,
+                { maxZoom: 18, bounds: [[18.30, 77.20], [18.58, 77.62]], attribution: 'NASA/JPL-Caltech/UArizona HiRISE via NASA Solar System Treks' }), 1),
+                local: 'mars-hirise/{z}/{y}/{x}.png' },
     'molaov': { name: 'MOLA カラー標高（半透明）', ...ov(trek('Mars', 'Mars_MGS_MOLA_ClrShade_merge_global_463m', 'jpg', 7), 0.45) },
     'rough': { name: 'MOLA 表面粗さ', ...ov(trek('Mars', 'mola_roughness', 'png', 1)) },
     'ti': { name: 'TES 熱慣性', ...ov(trek('Mars', 'TES_Thermal_Inertia', 'png', 1)) },
@@ -88,4 +96,20 @@ export const LAYERS: Record<string, Record<string, LayerDef>> = {
   },
 };
 
-export const makeTile = (d: LayerDef) => L.tileLayer(d.url, d.opts);
+// Tile layer that tries the bundled copy first and falls back to the network per tile.
+const LocalFirst = L.TileLayer.extend({
+  createTile(this: L.TileLayer & { _remote: string }, coords: L.Coords, done: L.DoneCallback) {
+    const img = (L.TileLayer.prototype as unknown as { createTile: (c: L.Coords, d: L.DoneCallback) => HTMLImageElement })
+      .createTile.call(this, coords, done);
+    const remote = L.Util.template(this._remote, { ...coords, z: (this as unknown as { _getZoomForUrl: () => number })._getZoomForUrl(), s: 'a' });
+    img.addEventListener('error', () => { if (img.src !== remote) img.src = remote; }, { once: true });
+    return img;
+  },
+});
+
+export const makeTile = (d: LayerDef): L.TileLayer => {
+  if (!d.local) return L.tileLayer(d.url, d.opts);
+  const layer = new (LocalFirst as unknown as new (u: string, o: L.TileLayerOptions) => L.TileLayer)(`./tiles/${d.local}`, d.opts);
+  (layer as unknown as { _remote: string })._remote = d.url;
+  return layer;
+};

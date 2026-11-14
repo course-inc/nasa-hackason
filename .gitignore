@@ -7,3 +7,6 @@ web/e2e/*.png
 src-tauri/gen/
 .DS_Store
 web/tsconfig.tsbuildinfo
+# WALKBACK: raw downloads and offline map tiles (re-create with mise run walk-data / walk-tiles)
+data/raw/
+web/public/tiles/

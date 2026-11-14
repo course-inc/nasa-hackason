@@ -2,18 +2,23 @@
 // Earth uses Web Mercator (EPSG3857); Moon/Mars Trek tiles are equirectangular (EPSG4326).
 // Leaflet cannot change CRS on a live map, so a world change rebuilds the map.
 // App content is passed declaratively as `features` and re-rendered on change.
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { LAYERS, makeTile } from '../layers';
 import type { Core, World } from '../core';
 
 const EARTH_R_M = 6371000; // radius Leaflet uses for L.circle
+const NONE: Feature[] = [];
+const NO_OVERLAYS: DataOverlay[] = [];
 
 export type Feature =
   | { kind: 'point'; lat: number; lon: number; color: string; radius?: number; tooltip?: string; onClick?: () => void; openTooltip?: boolean }
   | { kind: 'pin'; lat: number; lon: number; tooltip?: string }
-  | { kind: 'line'; pts: [number, number][]; color: string; weight?: number }
+  | { kind: 'line'; pts: [number, number][]; color: string; weight?: number; dash?: string; opacity?: number; tooltip?: string }
+  | { kind: 'lines'; lines: [number, number][][]; color: string; weight?: number; opacity?: number; tooltip?: string }
+  | { kind: 'image'; url: string; bounds: [[number, number], [number, number]]; opacity?: number }
+  | { kind: 'walker'; lat: number; lon: number; color: string }
   | { kind: 'ring'; lat: number; lon: number; radiusKm: number; color: string; tooltip?: string };
 
 export interface DataOverlay { name: string; features: Feature[] }
@@ -28,8 +33,15 @@ interface Props {
   /** Change `seq` to fly to a new place. */
   fly?: FlyTarget | null;
   baseKey?: string;
+  /** Tile overlays (keys of LAYERS[world + 'Overlay']) switched on when the map is built. */
+  overlayKeys?: string[];
+  /** Re-rendered only when the array identity changes (memoise it). */
   features?: Feature[];
+  /** Small, fast-changing features (e.g. the walker during playback), drawn on top. */
+  live?: Feature[];
   overlays?: DataOverlay[];
+  /** Fit the view to these bounds when `fitSeq` changes. */
+  fit?: { bounds: [[number, number], [number, number]]; seq: number } | null;
   collapsedLayers?: boolean;
   crosshair?: boolean;
   onClick?: (lat: number, lon: number) => void;
@@ -37,6 +49,10 @@ interface Props {
 }
 
 const pinIcon = L.divIcon({ className: 'pin-icon', html: '📍', iconSize: [24, 24], iconAnchor: [12, 22] });
+const walkerIcon = (color: string) => L.divIcon({
+  className: 'walker-icon', iconSize: [22, 22], iconAnchor: [11, 11],
+  html: `<span style="background:${color}"></span>`,
+});
 
 function render(group: L.LayerGroup, features: Feature[], world: World, core: Core) {
   group.clearLayers();
@@ -55,7 +71,16 @@ function render(group: L.LayerGroup, features: Feature[], world: World, core: Co
         layer = L.marker([f.lat, f.lon], { icon: pinIcon });
         break;
       case 'line':
-        layer = L.polyline(f.pts, { color: f.color, weight: f.weight ?? 3 });
+        layer = L.polyline(f.pts, { color: f.color, weight: f.weight ?? 3, dashArray: f.dash, opacity: f.opacity ?? 1 });
+        break;
+      case 'lines':
+        layer = L.polyline(f.lines, { color: f.color, weight: f.weight ?? 2, opacity: f.opacity ?? 0.9, interactive: !!f.tooltip });
+        break;
+      case 'image':
+        layer = L.imageOverlay(f.url, f.bounds, { opacity: f.opacity ?? 0.6, interactive: false });
+        break;
+      case 'walker':
+        layer = L.marker([f.lat, f.lon], { icon: walkerIcon(f.color), interactive: false, zIndexOffset: 1000 });
         break;
       case 'ring':
         // L.circle radius is in Earth metres; convert a distance on another body.
@@ -115,15 +140,19 @@ function coordControl() {
 }
 
 export function PlanetMap(props: Props) {
-  const { core, world, view, fly, baseKey, features = [], overlays = [], collapsedLayers = true, crosshair, onClick, children } = props;
+  const { core, world, view, fly, fit, baseKey, overlayKeys, features = NONE, live = NONE, overlays = NO_OVERLAYS, collapsedLayers = true, crosshair, onClick, children } = props;
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<L.Map | null>(null);
   const featureGroup = useRef<L.LayerGroup | null>(null);
+  const liveGroup = useRef<L.LayerGroup | null>(null);
+  const [built, setBuilt] = useState(0);
   const overlayGroups = useRef<Map<string, L.LayerGroup>>(new Map());
   const clickRef = useRef(onClick);
   clickRef.current = onClick;
   const viewRef = useRef(view);
   viewRef.current = view;
+  const overlayKeysRef = useRef(overlayKeys);
+  overlayKeysRef.current = overlayKeys;
 
   // Build / rebuild on world or overlay set change.
   const overlayNames = overlays.map((o) => o.name).join('|');
@@ -137,7 +166,10 @@ export function PlanetMap(props: Props) {
     const base: Record<string, L.Layer> = {}, over: Record<string, L.Layer> = {};
     const baseDefs = LAYERS[world] ?? {};
     for (const d of Object.values(baseDefs)) base[d.name] = makeTile(d);
-    for (const d of Object.values(LAYERS[`${world}Overlay`] ?? {})) over[d.name] = makeTile(d);
+    for (const [k, d] of Object.entries(LAYERS[`${world}Overlay`] ?? {})) {
+      over[d.name] = makeTile(d);
+      if (overlayKeysRef.current?.includes(k)) over[d.name].addTo(m);
+    }
     overlayGroups.current = new Map();
     for (const name of overlayNames ? overlayNames.split('|') : []) {
       const g = L.layerGroup().addTo(m);
@@ -150,9 +182,11 @@ export function PlanetMap(props: Props) {
     scaleControl(core, world).addTo(m);
     coordControl().addTo(m);
     featureGroup.current = L.layerGroup().addTo(m);
+    liveGroup.current = L.layerGroup().addTo(m);
     m.on('click', (e: L.LeafletMouseEvent) => clickRef.current?.(e.latlng.lat, e.latlng.lng));
 
     map.current = m;
+    setBuilt((b) => b + 1);
     const ro = new ResizeObserver(() => m.invalidateSize());
     ro.observe(el.current!);
     // stop() first: removing a map mid-flyTo throws "_leaflet_pos" from the pending animation frame.
@@ -161,13 +195,19 @@ export function PlanetMap(props: Props) {
 
   useEffect(() => {
     if (featureGroup.current) render(featureGroup.current, features, world, core);
-  });
+  }, [features, built]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (liveGroup.current) render(liveGroup.current, live, world, core);
+  }, [live, built]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     for (const o of overlays) {
       const g = overlayGroups.current.get(o.name);
       if (g) render(g, o.features, world, core);
     }
-  });
+  }, [overlays, built]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (fit && map.current) map.current.fitBounds(fit.bounds, { padding: [30, 30] });
+  }, [fit?.seq, built]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (fly && map.current) map.current.stop().flyTo([fly.lat, fly.lon], fly.z, { duration: 1.0 });
   }, [fly?.seq]); // eslint-disable-line react-hooks/exhaustive-deps

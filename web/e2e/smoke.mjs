@@ -13,7 +13,7 @@ const p = await b.newPage({ viewport: { width: 1280, height: 800 } });
 const errs = [];
 p.on('pageerror', (e) => errs.push(e.message));
 p.on('console', (m) => m.type() === 'error' && !/Failed to load resource/.test(m.text()) && errs.push(m.text()));
-let elev = 0;
+let elev = 0; // legacy elevation stubs (analogs view)
 await p.route('**/*', (r) => {
   const u = r.request().url();
   if (u.includes('identify') || u.includes('getelevation')) {
@@ -39,30 +39,25 @@ await p.waitForTimeout(300);
 console.log('body scale', await p.locator('.maps .mapwrap').nth(1).locator('.planet-scale').innerText());
 await p.screenshot({ path: 'e2e/shot-analogs.png' });
 
-await p.goto(`${BASE}/#walk/mars/18.44/77.45/11`);
-await p.waitForSelector('#walk-preset');
-await p.waitForTimeout(300);
+// WALKBACK: bundled Jezero data loads, the example route is judged, and a clicked route is too.
+await p.goto(`${BASE}/#walk`);
+await p.waitForSelector('.walk .verdict.ok, .walk .verdict.ng', { timeout: 15000 });
+const verdict = await p.locator('.walk .verdict').innerText();
+console.log('walk example:', verdict, '|', (await p.locator('.walk .panel').innerText()).split('\n').slice(4, 14).join(' | '));
+if (!/帰れる|引き返す/.test(verdict)) fail('walk verdict');
+await p.locator('.draw-toolbar a[data-m=clear]').click();
+await p.locator('.draw-toolbar a[data-m=route]').click();
 const box = await p.locator('.maps.single .map').boundingBox();
 const click = (dx, dy) => p.mouse.click(box.x + box.width / 2 + dx, box.y + box.height / 2 + dy);
-for (const [dx, dy] of [[0, 0], [120, -60], [260, -20], [300, 120]]) { await click(dx, dy); await p.waitForTimeout(120); }
+for (const [dx, dy] of [[60, -40], [140, -20], [200, 60]]) { await click(dx, dy); await p.waitForTimeout(150); }
 await p.waitForTimeout(400);
-const marsStats = (await p.locator('#route-stats').innerText()).replace(/\n/g, ' | ');
-console.log('mars:', marsStats); if (!/往路/.test(marsStats)) fail('mars route');
+const clicked = await p.locator('.walk .verdict').innerText();
+console.log('walk clicked:', clicked); if (!/帰れる|引き返す/.test(clicked)) fail('walk clicked route');
+await p.locator('.walk .btns button.primary').click();
+await p.waitForSelector('.hud', { timeout: 5000 }).catch(() => fail('helmet HUD'));
+await p.waitForTimeout(800);
 await p.screenshot({ path: 'e2e/shot-walk.png' });
-await p.locator('.panel .tabs button[data-w=earth]').click();
-await p.waitForTimeout(300);
-if (/往路/.test(await p.locator('#route-stats').innerText())) fail('earth should start empty');
-await p.selectOption('#walk-preset', 'daisetsu');
-await p.waitForTimeout(1300);
-await p.locator('.draw-toolbar a[data-m=pin]').click();
-await click(0, 0);
-await p.locator('.draw-toolbar a[data-m=route]').click();
-for (const [dx, dy] of [[-100, 0], [50, -80], [150, 40]]) { await click(dx, dy); await p.waitForTimeout(120); }
-await p.waitForTimeout(400);
-console.log('earth:', (await p.locator('#route-stats').innerText()).replace(/\n/g, ' | '));
-await p.locator('.panel .tabs button[data-w=mars]').click();
-await p.waitForTimeout(300);
-if (!/往路/.test(await p.locator('#route-stats').innerText())) fail('mars route not kept');
+await p.locator('.walk .btns button.primary').click();
 await p.goto(`${BASE}/#analogs`);
 await p.waitForTimeout(300);
 console.log('elevation calls', elev, 'errors', errs);
