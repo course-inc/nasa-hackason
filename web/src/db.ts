@@ -27,7 +27,7 @@ export interface Db {
    * them over HTTP with range requests (only the columns and row groups a query needs); the
    * desktop app reads the bundled files whole.
    */
-  attachParquet: (view: string, files: string[]) => Promise<void>;
+  attachParquet: (view: string, files: string[], opts?: { hive?: boolean; base?: string }) => Promise<void>;
 }
 
 const CELL_COLS: [string, string][] = [
@@ -138,7 +138,7 @@ async function open(core: Core): Promise<Db> {
   let parquet: Promise<void> | null = null;
   const parquetReady = () => (parquet ??= conn.query(`SET custom_extension_repository = '${new URL('./duckdb-ext', location.href).href}'`).then(() => undefined));
   const attached = new Map<string, Promise<void>>();
-  const attachParquet = (view: string, files: string[]) => {
+  const attachParquet = (view: string, files: string[], opts: { hive?: boolean; base?: string } = {}) => {
     const name = ident(view);
     if (!attached.has(name)) {
       attached.set(name, (async () => {
@@ -146,8 +146,10 @@ async function open(core: Core): Promise<Db> {
         const local = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
         const names: string[] = [];
         for (const f of files) {
-          const url = new URL(f, location.href).href;
-          const fname = `${name}__${names.length}.parquet`;
+          const url = new URL((opts.base ?? '') + f, location.href).href;
+          // With hive partitioning the registered name keeps the key=value path, so DuckDB reads the
+          // partition column from it and skips non-matching files without opening them.
+          const fname = opts.hive ? f : `${name}__${names.length}.parquet`;
           if (local) {
             const r = await fetch(url);
             if (!r.ok) throw new Error(`${f}: HTTP ${r.status}`);
@@ -157,7 +159,8 @@ async function open(core: Core): Promise<Db> {
           }
           names.push(fname);
         }
-        await conn.query(`CREATE OR REPLACE VIEW ${name} AS SELECT * FROM read_parquet([${names.map((n) => `'${n}'`).join(', ')}])`);
+        const list = names.map((n) => `'${n.replace(/'/g, "''")}'`).join(', ');
+        await conn.query(`CREATE OR REPLACE VIEW ${name} AS SELECT * FROM read_parquet([${list}]${opts.hive ? ', hive_partitioning = true' : ''})`);
       })());
       attached.get(name)!.catch(() => attached.delete(name));
     }
