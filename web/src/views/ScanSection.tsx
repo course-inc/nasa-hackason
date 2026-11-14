@@ -21,7 +21,8 @@ const T = {
     top10: 'top', outside: 'outside grid',
     cell: 'Selected cell', elev: 'Elevation', relief: 'Relief', slope: 'Mean slope', p90: '90% slope',
     shadow: 'Winter noon shadow', temp: 'Air temperature', jan: 'Jan night', aug: 'Aug day', precip: 'Precipitation',
-    note: 'Geology and vegetation are not in the grid yet (they need the geological map and MODIS), so they are left out of this score. Air temperature is NASA POWER, corrected for height.',
+    ndvi: 'Summer NDVI (MODIS)', cover: 'Built-up / cropland / barren (MODIS)', excluded: 'Screened out: mostly built-up land or cropland',
+    note: 'Rock type is not in the grid yet, so geology is left out of this score. Air temperature is NASA POWER corrected for height; vegetation and land cover are NASA MODIS.',
     gaps: 'What Hokkaido cannot reproduce here', match: 'Match',
   },
   ja: {
@@ -36,7 +37,8 @@ const T = {
     top10: '上位', outside: '範囲外',
     cell: '選んだマス', elev: '標高', relief: '起伏', slope: '平均傾斜', p90: '傾斜（90%）',
     shadow: '冬の正午に影になる割合', temp: '気温', jan: '1月の夜', aug: '8月の昼', precip: '年降水量',
-    note: '地質と植生はまだマスに入っていない（地質図と MODIS が必要）ので、この点数からは外しています。気温は NASA POWER を標高で補正した値。',
+    ndvi: '夏の植生指数 NDVI（MODIS）', cover: '市街地 / 農地 / 裸地（MODIS）', excluded: '除外：大部分が市街地か農地',
+    note: '岩石の種類はまだマスに入っていないので、地質はこの点数から外しています。気温は NASA POWER を標高で補正した値、植生と土地被覆は NASA MODIS。',
     gaps: 'このマスで再現できないこと', match: '一致度',
   },
 } as const;
@@ -120,6 +122,9 @@ export function useScanSection({ core, enabled, bodyId, testId, lang, siteName, 
           <div className="kv"><span>{t.relief}</span><b>{Math.round(cell.relief_m)} m</b></div>
           <div className="kv"><span>{t.slope} / {t.p90}</span><b>{fmt1(cell.slope_deg)}° / {fmt1(cell.slope_p90_deg)}°</b></div>
           <div className="kv"><span>{t.shadow}</span><b>{Math.round(cell.shadow * 100)}%</b></div>
+          {cell.ndvi !== null && <div className="kv"><span>{t.ndvi}</span><b>{cell.ndvi.toFixed(2)}</b></div>}
+          {cell.urban !== null && <div className="kv"><span>{t.cover}</span><b>{Math.round(cell.urban * 100)}% / {Math.round((cell.crop ?? 0) * 100)}% / {Math.round((cell.barren ?? 0) * 100)}%</b></div>}
+          {cell.score.excluded && <p className="warn">⛔ {t.excluded}</p>}
           {cell.climate && (
             <>
               <div className="kv"><span>{t.temp} ({t.jan} / {t.aug})</span><b>{fmt1(cell.climate.tmin[0])} / {fmt1(cell.climate.tmax[7])} °C</b></div>
@@ -161,7 +166,7 @@ export function useScanSection({ core, enabled, bodyId, testId, lang, siteName, 
           </tbody>
         </table>
       </details>
-      <p className="muted">{scan.meta.src.dem} · {scan.meta.src.climate}</p>
+      <p className="muted">{[scan.meta.src.dem, scan.meta.src.vegetation, scan.meta.src.landcover, scan.meta.src.climate].filter(Boolean).join(' · ')}</p>
     </div>
   );
   return { panel, features, onMapClick };

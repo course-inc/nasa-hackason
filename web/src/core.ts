@@ -61,7 +61,7 @@ export interface RehearsalMatch {
 
 export interface ScanMeta {
   cell_km: number; lat0: number; lon0: number; dlat: number; dlon: number; rows: number; cols: number; n: number;
-  src: { dem?: string; climate?: string; built?: string };
+  src: { dem?: string; climate?: string; vegetation?: string; landcover?: string; built?: string };
 }
 export interface ScanCandidate {
   k: number; lat: number; lon: number; score: number; elev_m: number; slope_deg: number; shadow: number;
@@ -70,7 +70,8 @@ export interface ScanCandidate {
 export interface ScanSiteCheck { earth_id: string; k: number | null; score: number | null; rank: number | null; percentile: number | null }
 export interface ScanCell {
   k: number; lat: number; lon: number; elev_m: number; relief_m: number; slope_deg: number; slope_p90_deg: number;
-  shadow: number; land: number; climate: { tmin: number[]; tmax: number[]; precip: number } | null; score: PairScore;
+  shadow: number; land: number; ndvi: number | null; urban: number | null; crop: number | null; barren: number | null;
+  climate: { tmin: number[]; tmax: number[]; precip: number } | null; score: PairScore;
 }
 export interface Scan {
   meta: ScanMeta;

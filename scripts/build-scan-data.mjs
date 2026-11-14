@@ -11,6 +11,8 @@
 //   shadow   share of pixels that get no sun at noon on the December solstice [‰]
 //            (north-facing tilt steeper than the solstice noon sun, ≈ 23° at 43.5°N)
 //   land     share of the cell that is land [%]
+//   ndvi     mean summer-maximum NDVI [×1000]  bare   share of pixels whose summer max NDVI < 0.2 [‰]
+//   urban / crop / barren   share of MODIS land-cover pixels that are built-up / cropland / barren [%]
 // On the NASA POWER grid (0.5° × 0.625°, the app interpolates to cells and corrects for height):
 //   elev, monthly mean daily min / max air temperature (T2M_MIN / T2M_MAX) [°C], precipitation [mm/yr]
 import fs from 'node:fs';
@@ -99,14 +101,40 @@ async function nasademItems() {
   fs.writeFileSync(file, JSON.stringify(items, null, 1));
   return items;
 }
-let sasToken = null;
+// A SAS token covers one storage container, and MODIS assets live in a different container
+// (modiseuwest) from the one the collection token endpoint covers: sign one URL per container and
+// reuse its token (signing every URL runs into HTTP 429).
+const sasTokens = {};
 async function signed(href) {
-  if (!sasToken) {
-    const r = await fetch(`${PC}/sas/v1/token/nasadem`);
-    if (!r.ok) throw new Error(`NASADEM token: HTTP ${r.status}`);
-    sasToken = (await r.json()).token;
+  const u = new URL(href), container = `${u.host}/${u.pathname.split('/')[1]}`;
+  if (!sasTokens[container]) {
+    let r;
+    for (let attempt = 1; ; attempt++) {
+      r = await fetch(`${PC}/sas/v1/sign?href=${encodeURIComponent(href)}`);
+      if (r.status !== 429 || attempt === 6) break;
+      const wait = +(r.headers.get('retry-after') ?? 0) || 15 * attempt;
+      console.warn(`sign: HTTP 429, retrying in ${wait} s`);
+      await new Promise((ok) => setTimeout(ok, wait * 1000));
+    }
+    if (!r.ok) throw new Error(`sign ${href}: HTTP ${r.status}`);
+    sasTokens[container] = new URL((await r.json()).href).search;
   }
-  return `${href}?${sasToken}`;
+  return `${href}${sasTokens[container]}`;
+}
+async function stacItems(collection, extra = {}) {
+  const file = rawDir(`modis/${collection}.items.json`);
+  if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (OFFLINE) return [];
+  const r = await fetch(`${PC}/stac/v1/search`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ collections: [collection], bbox: [BOX.west, BOX.south, BOX.east, BOX.north], limit: 50, ...extra }),
+  });
+  if (!r.ok) { console.warn(`${collection}: STAC search HTTP ${r.status}`); return []; }
+  const items = (await r.json()).features ?? [];
+  if (!items.length) return []; // do not cache an empty search: a later fix would never refetch
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(items.map((f) => ({ id: f.id, datetime: f.properties.datetime ?? f.properties.start_datetime, assets: Object.fromEntries(Object.entries(f.assets).map(([k, a]) => [k, a.href])) })), null, 1));
+  return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
 const items = await nasademItems();
@@ -164,7 +192,95 @@ await Promise.all(Array.from({ length: CONC_DEM }, async () => {
 console.log(`NASADEM tiles used: ${used}`);
 if (!used) throw new Error('NASADEM: no tiles (network?)');
 
-const cells = { i: [], elev: [], relief: [], slope: [], p90: [], shadow: [], land: [] };
+
+// ---- 1b. NASA MODIS → vegetation and land cover per cell ----
+// MOD13A1 v061 NDVI (500 m, 16-day composite at the height of summer) and MCD12Q1 v061 land cover
+// (500 m, IGBP classes), read from the Planetary Computer COG mirror. MCD12Q1 is not on Planetary
+// Computer (yet); the land-cover pass then finds no items and those columns stay -1. Both are on the MODIS
+// sinusoidal grid; each pixel centre is mapped back to latitude/longitude.
+const R_SIN = 6371007.181;
+const ndviSum = new Float64Array(N), ndviN = new Uint32Array(N), bareN = new Uint32Array(N);
+const lcN = new Uint32Array(N), urbanN = new Uint32Array(N), cropN = new Uint32Array(N), barrenN = new Uint32Array(N);
+async function modisRaster(collection, item, asset) {
+  const href = item.assets[asset];
+  if (!href) { console.warn(`${collection} ${item.id}: no asset ${asset} (has ${Object.keys(item.assets).join(', ')})`); return null; }
+  const file = rawDir(`modis/${collection}/${item.id}.${asset}.tif`);
+  let buf = fs.existsSync(file) ? fs.readFileSync(file) : null;
+  if (!buf && !OFFLINE) buf = await cached(file, await signed(href));
+  if (!buf) return null;
+  const tiff = await fromArrayBuffer(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+  const img = await tiff.getImage();
+  const [x0, , , y1] = img.getBoundingBox(); // sinusoidal metres
+  const [rx, ry] = img.getResolution();
+  return { W: img.getWidth(), H: img.getHeight(), x0, y1, rx, ry, v: await img.readRasters({ interleave: true }) };
+}
+function forEachCell(r, fn) {
+  for (let y = 0; y < r.H; y++) {
+    const yy = r.y1 + (y + 0.5) * r.ry;
+    const lat = (yy / R_SIN) * DEG;
+    const row = Math.floor((BOX.north - lat) / dlat);
+    if (row < 0 || row >= rows) continue;
+    const cosLat = Math.cos(yy / R_SIN);
+    for (let x = 0; x < r.W; x++) {
+      const lon = ((r.x0 + (x + 0.5) * r.rx) / (R_SIN * cosLat)) * DEG;
+      const c = Math.floor((lon - BOX.west) / dlon);
+      if (c < 0 || c >= cols) continue;
+      fn(row * cols + c, r.v[y * r.W + x]);
+    }
+  }
+}
+// Summer maximum NDVI: every Terra MOD13A1 16-day composite that starts between NDVI_FROM and
+// NDVI_TO (2024: Planetary Computer has no July/August 2025 composites), per pixel the highest
+// value. Fields and meadows are green at some point of the summer (Tokachi wheat is already
+// harvested by late July, so one composite would make farmland look bare); bare rock never is.
+// The search also returns the overlapping Aqua (MYD13A1) composites; those are skipped.
+// VI_Quality bits 11–13 are the land/water flag: keep land (1) and shorelines (2), drop the water
+// classes. Sea and lake pixels have NDVI ≈ 0 and would otherwise make every coastal cell look like
+// bare ground. Shoreline pixels (the flag also marks some cloudy inland ones, e.g. Tokachi-dake
+// crater) stay, minus those with NDVI < 0: bare rock is above 0, open water and snow below.
+const NDVI_FROM = arg('--ndvi-from', '2024-06-01'), NDVI_TO = arg('--ndvi-to', '2024-09-30');
+const ndviItems = (await stacItems('modis-13A1-061', { datetime: `${NDVI_FROM}T00:00:00Z/${NDVI_TO}T23:59:59Z`, limit: 200 }))
+  .filter((it) => it.id.startsWith('MOD13A1.') && String(it.datetime).slice(0, 10) >= NDVI_FROM && String(it.datetime).slice(0, 10) <= NDVI_TO);
+const tiles = new Map(); // h..v.. → { r, max }
+for (const it of ndviItems) {
+  const r = await modisRaster('modis-13A1-061', it, '500m_16_days_NDVI');
+  const q = await modisRaster('modis-13A1-061', it, '500m_16_days_VI_Quality');
+  if (!r || !q) continue;
+  const tile = it.id.split('.')[2];
+  if (!tiles.has(tile)) tiles.set(tile, { r, max: new Int16Array(r.v.length).fill(-3000) });
+  const max = tiles.get(tile).max;
+  for (let j = 0; j < max.length; j++) {
+    const lw = (q.v[j] >> 11) & 7, v = r.v[j];
+    if ((lw === 1 || lw === 2) && v >= 0 && v > max[j]) max[j] = v;
+  }
+}
+const composites = [...new Set(ndviItems.map((it) => it.id.split('.')[1]))].sort();
+console.log(`MODIS NDVI: ${ndviItems.length} tiles, ${composites.length} composites (${composites.join(' ')})`);
+for (const { r, max } of tiles.values()) {
+  forEachCell({ ...r, v: max }, (k, v) => {
+    if (v < 0) return; // fill, water or never NDVI ≥ 0
+    const ndvi = v / 10000;
+    ndviSum[k] += ndvi; ndviN[k]++;
+    if (ndvi < 0.2) bareN[k]++;
+  });
+}
+const lcItems = (await stacItems('modis-12Q1-061', { datetime: '2023-01-01/2023-12-31' }));
+console.log(`MODIS land cover: ${lcItems.length} tiles`);
+for (const it of lcItems) {
+  const r = await modisRaster('modis-12Q1-061', it, 'LC_Type1');
+  if (!r) continue;
+  forEachCell(r, (k, v) => {
+    if (v === 255 || v === 17) return; // fill / water
+    lcN[k]++;
+    if (v === 13) urbanN[k]++;
+    if (v === 12 || v === 14) cropN[k]++;
+    if (v === 16) barrenN[k]++;
+  });
+}
+const haveNdvi = ndviN.some((x) => x > 0), haveLc = lcN.some((x) => x > 0);
+console.log(`MODIS: NDVI ${haveNdvi ? 'ok' : 'missing'}, land cover ${haveLc ? 'ok' : 'missing'}`);
+
+const cells = { i: [], elev: [], relief: [], slope: [], p90: [], shadow: [], land: [], ndvi: [], bare: [], urban: [], crop: [], barren: [] };
 for (let k = 0; k < N; k++) {
   if (!cnt[k] || land[k] / cnt[k] < 0.5) continue;
   let nS = 0;
@@ -179,6 +295,12 @@ for (let k = 0; k < N; k++) {
   cells.p90.push(p90 * 10);
   cells.shadow.push(Math.round((shadow[k] / nS) * 1000));
   cells.land.push(Math.round((land[k] / cnt[k]) * 100));
+  // -1 = no MODIS value for this cell
+  cells.ndvi.push(ndviN[k] ? Math.round((ndviSum[k] / ndviN[k]) * 1000) : -1);
+  cells.bare.push(ndviN[k] ? Math.round((bareN[k] / ndviN[k]) * 1000) : -1);
+  cells.urban.push(lcN[k] ? Math.round((urbanN[k] / lcN[k]) * 100) : -1);
+  cells.crop.push(lcN[k] ? Math.round((cropN[k] / lcN[k]) * 100) : -1);
+  cells.barren.push(lcN[k] ? Math.round((barrenN[k] / lcN[k]) * 100) : -1);
 }
 console.log(`land cells: ${cells.i.length}`);
 
@@ -213,9 +335,11 @@ console.log(`POWER points with data: ${pts.length - missing}`);
 
 // ---- 3. write ----
 const out = {
-  version: 1, cell_km: CELL_KM, lat0, lon0, dlat, dlon, rows, cols,
+  version: 2, cell_km: CELL_KM, lat0, lon0, dlat, dlon, rows, cols,
   src: {
     dem: 'NASA NASADEM_HGT v001, 1 arc-second (via Microsoft Planetary Computer)',
+    vegetation: `NASA MODIS MOD13A1 v061 NDVI 500 m, per-pixel maximum of the 16-day composites starting ${NDVI_FROM}…${NDVI_TO} (via Microsoft Planetary Computer)`,
+    landcover: haveLc ? 'NASA MODIS MCD12Q1 v061 land cover (IGBP), 2023 (via Microsoft Planetary Computer)' : null,
     climate: 'NASA POWER climatology T2M_MIN / T2M_MAX / PRECTOTCORR, MERRA-2 (https://power.larc.nasa.gov)',
     built: new Date().toISOString().slice(0, 10),
   },
