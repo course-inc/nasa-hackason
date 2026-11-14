@@ -36,7 +36,7 @@ export function App() {
   return (
     <>
       <header>
-        <h1>HOKKAIDO ANALOG FINDER <small>prototype · Rust + React</small></h1>
+        <h1>HOKKAIDO ANALOG FINDER</h1>
         <nav>
           <a href="#analogs" className={route.view === 'analogs' ? 'on' : ''}>#10 Earth Analogs</a>
           <a href="#walk" className={route.view === 'walk' ? 'on' : ''}>#11 Martian Map (WALKBACK)</a>
