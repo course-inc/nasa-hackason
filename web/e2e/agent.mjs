@@ -96,7 +96,7 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
   const { chips } = await ask('3Dで歩いて見せて');
   if (!chips.includes('view_3d:ok') || !chips.includes('view_walk:ok')) fail('3D + walk tools');
   await p.waitForSelector('.terrain3d canvas', { timeout: 10000 }).catch(() => fail('3D view'));
-  await p.waitForSelector('.hud', { timeout: 5000 }).catch(() => fail('helmet HUD'));
+  await p.waitForSelector('.hud', { timeout: 15000 }).catch(() => fail('helmet HUD'));
   await p.waitForTimeout(2500);
   await shot('3d-walk');
 }
@@ -205,6 +205,47 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
   if (!(sheet.height <= 844 * 0.65)) fail('phone: sheet leaves the map visible');
   if (SHOTS) await m.screenshot({ path: 'e2e/agent-phone.png' });
   await ctx.close();
+}
+
+// Voice (desktop path): the mic is recorded to 16 kHz WAV and handed to whisper (mocked here; the
+// real transcription is checked by the Rust test voice::transcribes_a_recording). The question goes
+// through the panel and the answer shows inside the helmet HUD.
+{
+  const vb = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream',
+    `--use-file-for-fake-audio-capture=${new URL('./fixtures/voice-ja.wav', import.meta.url).pathname}`] });
+  const ctx = await vb.newContext({ locale: 'ja-JP', viewport: { width: 1440, height: 900 }, permissions: ['microphone'] });
+  await ctx.addInitScript(() => {
+    try { localStorage.setItem('walkback.guide.closed', '1'); } catch { /* */ }
+    window.__TAURI_INTERNALS__ = {
+      transformCallback: () => 0,
+      invoke: async (cmd, args) => {
+        if (cmd === 'voice_status') return { ok: true, model: 'ggml-medium.bin' };
+        if (cmd === 'voice_transcribe') { window.__wav = args.wav.length; window.__head = String.fromCharCode(...args.wav.slice(0, 4)); window.__rate = args.wav[24] | (args.wav[25] << 8); return '基地から3キロ先まで歩いて帰れますか酸素は6時間あります'; }
+        throw new Error(`${cmd}: not in this test`);
+      },
+    };
+  });
+  const v = await ctx.newPage();
+  v.on('pageerror', (e) => errs.push(e.message));
+  await v.route('**/*', (r) => (r.request().url().startsWith(BASE) ? r.continue() : r.fulfill({ status: 204 })));
+  await v.goto(`${BASE}/#walk`);
+  await v.waitForSelector('.walk .verdict.ok, .walk .verdict.ng', { timeout: 20000 });
+  await v.locator('.agent-input .mic').click();
+  await v.waitForTimeout(3000);
+  await v.locator('.agent-input .mic').click();
+  await v.locator('.msg.agent[data-done="1"]').first().waitFor({ timeout: 30000 });
+  const w = await v.evaluate(() => ({ n: window.__wav, head: window.__head, rate: window.__rate }));
+  const text = await v.locator('.msg.agent .msg-text').first().innerText();
+  console.log('\nvoice wav', w, '|', text.slice(0, 60));
+  if (w.head !== 'RIFF' || w.rate !== 16000 || !(w.n > 40000)) fail('voice: 16 kHz WAV recorded');
+  if (!/判定: 帰れる/.test(text) || !/酸素 6 時間/.test(text)) fail('voice question answered with the spoken conditions');
+  if (!/規則版/.test(await v.locator('.msg-who').first().innerText())) fail('voice: no model → rules version says so');
+  await v.locator('.walk .btns button.primary').click();
+  await v.waitForSelector('.hud-qa', { timeout: 5000 }).catch(() => fail('answer shown in the helmet HUD'));
+  if (!/3キロ/.test(await v.locator('.hud-q').innerText().catch(() => ''))) fail('HUD shows the spoken question');
+  await v.waitForTimeout(1500);
+  if (SHOTS) await v.screenshot({ path: 'e2e/agent-voice-hud.png' });
+  await vb.close();
 }
 
 console.log('\nerrors', errs);

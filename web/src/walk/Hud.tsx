@@ -1,6 +1,7 @@
 // Helmet-style overlay shown over the map while a walk is played back.
 import { fmtH } from './geo';
 import { useT } from '../i18n';
+import { useLastAnswer } from '../agent/lastAnswer';
 
 export interface HudState {
   t_h: number; km: number; o2: number; water: number; home_h: number; margin_h: number;
@@ -18,6 +19,7 @@ const Gauge = ({ label, v, warn }: { label: string; v: number; warn: boolean }) 
 
 export function Hud({ s, limiting, onStop, children }: { s: HudState; limiting: 'o2' | 'water'; onStop: () => void; children?: React.ReactNode }) {
   const t = useT();
+  const qa = useLastAnswer();
   const msg =
     s.phase === 'turn' ? t('引き返し地点。今すぐ基地へ戻る', 'Turn-back point. Head back to base now') :
     s.phase === 'back' ? t('帰還中', 'Returning') :
@@ -37,6 +39,12 @@ export function Hud({ s, limiting, onStop, children }: { s: HudState; limiting: 
         <Gauge label={t('冷却水', 'Water')} v={s.water} warn={limiting === 'water' && s.water < 0.35} />
       </div>
       {msg && <div className={`hud-msg${s.phase === 'turn' || s.margin_h < 0.5 ? ' alert' : ''}`}>{msg}</div>}
+      {qa && (
+        <div className="hud-qa" aria-live="polite">
+          <div className="hud-q">Q {qa.q}</div>
+          <div className="hud-a">{qa.a.length > 220 ? `${qa.a.slice(0, 220)}…` : qa.a}</div>
+        </div>
+      )}
       {children}
       <button className="hud-stop" onClick={onStop}>{t('■ 止める', '■ Stop')}</button>
     </div>

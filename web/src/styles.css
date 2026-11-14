@@ -312,3 +312,13 @@ h1 small { font-size: 12px; margin-left: 6px; }
 }
 
 .walk-title small { display: block; margin-top: 2px; line-height: 1.4; }
+/* Latest question and answer inside the helmet (local-axis HUD). */
+.hud-qa { position: absolute; right: 24px; top: 96px; width: min(320px, 40%); display: grid; gap: 6px;
+  background: rgba(5,15,30,.7); border: 1px solid rgba(64,169,255,.45); border-radius: 10px; padding: 10px 12px; color: #bfe3ff; font-size: 12px; line-height: 1.5; }
+.hud-q { color: #ffd666; font-weight: 700; }
+.hud-a { white-space: pre-wrap; }
+@media (max-width: 820px) { .hud-qa { left: 12px; right: 12px; width: auto; top: auto; bottom: 120px; } .hud-left { left: 12px; bottom: 12px; width: 200px; } }
+.agent-input .mic { padding: 6px 10px; }
+.agent-input .mic.on { background: var(--ng); border-color: var(--ng); color: #fff; animation: hudblink 1s steps(2) infinite; }
+.voice-live, .voice-err { margin: 0; padding: 4px 10px; font-size: 12px; }
+.voice-live { color: var(--accent); }
