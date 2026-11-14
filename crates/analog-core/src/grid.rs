@@ -534,6 +534,12 @@ pub struct PlannedRoute {
     pub status: &'static str,
     /// Share of the budget (out + back) at the destination cell.
     pub goal_ratio: Option<f64>,
+    /// Cells in the order Dijkstra settled them, with their weighted cost (for the search
+    /// animation; not serialized).
+    #[serde(skip)]
+    pub settled: Vec<u32>,
+    #[serde(skip)]
+    pub settled_cost: Vec<f32>,
 }
 
 /// Plan a walk from the base to a destination: Dijkstra over the cells of the walk-home area only
@@ -553,6 +559,8 @@ pub fn plan_route(
         path: Vec::new(),
         status,
         goal_ratio,
+        settled: Vec::new(),
+        settled_cost: Vec::new(),
     };
     if g.rows == 0 || !g.contains(from.0, from.1) || !g.contains(to.0, to.1) {
         return none("outside_grid", None);
@@ -604,10 +612,13 @@ pub fn plan_route(
         (1, -1),
         (1, 1),
     ];
+    let (mut settled, mut settled_cost) = (Vec::new(), Vec::new());
     while let Some(Node(c, i)) = heap.pop() {
         if c > best[i] {
             continue;
         }
+        settled.push(i as u32);
+        settled_cost.push(c as f32);
         if i == b {
             break;
         }
@@ -629,7 +640,11 @@ pub fn plan_route(
         }
     }
     if !best[b].is_finite() {
-        return none("no_path", goal_ratio);
+        return PlannedRoute {
+            settled,
+            settled_cost,
+            ..none("no_path", goal_ratio)
+        };
     }
     let mut cells = vec![b];
     while let Some(&i) = cells.last() {
@@ -687,6 +702,8 @@ pub fn plan_route(
         path,
         status: "ok",
         goal_ratio,
+        settled,
+        settled_cost,
     }
 }
 

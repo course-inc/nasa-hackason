@@ -93,6 +93,8 @@ thread_local! {
     static TRAVERSE: RefCell<Option<traverse::Traverse>> = const { RefCell::new(None) };
     static EVAS: RefCell<Option<eva::EvaStats>> = const { RefCell::new(None) };
     static WEATHER: RefCell<Option<weather::Weather>> = const { RefCell::new(None) };
+    /// The last plan_route search: settled cells in order and their costs (search animation).
+    static TRACE: RefCell<(Vec<u32>, Vec<f32>)> = const { RefCell::new((Vec::new(), Vec::new())) };
 }
 
 fn parse_world(world: &str) -> Result<world::World, JsError> {
@@ -213,16 +215,28 @@ pub fn plan_route(
         serde_json::from_str(weights).map_err(err)?
     };
     with_grid(name, |g| {
-        json(&grid::plan_route(
-            w,
-            g,
-            (lat1, lon1),
-            (lat2, lon2),
-            &p,
-            max_slope_deg,
-            &wt,
-        ))
+        let mut r = grid::plan_route(w, g, (lat1, lon1), (lat2, lon2), &p, max_slope_deg, &wt);
+        let out = json(&r);
+        TRACE.with(|t| {
+            *t.borrow_mut() = (
+                std::mem::take(&mut r.settled),
+                std::mem::take(&mut r.settled_cost),
+            )
+        });
+        out
     })
+}
+
+/// Cells (row-major indices) the last planRoute search settled, in order.
+#[wasm_bindgen(js_name = planTraceOrder)]
+pub fn plan_trace_order() -> Vec<u32> {
+    TRACE.with(|t| t.borrow().0.clone())
+}
+
+/// Weighted cost of each settled cell, in the same order.
+#[wasm_bindgen(js_name = planTraceCost)]
+pub fn plan_trace_cost() -> Vec<f32> {
+    TRACE.with(|t| t.borrow().1.clone())
 }
 
 /// Store the Jezero hourly weather (jezero_weather.json, Perseverance MEDA).
