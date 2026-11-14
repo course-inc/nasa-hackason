@@ -549,7 +549,13 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           {!hud && <Guide />}
           <RouteEditor host={mapHost} route={route} drawing={mode === 'route' && !hud && !globeOn} onChange={setRoute}
             preview={routePreview} connect={easy ? (a, b) => easyLeg(core, data, a, b, p) : undefined} onFinish={() => setMode('pan')} t={t} />
-          {!globeOn && !view3d && (
+          {!globeOn && !view3d && !hud && (hist.current.past.length > 0 || hist.current.future.length > 0) && (
+            <div className="undo-bar" role="group" aria-label={t('元に戻す', 'Undo')}>
+              <button onClick={undo} disabled={!hist.current.past.length} title={t('戻す（⌘Z / Ctrl+Z）', 'Undo (⌘Z / Ctrl+Z)')}>↶ {t('戻す', 'Undo')} <kbd>⌘Z</kbd></button>
+              <button onClick={redo} disabled={!hist.current.future.length} title={t('やり直す（⌘⇧Z / Ctrl+Y）', 'Redo (⌘⇧Z / Ctrl+Y)')}>↷ {t('やり直す', 'Redo')}</button>
+            </div>
+          )}
+          {!globeOn && !view3d && !walkRec && !(rehOpen && reh.found.length > 0) && (
             <div className="draw-hint" aria-live="polite">{mode === 'route'
               ? (easy ? t('⤳ 楽な道モード（坂の楽な道でつなぐ）・', '⤳ Easy path (follows the easiest slopes) · ') : '') + t('クリックで点を追加・点をドラッグで移動・線の中の小さな点をドラッグで挿入・右クリックかダブルクリックで削除・Esc か Enter で終わる・⌘Z で戻す', 'Click to add a point · drag points to move · drag a small middle dot to insert · right-click or double-click to delete · Esc or Enter to finish · ⌘Z to undo')
               : mode === 'base' ? t('クリックした所に基地を置き直す', 'Click to move the base')
