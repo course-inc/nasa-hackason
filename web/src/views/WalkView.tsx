@@ -14,6 +14,7 @@ import { GpxError, SAMPLE_GPX, atDistance, importWalk, type WalkImport } from '.
 import { EarthWalkPanel, WalkImportCard } from '../walk/WalkRecord';
 import { Guide } from '../walk/Guide';
 import { SearchViz, type Trace } from '../walk/SearchViz';
+import { RouteProfile } from '../walk/RouteProfile';
 import { RouteEditor, type Preview } from '../walk/RouteEditor';
 import { Hud, type HudState } from '../walk/Hud';
 import { EvaCard, RoverCard } from '../walk/Evidence';
@@ -101,6 +102,13 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const ev = useMemo(() => evaluate(core, dense, p), [core, dense, p]);
   // The same route on firm ground, to show how much time the footing adds.
   const evFirm = useMemo(() => (footOn && data?.footing ? evaluate(core, dense, { ...p, footing: false }) : null), [core, dense, p, footOn, data]);
+  // Route profile: footing factor along the dense route (from the Rust grid) and the hovered point.
+  const profFoot = useMemo(() => {
+    if (dense.pts.length < 2 || !data?.footing) return null;
+    try { ensureFooting(core, true); return core.sampleFooting(JEZERO, dense.pts.map((w) => [w.lat, w.lon] as [number, number])); }
+    catch { return null; } finally { ensureFooting(core, footOn); }
+  }, [core, dense, data, footOn]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [profHi, setProfHi] = useState<number | null>(null);
   const footModel = useMemo(() => { try { return core.footingModel(); } catch { return null; } }, [core]);
   const wx = useMemo(() => {
     if (!data?.weather) return null;
@@ -405,6 +413,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const features = useMemo<Feature[]>(() => {
     const f: Feature[] = [];
     if (compare?.fast && !vizTrace) f.push({ kind: 'line', pts: compare.fast.map((w) => [w.lat, w.lon] as [number, number]), color: '#69c0ff', weight: 4, dash: '8 6', opacity: 0.95, tooltip: t('最短距離の経路', 'Shortest route') });
+    if (profHi != null && dense.pts[profHi]) f.push({ kind: 'point', lat: dense.pts[profHi].lat, lon: dense.pts[profHi].lon, color: '#ffffff', radius: 7, tooltip: t('断面グラフの位置', 'Profile position'), openTooltip: false });
     if (footImg) f.push({ kind: 'image', url: footImg.url, bounds: footImg.bounds, opacity: 0.7 });
     if (reachImg && showReach) f.push({ kind: 'image', url: reachImg.url, bounds: reachImg.bounds, opacity: 0.55 });
     f.push(...roverFeatures);
@@ -438,7 +447,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
       f.push({ kind: 'point', lat: pts[turnIdx].lat, lon: pts[turnIdx].lon, radius: 9, color: '#faad14', tooltip: t('🚩 引き返し地点', '🚩 Turn-back point'), openTooltip: true });
     }
     return f;
-  }, [reachImg, showReach, footImg, compare, vizTrace, mode, roverFeatures, dense, ev, route, turnIdx, lang]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [reachImg, showReach, footImg, compare, vizTrace, mode, profHi, roverFeatures, dense, ev, route, turnIdx, lang]); // eslint-disable-line react-hooks/exhaustive-deps
   // The same layers for the 3D view.
   const lines3d = useMemo<Line3D[]>(() => {
     const l: Line3D[] = [];
@@ -565,6 +574,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
             <p className="muted" id="ev-weights">{t('「最短距離」は距離だけで探した経路（帰れる範囲・歩ける坂の中で）。「安全重視」の各歩のコスト ＝ 歩く時間 ×（1 ＋ 安全優先 ×（坂 ×（坂/10°）² ＋ 足場 ×（η−1）/0.5 ＋ そのマスまで行って戻るのに使う割合））。歩く時間は判定と同じ計算（坂・足場・出発時刻の冷却水）。「足場の悪い区間」は η が かたい地面と砂の中間（1.35）以上の区間の割合。重みは好みの指定で、物理の係数ではありません。', 'Weights: the cost of each step = walking time × (speed + slope × (slope/10°)² + footing × (η−1)/0.5 + margin × the share of the budget used going there and back). Walking time is the verdict\'s own calculation (slope, footing, departure-time water). "Poor footing" = share of the route with η at or above the midpoint of firm and loose (1.35). Weights are preferences, not physical coefficients.')}</p>
           </div>
         )}
+        {dense.pts.length > 1 && <RouteProfile pts={dense.pts} ev={ev} foot={profFoot} turn={turnIdx} onHover={setProfHi} t={t} />}
         <div className="btns">
           <button className="primary" onClick={hud ? stop : play} disabled={n < 2}>{hud ? t('■ 止める', '■ Stop') : t('▶ ヘルメットで歩く', '▶ Walk it (helmet view)')}</button>
           <button onClick={startRehearsal} disabled={marsForReh.length < 3 || !data?.hokkaido.length || reh.status === 'running'}>
