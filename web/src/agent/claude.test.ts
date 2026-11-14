@@ -95,3 +95,27 @@ describe('relay worker via the tachyon AI gateway', () => {
     expect(out.content).toEqual([{ type: 'text', text: '確認します。' }, { type: 'tool_use', id: 't2', name: 'walkback_check', input: { route: { away_km: 3 } } }]);
   });
 });
+
+import { keepAskedNumbers } from './pirsWeb';
+describe('in-browser pi-rs argument guard', () => {
+  it('keeps only the numbers the question said', () => {
+    expect(keepAskedNumbers({ speed_kmh: '5', o2_h: 6, route: { away_km: 3 }, lang: 'ja' }, '酸素6時間で3km先から帰れる？'))
+      .toEqual({ o2_h: 6, route: { away_km: 3 }, lang: 'ja' });
+    expect(keepAskedNumbers({ o2_h: 12 }, 'ローバーが壊れたら？')).toEqual({});
+  });
+});
+
+import { pickModel } from './pirsWeb';
+describe('in-browser model per device', () => {
+  const pc = { webgpu: true, f16: true, mobile: false, memoryGB: 8, maxBufferGB: 4 };
+  it('4B on a capable computer, 1.7B on phones and small machines, none without WebGPU', () => {
+    expect(pickModel(pc)).toBe('4b');
+    expect(pickModel({ ...pc, memoryGB: undefined })).toBe('4b');
+    expect(pickModel({ ...pc, mobile: true })).toBe('1.7b');
+    expect(pickModel({ ...pc, memoryGB: 4 })).toBe('1.7b');
+    expect(pickModel({ ...pc, maxBufferGB: 0.25 })).toBe('1.7b');
+    expect(pickModel({ ...pc, f16: false })).toBeNull();
+    expect(pickModel({ ...pc, webgpu: false })).toBeNull();
+    expect(pickModel({ ...pc, webgpu: false, override: '8b' })).toBe('8b');
+  });
+});
