@@ -510,6 +510,10 @@ pub struct RouteWeights {
     /// Keep a margin for the walk home: penalty = share of the budget out + back from that cell.
     #[serde(default)]
     pub margin: f64,
+    /// Shortest distance instead: the step cost is its length (still only walkable cells of the
+    /// walk-home area); the other weights are ignored.
+    #[serde(default)]
+    pub distance: bool,
 }
 fn one() -> f64 {
     1.0
@@ -521,6 +525,7 @@ impl Default for RouteWeights {
             slope: 0.0,
             footing: 0.0,
             margin: 0.0,
+            distance: false,
         }
     }
 }
@@ -585,6 +590,9 @@ pub fn plan_route(
     let cost = |i: usize, j: usize, dist: f64| -> Option<f64> {
         let rj = ratio(j).filter(|&r| r <= 1.0)?;
         let t = step_cost(p, g.z[i], g.z[j], dist, max_slope)?;
+        if w.distance {
+            return Some(dist / 1000.0);
+        }
         let foot = (g.foot_cell(i) + g.foot_cell(j)) / 2.0;
         let slope_deg = match (g.z[i], g.z[j]) {
             (Some(x), Some(y)) => ((y - x).abs() / dist).atan().to_degrees(),

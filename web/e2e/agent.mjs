@@ -264,7 +264,8 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
     if (/自動で経路/.test(hint)) {
       const cmpText = await p.locator('#route-compare').innerText({ timeout: 3000 }).catch(() => '');
       console.log('compare:', cmpText.replace(/\s+/g, ' ').slice(0, 120));
-      if (!/速さ優先/.test(cmpText) || !/最大の坂/.test(cmpText)) fail('fastest vs weighted comparison table');
+      if (!/最短距離/.test(cmpText) || !/最大の坂/.test(cmpText)) fail('shortest vs safer comparison table');
+      if (!/坂 \+\d+ 分/.test(await p.locator('#route-breakdown').innerText())) fail('cost breakdown per route');
       await p.locator('.search-viz button', { hasText: 'スキップ' }).click().catch(() => {});
     }
     await p.locator('.draw-toolbar a[data-m=pan]').click();
