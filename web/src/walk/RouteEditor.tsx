@@ -16,7 +16,7 @@ import type { T } from '../i18n';
 
 export interface Preview { ok: boolean; out_km: number; total_h: number; o2_left: number | null }
 
-export function RouteEditor({ host, route, drawing, onChange, preview, connect, onFinish, t }: {
+export function RouteEditor({ host, route, drawing, onChange, preview, connect, onFinish, t, editable = true }: {
   host: HTMLElement | null;
   route: Waypoint[];
   drawing: boolean;
@@ -26,6 +26,8 @@ export function RouteEditor({ host, route, drawing, onChange, preview, connect, 
   connect?: (a: Waypoint, b: Waypoint) => Waypoint[] | null;
   onFinish: () => void;
   t: T;
+  /** Draw the draggable handles (off in destination mode, so a click anywhere reaches the map). */
+  editable?: boolean;
 }) {
   const live = useRef({ route, onChange, preview, connect, onFinish, drawing, t });
   live.current = { route, onChange, preview, connect, onFinish, drawing, t };
@@ -74,6 +76,7 @@ export function RouteEditor({ host, route, drawing, onChange, preview, connect, 
         return `<b>${head}</b> ${tr('ここまで行って戻ると', 'out to here and back')}: ${tr('行き', 'out')} ${pv.out_km.toFixed(1)} km · ${fmtH(pv.total_h)}${pv.o2_left != null ? ` · O₂ ${Math.round(Math.max(0, pv.o2_left) * 100)}%` : ''}${pv.ok ? '' : ` · <span class="ng">${tr('帰れない', 'cannot get back')}</span>`}<br><small>${coarse ? tr('長押しで削除', 'Long-press to delete') : tr('ドラッグで移動・右クリックで削除', 'Drag to move · right-click to delete')}</small>`;
       };
 
+      if (!editable) return;
       r.forEach((w, i) => {
         const mk = L.marker([w.lat, w.lon], {
           draggable: true, keyboard: false, autoPan: true,
@@ -171,7 +174,7 @@ export function RouteEditor({ host, route, drawing, onChange, preview, connect, 
       cleanup.forEach((f) => f());
       tip?.remove(); group?.remove();
     };
-  }, [host, geom, drawing, !!connect]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [host, geom, drawing, !!connect, editable]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return null;
 }
