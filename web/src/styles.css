@@ -435,3 +435,10 @@ h1 small { font-size: 12px; margin-left: 6px; }
 .undo-bar button:disabled { opacity: 0.4; }
 .undo-bar kbd { font: 11px ui-monospace, monospace; opacity: 0.7; margin-left: 2px; }
 @media (max-width: 820px) { .undo-bar { bottom: 70px; left: 50% !important; } .undo-bar kbd { display: none; } }
+
+/* Route handles: hover tip, press feedback on touch */
+.wp-tip { background: rgba(15,20,30,.92); color: #fff; border: 1px solid #ffd666; font-size: 12px; }
+.wp-tip .ng { color: #ff7875; font-weight: 700; }
+.wp-tip small { color: #aab4c4; }
+.wp-handle:hover { box-shadow: 0 0 0 4px rgba(255, 214, 102, .55); }
+.wp-handle.pressing { box-shadow: 0 0 0 6px rgba(255, 77, 79, .55); }

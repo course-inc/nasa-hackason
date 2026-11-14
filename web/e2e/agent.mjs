@@ -240,6 +240,14 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
     const n = await p.locator('.wp-handle').count();
     await p.locator('.wp-handle').nth(n - 1).click({ button: 'right' });
     if ((await p.locator('.wp-handle').count()) !== n - 1) fail('right-click deletes a point');
+    // Hover a point: "out to here and back" numbers; Backspace while drawing takes back the last point.
+    { const hb = await p.locator('.wp-handle').nth(1).boundingBox(); await p.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2, { steps: 4 }); await p.waitForTimeout(300); }
+    const wtip = await p.locator('.wp-tip').innerText({ timeout: 3000 }).catch(() => '');
+    if (!/WP1.*行き [\d.]+ km/s.test(wtip)) fail(`point hover shows distance (${wtip})`);
+    await p.mouse.move(box.x + box.width * 0.62, box.y + box.height * 0.52);
+    const n2 = await p.locator('.wp-handle').count();
+    await p.keyboard.press('Backspace');
+    if ((await p.locator('.wp-handle').count()) !== n2 - 1) fail('Backspace removes the last point while drawing');
     await p.keyboard.press('Escape');
     if (await p.locator('.draw-toolbar a[data-m=route].on').count()) fail('Esc stops drawing');
     await p.locator('.draw-toolbar a[data-m=easy]').click();
