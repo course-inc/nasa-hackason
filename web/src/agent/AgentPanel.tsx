@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAgent, getTools, listAgents, onRegistryChange } from './port';
 import { NoModelError, lastModel } from './pirs';
 import type { AgentEvent, ToolResult } from './types';
+import { useLang, useT } from '../i18n';
 
 export const EXAMPLES = [
   '基地から3km先まで歩いて帰れる？',
@@ -14,6 +15,15 @@ export const EXAMPLES = [
   '有人ローバーが壊れたら歩いて帰れる？',
   '歩いた記録で火星を歩いて見せて',
 ];
+export const EXAMPLES_EN = [
+  'Can I walk back from 3 km out?',
+  'Find a practice course in Hokkaido with the same slopes',
+  'Where and when in Hokkaido should we train?',
+  'Show me the evidence',
+  'Show the walk in 3D',
+  'If the crewed rover breaks down, can we walk back?',
+  'Replay our recorded walk on Mars',
+];
 
 interface Call { id: string; name: string; args: unknown; result?: ToolResult; ok?: boolean }
 type Item =
@@ -21,23 +31,24 @@ type Item =
   | { kind: 'agent'; agent: string; text: string; calls: Call[]; error?: string; note?: string; done: boolean };
 
 function Chip({ c }: { c: Call }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const tool = getTools().find((t) => t.name === c.name);
   const state = c.ok == null ? 'run' : c.ok ? 'ok' : 'ng';
   return (
     <div className={`tool-chip ${state}`}>
       <button className="tool-chip-head" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <span className="tool-kind">{tool?.kind === 'view' ? '表示' : '計算'}</span>
+        <span className="tool-kind">{tool?.kind === 'view' ? t('表示', 'view') : t('計算', 'compute')}</span>
         <code>{c.name}</code>
-        <span className="tool-state">{state === 'run' ? (c.name === 'explore_hokkaido' ? '探索中…' : '計算中…') : state === 'ok' ? '✓' : '✕'}</span>
+        <span className="tool-state">{state === 'run' ? (c.name === 'explore_hokkaido' ? t('北海道を探索中…（初回は数秒）', 'Exploring Hokkaido… (a few seconds the first time)') : t('計算中…', 'Computing…')) : state === 'ok' ? '✓' : '✕'}</span>
       </button>
       {open && (
         <div className="tool-chip-body">
-          <div className="muted">引数</div>
+          <div className="muted">{t('引数', 'Arguments')}</div>
           <pre>{JSON.stringify(c.args ?? {}, null, 1)}</pre>
-          {c.result && <><div className="muted">結果</div><p>{c.result.text}</p></>}
+          {c.result && <><div className="muted">{t('結果', 'Result')}</div><p>{c.result.text}</p></>}
           {c.result?.sources?.length ? (
-            <><div className="muted">出典</div>
+            <><div className="muted">{t('出典', 'Sources')}</div>
               <ul>{c.result.sources.map((s) => <li key={s.label}>{s.url ? <a href={s.url} target="_blank" rel="noreferrer">{s.label}</a> : s.label}</li>)}</ul></>
           ) : null}
           {c.result?.sql && <><div className="muted">SQL</div><pre>{c.result.sql}</pre></>}
@@ -48,6 +59,8 @@ function Chip({ c }: { c: Call }) {
 }
 
 export function AgentPanel() {
+  const t = useT();
+  const lang = useLang();
   const [, bump] = useState(0);
   useEffect(() => onRegistryChange(() => bump((n) => n + 1)), []);
   const [avail, setAvail] = useState<Record<string, boolean>>({});
@@ -61,8 +74,10 @@ export function AgentPanel() {
   const chosen = agentId ?? (avail['pi-rs'] ? 'pi-rs' : 'rules');
 
   // Open by default on WALKBACK; elsewhere a small button, so it never covers the other tabs.
-  const isWalk = () => /^#(walk|mars)/.test(location.hash);
-  const [open, setOpen] = useState(isWalk);
+  const isWalk = () => /^#(walk|mars)/.test(location.hash) || location.hash.replace('#', '') === '';
+  // Phones start with the small button so the map stays usable.
+  const narrow = () => typeof matchMedia !== 'undefined' && matchMedia('(max-width: 820px)').matches;
+  const [open, setOpen] = useState(() => isWalk() && !narrow());
   const [q, setQ] = useState('');
   const [items, setItems] = useState<Item[]>([]);
   const [busy, setBusy] = useState(false);
@@ -71,7 +86,7 @@ export function AgentPanel() {
   useEffect(() => { logRef.current?.scrollTo({ top: logRef.current.scrollHeight }); }, [items]);
   const used = items.length > 0 || busy;
   useEffect(() => {
-    const on = () => { if (!used) setOpen(isWalk()); };
+    const on = () => { if (!used) setOpen(isWalk() && !narrow()); };
     window.addEventListener('hashchange', on);
     return () => window.removeEventListener('hashchange', on);
   }, [used]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -106,7 +121,7 @@ export function AgentPanel() {
         if (!(e instanceof NoModelError) || agent.id === 'rules') throw e;
         // No model reachable: say so and answer with the rules version.
         agent = getAgent('rules')!;
-        patchLast((it) => ({ ...it, agent: 'rules', note: `pi-rs のモデルに接続できないため規則版で答えます（${e.message}）` }));
+        patchLast((it) => ({ ...it, agent: 'rules', note: t(`AI モデルに接続できないため、規則版（AIなし）で答えます。デスクトップ版で ANTHROPIC_API_KEY を設定するか、Ollama を起動してください（${e.message}）`, `No AI model is reachable, so the rules version (no AI) answers. In the desktop app, set ANTHROPIC_API_KEY or start Ollama (${e.message})`) }));
         await agent.ask(prompt, getTools(), onEvent, ctl.signal);
       }
       if (agent.id === 'pi-rs' && lastModel) patchLast((it) => ({ ...it, note: it.note ?? `${lastModel!.provider} / ${lastModel!.model}` }));
@@ -121,22 +136,22 @@ export function AgentPanel() {
 
   const label = useMemo(() => Object.fromEntries(agents.map((a) => [a.id, a.label])), [agents]);
 
-  if (!open) return <button className="agent-fab" onClick={() => setOpen(true)} aria-label="質問欄を開く">💬 質問する</button>;
+  if (!open) return <button className="agent-fab" onClick={() => setOpen(true)} aria-label={t('質問欄を開く', 'Open the question panel')}>💬 {t('質問する', 'Ask')}</button>;
   return (
-    <section className="agent-panel" aria-label="質問欄">
+    <section className="agent-panel" aria-label={t('質問欄', 'Question panel')}>
       <div className="agent-head">
-        <b>質問する</b>
-        <select aria-label="エージェント" value={chosen} onChange={(e) => setAgentId(e.target.value)}>
+        <b>{t('質問する', 'Ask WALKBACK')}</b>
+        <select aria-label={t('エージェント', 'Agent')} value={chosen} onChange={(e) => setAgentId(e.target.value)}>
           {agents.map((a) => (
             <option key={a.id} value={a.id} disabled={avail[a.id] === false}>
-              {a.label}{avail[a.id] === false ? '（デスクトップ版のみ）' : ''}
+              {a.label}{avail[a.id] === false ? t('（デスクトップ版のみ）', ' (desktop app only)') : ''}
             </option>
           ))}
         </select>
-        <button className="agent-close" onClick={() => setOpen(false)} aria-label="質問欄を閉じる">—</button>
+        <button className="agent-close" onClick={() => setOpen(false)} aria-label={t('質問欄を閉じる', 'Close the question panel')}>—</button>
       </div>
       <div className="agent-log" ref={logRef}>
-        {items.length === 0 && <p className="muted">数字はすべて Rust エンジンと NASA データのツールから。答えはツールの結果だけを使います。</p>}
+        {items.length === 0 && <p className="muted">{t('数字はすべて Rust エンジンと NASA データのツールから。答えはツールの結果だけを使います。下の例を押すか、質問を書いてください。', 'Every number comes from the Rust engine and NASA data tools; answers only quote tool results. Tap an example below or type a question.')}</p>}
         {items.map((it, i) => it.kind === 'user'
           ? <div key={i} className="msg user">{it.text}</div>
           : (
@@ -150,13 +165,13 @@ export function AgentPanel() {
           ))}
       </div>
       <div className="agent-examples">
-        {EXAMPLES.map((x) => <button key={x} disabled={busy} onClick={() => ask(x)}>{x}</button>)}
+        {(lang === 'ja' ? EXAMPLES : EXAMPLES_EN).map((x) => <button key={x} disabled={busy} onClick={() => ask(x)}>{x}</button>)}
       </div>
       <form className="agent-input" onSubmit={(e) => { e.preventDefault(); ask(q); }}>
-        <input aria-label="質問" value={q} onChange={(e) => setQ(e.target.value)} placeholder="例: 酸素6時間で基地から3km先まで帰れる？" />
+        <input id="agent-q" aria-label={t('質問', 'Question')} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('例: 酸素6時間で基地から3km先まで帰れる？', 'e.g. With 6 hours of oxygen, can I walk back from 3 km out?')} />
         {busy
-          ? <button type="button" onClick={() => abort.current?.abort()}>止める</button>
-          : <button type="submit" className="primary" disabled={!q.trim()}>聞く</button>}
+          ? <button type="button" onClick={() => abort.current?.abort()}>{t('止める', 'Stop')}</button>
+          : <button type="submit" className="primary" disabled={!q.trim()}>{t('聞く', 'Ask')}</button>}
       </form>
     </section>
   );

@@ -1,19 +1,20 @@
 // Hash router.
-//   #target[/body/test/site]      → #10 Earth Analogs, target-first (default)
-//   #analogs                      → #10 Earth Analogs, site-first
-//   #walk[/world/lat/lon/zoom]    → #11 WALKBACK route planner (#mars kept as an alias)
+//   #walk[/world/lat/lon/zoom]    → WALKBACK route planner (default; #mars kept as an alias)
+//   #target[/body/test/site]      → Explore all of Hokkaido (#10, target-first)
+//   #analogs                      → Hokkaido site → Moon/Mars (#10, site-first)
 import { useEffect, useState } from 'react';
 import { loadCore, type Core, type World } from './core';
 import { AnalogsView } from './views/AnalogsView';
 import { TargetView, type TargetParams } from './views/TargetView';
 import { WalkView, type WalkParams } from './views/WalkView';
+import { setLang, useLang, useT } from './i18n';
 
 type View = 'target' | 'analogs' | 'walk';
 
 function parseHash(): { view: View; params: WalkParams; target: TargetParams } {
   const [name, world, lat, lon, z] = location.hash.replace(/^#/, '').split('/');
   if (name === 'analogs') return { view: 'analogs', params: {}, target: {} };
-  if (name === 'walk' || name === 'mars') {
+  if (name === 'walk' || name === 'mars' || name === '') {
     const w = (['earth', 'moon', 'mars'].includes(world) ? world : name === 'mars' ? 'mars' : undefined) as World | undefined;
     const num = (s?: string) => (s && Number.isFinite(+s) ? +s : undefined);
     return { view: 'walk', params: { world: w, lat: num(lat), lon: num(lon), z: num(z) }, target: {} };
@@ -22,6 +23,8 @@ function parseHash(): { view: View; params: WalkParams; target: TargetParams } {
 }
 
 export function App() {
+  const t = useT();
+  const lang = useLang();
   const [core, setCore] = useState<Core | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [route, setRoute] = useState(parseHash);
@@ -51,14 +54,19 @@ export function App() {
   return (
     <>
       <header>
-        <h1>HOKKAIDO ANALOG FINDER</h1>
-        <nav>
-          <a href="#target" className={route.view === 'target' ? 'on' : ''}>#10 Earth Analogs</a>
-          <a href="#analogs" className={route.view === 'analogs' ? 'on' : ''}>Site → Moon/Mars</a>
-          <a href="#walk" className={route.view === 'walk' ? 'on' : ''}>#11 Martian Map (WALKBACK)</a>
+        <h1>WALKBACK <small>Hokkaido × Mars</small></h1>
+        <nav aria-label={t('画面', 'Views')}>
+          <a href="#walk" className={route.view === 'walk' ? 'on' : ''}>{t('火星で歩いて帰る', 'Walk back on Mars')}</a>
+          <a href="#target" className={route.view === 'target' ? 'on' : ''}>{t('北海道全域の探索', 'Explore all of Hokkaido')}</a>
+          <a href="#analogs" className={route.view === 'analogs' ? 'on' : ''}>{t('地点 → 月・火星', 'Site → Moon/Mars')}</a>
         </nav>
+        <div className="lang-switch" role="group" aria-label={t('言語', 'Language')}>
+          <button className={lang === 'ja' ? 'on' : ''} aria-pressed={lang === 'ja'} onClick={() => setLang('ja')}>日本語</button>
+          <button className={lang === 'en' ? 'on' : ''} aria-pressed={lang === 'en'} onClick={() => setLang('en')}>English</button>
+        </div>
       </header>
-      {error && <p className="warn" style={{ padding: 16 }}>Could not load the Rust core (WASM): {error}</p>}
+      {error && <p className="warn" style={{ padding: 16 }}>{t('計算エンジン（Rust/WASM）を読み込めませんでした。新しいブラウザ（Chrome・Edge・Safari・Firefox の最新版）で開き直してください。', 'Could not load the calculation engine (Rust/WASM). Reopen the page in a current browser (latest Chrome, Edge, Safari or Firefox).')}<br /><small>{error}</small></p>}
+      {!core && !error && <p className="muted boot">{t('計算エンジンと NASA データを読み込み中…', 'Loading the calculation engine and NASA data…')}</p>}
       {core && (
         <>
           {/* Views stay mounted once opened so map state survives tab switches. */}

@@ -6,6 +6,7 @@ import { fmtH } from '../walk/geo';
 import { computePlan, evaParams, rehearsalPoints, roverWalkback, turnIndex, turnWaypoint, WATER_PER_O2, type PlanParams } from '../walk/plan';
 import { nextFrame, walkController, type EvidenceTopic } from '../walk/controller';
 import { registerTool } from './port';
+import { getLang } from '../i18n';
 import type { ToolDef, ToolResult } from './types';
 
 type Lang = 'ja' | 'en';
@@ -424,7 +425,21 @@ export function registerAgentTools(core: Core): () => void {
     if (!live) return;
     for (const [name, f] of Object.entries(m as Record<string, unknown>)) {
       if (/^make\w*Tool$/.test(name) && typeof f === 'function') {
-        try { off.push(registerTool((f as (c: Core) => ToolDef)(core))); } catch { /* skip a tool that cannot be built */ }
+        try {
+          const tool = (f as (c: Core) => ToolDef)(core);
+          if (tool.name === 'explore_hokkaido') {
+            // DuckDB comes from jsDelivr on the web build: say what to do when it cannot load.
+            const run = tool.run;
+            tool.run = (args) => run(args).catch((e: unknown) => {
+              const msg = e instanceof Error ? e.message : String(e);
+              if (/where:|unknown (target|test)/.test(msg)) throw e;
+              throw new Error(getLang() === 'ja'
+                ? `北海道全域のデータベース（DuckDB）を読み込めませんでした。Web 版はネットから読み込むので、接続を確かめてもう一度聞いてください。デスクトップ版はオフラインでも動きます。（${msg}）`
+                : `Could not load the Hokkaido database (DuckDB). The web version downloads it, so check the connection and ask again; the desktop app works offline. (${msg})`);
+            });
+          }
+          off.push(registerTool(tool));
+        } catch { /* skip a tool that cannot be built */ }
       }
     }
   }).catch(() => undefined);

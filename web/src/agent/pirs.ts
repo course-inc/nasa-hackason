@@ -2,6 +2,7 @@
 // it calls our tools back through Tauri events. Talks to Tauri through window.__TAURI_INTERNALS__
 // so the web build needs no Tauri package.
 import { callTool, toolSpecs } from './port';
+import { getLang } from '../i18n';
 import type { AgentEvent, AgentPort, ToolDef } from './types';
 
 interface TauriInternals {
@@ -28,7 +29,7 @@ export let lastModel: ModelInfo | null = null;
 
 export const pirsAgent: AgentPort = {
   id: 'pi-rs',
-  label: 'pi-rs（AI）',
+  get label() { return getLang() === 'ja' ? 'pi-rs（ローカル AI）' : 'pi-rs (local AI)'; },
   available: () => !!tauri(),
   async ask(prompt: string, tools: ToolDef[], onEvent: (e: AgentEvent) => void, signal?: AbortSignal) {
     const t = tauri();

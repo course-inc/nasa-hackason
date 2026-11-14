@@ -10,6 +10,7 @@ const SHOTS = process.env.SHOTS !== '0';
 const fail = (m) => { console.error('FAIL', m); process.exitCode = 1; };
 const b = await chromium.launch();
 const p = await b.newPage({ viewport: { width: 1440, height: 900 }, locale: 'ja-JP' });
+await p.addInitScript(() => { try { localStorage.setItem('walkback.guide.closed', '1'); } catch { /* */ } });
 const errs = [];
 p.on('pageerror', (e) => errs.push(e.message));
 p.on('console', (m) => m.type() === 'error' && !/Failed to load resource/.test(m.text()) && errs.push(m.text()));
@@ -155,6 +156,55 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
   if (!/Verdict: /.test(text) || !/O₂ 6 h/.test(text)) fail('English answer with O2 6 h');
   const o2 = await p.locator('#o2').inputValue();
   if (o2 !== '6') fail(`O2 slider moved to 6 (${o2})`);
+}
+
+// Empty state: with only the base left, the panel says what to do next.
+{
+  await p.goto(`${BASE}/#walk`);
+  await p.waitForSelector('.walk .verdict.ok, .walk .verdict.ng', { timeout: 20000 });
+  await p.locator('.draw-toolbar a[data-m=clear]').click();
+  const empty = await p.locator('.walk .verdict').innerText();
+  console.log('\nempty route:', empty);
+  if (!/地図をクリック/.test(empty)) fail('empty route tells what to do');
+  await p.locator('.draw-toolbar a[data-m=example]').click();
+  await shot('pc-ja');
+}
+
+// English: the header switch changes the screen, and English questions get English answers.
+{
+  await p.locator('.lang-switch button', { hasText: 'English' }).click();
+  await p.waitForTimeout(300);
+  const v = await p.locator('.walk .verdict').innerText();
+  console.log('english verdict:', v);
+  if (!/Can walk back|Turn back/.test(v)) fail('English verdict');
+  if (!(await p.locator('.agent-examples button', { hasText: 'Can I walk back from 3 km out?' }).count())) fail('English examples');
+  const { text } = await ask('Can I walk back from 3 km out?');
+  if (!/Verdict: can walk back/.test(text) || !/Out 6\.1 km/.test(text)) fail('English answer from the English example');
+  await shot('pc-en');
+  await p.locator('.lang-switch button', { hasText: '日本語' }).click();
+}
+
+// Phone width: map on top and usable, the question panel starts as a button and opens as a sheet.
+{
+  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, locale: 'ja-JP', isMobile: true, hasTouch: true });
+  await ctx.addInitScript(() => { try { localStorage.setItem('walkback.guide.closed', '1'); } catch { /* */ } });
+  const m = await ctx.newPage();
+  m.on('pageerror', (e) => errs.push(e.message));
+  await m.route('**/*', (r) => (r.request().url().startsWith(BASE) ? r.continue() : r.fulfill({ status: 204 })));
+  await m.goto(`${BASE}/#walk`);
+  await m.waitForSelector('.walk .verdict.ok, .walk .verdict.ng', { timeout: 20000 });
+  const mapBox = await m.locator('.maps .map').first().boundingBox();
+  console.log('phone map', Math.round(mapBox.width), 'x', Math.round(mapBox.height), 'at y', Math.round(mapBox.y));
+  if (!(mapBox.height > 300 && mapBox.y < 120)) fail('phone: map on top and tall enough');
+  if (await m.locator('.agent-panel').count()) fail('phone: question panel starts closed');
+  if (await m.evaluate(() => document.documentElement.scrollWidth > innerWidth)) fail('phone: no sideways scroll');
+  await m.locator('.agent-fab').click();
+  await m.locator('.agent-examples button').first().click();
+  await m.locator('.msg.agent[data-done="1"]').first().waitFor({ timeout: 30000 });
+  const sheet = await m.locator('.agent-panel').boundingBox();
+  if (!(sheet.height <= 844 * 0.65)) fail('phone: sheet leaves the map visible');
+  if (SHOTS) await m.screenshot({ path: 'e2e/agent-phone.png' });
+  await ctx.close();
 }
 
 console.log('\nerrors', errs);

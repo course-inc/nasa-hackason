@@ -5,6 +5,7 @@ import type { Core, RehearsalMatch, Waypoint } from '../core';
 import { PlanetMap, type Feature } from '../map/PlanetMap';
 import { Terrain3D, type Line3D } from '../map/Terrain3D';
 import { loadHokkaidoGrid, type GridData, type HokkaidoSite } from './data';
+import { useT } from '../i18n';
 
 export interface Found { site: HokkaidoSite; m: RehearsalMatch }
 
@@ -44,6 +45,7 @@ export function useRehearsal(core: Core, sites: HokkaidoSite[]) {
 }
 
 function Profile({ mars, earth }: { mars: Waypoint[]; earth: [number, number, number][] }) {
+  const t = useT();
   const W = 300, H = 110, P = 26;
   const R = 3389.5, k = (Math.PI / 180) * R;
   const dist: number[] = [0];
@@ -58,7 +60,7 @@ function Profile({ mars, earth }: { mars: Waypoint[]; earth: [number, number, nu
   const y = (z: number) => 6 + (1 - (z - lo) / (hi - lo)) * (H - 22);
   const path = (zs: number[]) => zs.map((z, i) => `${i ? 'L' : 'M'}${x(dist[Math.min(i, dist.length - 1)]).toFixed(1)},${y(z).toFixed(1)}`).join('');
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="profile" role="img" aria-label="火星と北海道の高低差の比較">
+    <svg viewBox={`0 0 ${W} ${H}`} className="profile" role="img" aria-label={t('火星と北海道の高低差の比較', 'Height profile: Mars vs Hokkaido')}>
       <line x1={P} x2={W - 6} y1={y(0)} y2={y(0)} className="axis" />
       <text x={2} y={y(hi) + 4} className="hist-label">+{Math.round(hi)}m</text>
       <text x={2} y={y(lo) + 4} className="hist-label">{Math.round(lo)}m</text>
@@ -72,6 +74,7 @@ function Profile({ mars, earth }: { mars: Waypoint[]; earth: [number, number, nu
 export function RehearsalPanel({ core, mars, found, selected, onSelect }: {
   core: Core; mars: Waypoint[]; found: Found[]; selected: number; onSelect: (i: number) => void;
 }) {
+  const t = useT();
   const f = found[selected];
   const [is3d, setIs3d] = useState(false);
   const [grid, setGrid] = useState<GridData | null>(null);
@@ -88,7 +91,7 @@ export function RehearsalPanel({ core, mars, found, selected, onSelect }: {
     return [
       { kind: 'line', pts, color: '#000', weight: 7, opacity: 0.5 },
       { kind: 'line', pts, color: '#40a9ff', weight: 4 },
-      { kind: 'point', lat: pts[0][0], lon: pts[0][1], color: '#52c41a', radius: 8, tooltip: 'スタート（火星の基地にあたる場所）' },
+      { kind: 'point', lat: pts[0][0], lon: pts[0][1], color: '#52c41a', radius: 8, tooltip: t('スタート（火星の基地にあたる場所）', 'Start (where the Mars base would be)') },
     ];
   }, [f]);
   const fit = useMemo(() => {
@@ -106,9 +109,9 @@ export function RehearsalPanel({ core, mars, found, selected, onSelect }: {
             points={[{ lat: f.m.pts[0][0], lon: f.m.pts[0][1], color: '#52c41a', size: 2 }]} focus={fit?.bounds ?? null} />
         </div>
       )}
-      <div className="maplabel">北海道の練習コース: {f.site.name}{is3d ? '（3D）' : ''}</div>
+      <div className="maplabel">{t('北海道の練習コース', 'Practice course in Hokkaido')}: {f.site.name}{is3d ? ' (3D)' : ''}</div>
       {grid && (
-        <div className="view-toggle" role="group" aria-label="地図の表示">
+        <div className="view-toggle" role="group" aria-label={t('地図の表示', 'Map view')}>
           <button className={is3d ? '' : 'on'} onClick={() => setIs3d(false)}>2D</button>
           <button className={is3d ? 'on' : ''} onClick={() => setIs3d(true)}>3D</button>
         </div>
@@ -122,10 +125,10 @@ export function RehearsalPanel({ core, mars, found, selected, onSelect }: {
           ))}
         </div>
         <Profile mars={mars} earth={f.m.pts} />
-        <div className="legend"><span className="lg-mars">火星のルート</span><span className="lg-earth">北海道のコース</span></div>
-        <div className="kv"><span>坂の違い（平均）</span><b>{f.m.rms_deg.toFixed(1)}°</b></div>
-        <div className="kv"><span>登りの合計 火星 / 北海道</span><b>{Math.round(f.m.climb_mars_m)} m / {Math.round(f.m.climb_earth_m)} m</b></div>
-        <p className="muted">地球では再現できない点: 重力（火星は地球の38%なので、同じ坂でも地球の方が体への負担は約2.6倍）、薄い大気と低温、宇宙服の重さ。</p>
+        <div className="legend"><span className="lg-mars">{t('火星のルート', 'Mars route')}</span><span className="lg-earth">{t('北海道のコース', 'Hokkaido course')}</span></div>
+        <div className="kv"><span>{t('坂の違い（平均）', 'Slope difference (mean)')}</span><b>{f.m.rms_deg.toFixed(1)}°</b></div>
+        <div className="kv"><span>{t('登りの合計 火星 / 北海道', 'Total climb Mars / Hokkaido')}</span><b>{Math.round(f.m.climb_mars_m)} m / {Math.round(f.m.climb_earth_m)} m</b></div>
+        <p className="muted">{t('地球では再現できない点: 重力（火星は地球の38%なので、同じ坂でも地球の方が体への負担は約2.6倍）、薄い大気と低温、宇宙服の重さ。', 'What Earth cannot reproduce: gravity (Mars has 38% of Earth\'s, so the same slope is about 2.6× harder on Earth), the thin cold air, and the weight of the suit.')}</p>
       </div>
     </div>
   );

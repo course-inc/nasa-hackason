@@ -42,6 +42,18 @@ for (const s of sites) {
   for (const z of [10, 11, 12, 13, 14]) jobs.push({ id: 'earth-gsiphoto', z, r: mercRange(z, ...box), url: 'https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto', ext: 'jpg', xy: true });
 }
 
+// Walk areas for imported GPX walks (#11 A, web/public/data/walks/index.json): aerial photo for the
+// Hokkaido side of the replay. z16 only near the centre to keep the download small.
+const walkIndex = path.join(root, 'web/public/data/walks/index.json');
+if (fs.existsSync(walkIndex)) {
+  for (const a of JSON.parse(fs.readFileSync(walkIndex, 'utf8'))) {
+    const n = a.lat0 + a.dlat / 2, w = a.lon0 - a.dlon / 2, south = n - a.rows * a.dlat, east = w + a.cols * a.dlon;
+    for (const z of [11, 12, 13, 14, 15]) jobs.push({ id: 'earth-gsiphoto', z, r: mercRange(z, south, w, n, east), url: 'https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto', ext: 'jpg', xy: true });
+    const cy = (n + south) / 2, cx = (w + east) / 2;
+    jobs.push({ id: 'earth-gsiphoto', z: 16, r: mercRange(16, cy - 0.03, cx - 0.04, cy + 0.03, cx + 0.04), url: 'https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto', ext: 'jpg', xy: true });
+  }
+}
+
 const tiles = [];
 const seen = new Set();
 for (const j of jobs) for (let y = j.r.y0; y <= j.r.y1; y++) for (let x = j.r.x0; x <= j.r.x1; x++) {

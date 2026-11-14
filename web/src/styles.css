@@ -278,3 +278,37 @@ button:disabled { opacity: .5; cursor: default; }
 .walk-badge.measured { background: rgba(82,196,26,.15); color: var(--ok); }
 .walk-badge.synthetic { background: rgba(250,173,20,.15); color: var(--warn); }
 .measured-speed { color: var(--accent); }
+.lang-switch { display: flex; gap: 2px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+.lang-switch button { border: 0; padding: 4px 10px; font-size: 12px; background: transparent; color: var(--muted); border-radius: 6px; }
+.lang-switch button.on { background: var(--panel); color: var(--text); }
+h1 small { font-size: 12px; margin-left: 6px; }
+.boot { padding: 24px; }
+.guide { position: absolute; z-index: 1200; top: 16px; left: 50%; transform: translateX(-50%); width: min(440px, calc(100% - 32px));
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; box-shadow: 0 8px 28px rgba(0,0,0,.5); }
+.guide h3 { margin: 0 0 8px; font-size: 15px; }
+.guide ol { margin: 0 0 8px; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.guide ol b { display: block; color: var(--accent); }
+.guide button { margin-top: 8px; }
+
+/* ---- narrow screens (phones, portrait tablets): map on top, panel below ---- */
+@media (max-width: 820px) {
+  header { flex-wrap: wrap; gap: 6px 12px; padding: 6px 12px; }
+  header h1 { order: 0; flex: 1; }
+  header .lang-switch { order: 1; }
+  header nav { order: 2; width: 100%; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+  header nav a { white-space: nowrap; padding: 5px 10px; font-size: 13px; }
+  footer { display: none; }
+  .view.walk { flex-direction: column; overflow-y: auto; }
+  .view.walk .maps { order: -1; flex: none; height: 56vh; min-height: 300px; grid-template-rows: minmax(0, 1fr); }
+  .view.walk .maps > .mapwrap { height: 100%; min-height: 0; }
+  .view.walk .maps:not(.single) { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); height: 84vh; }
+  .walk .panel { width: 100%; border-right: 0; border-top: 1px solid var(--line); overflow: visible; flex: none; }
+  .agent-panel { left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 62vh; }
+  .agent-fab { right: 12px; bottom: 12px; }
+  .guide { top: 8px; }
+  .guide ol { font-size: 12px; }
+  .hud-top { font-size: 11px; }
+  .rehearsal-card { max-height: 45%; overflow-y: auto; }
+}
+
+.walk-title small { display: block; margin-top: 2px; line-height: 1.4; }
