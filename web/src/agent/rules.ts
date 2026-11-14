@@ -67,6 +67,15 @@ export function plan(question: string, available: Set<string>): Step[] {
   if (evaH) add('query_nasa', { sql: `SELECT count(*) AS evas, max(hours) AS longest_h FROM eva WHERE hours > ${Number(evaH[1])}` });
   const solQ = q.match(/sol\s*(\d+)\s*(?:まで|の時点)/i) ?? q.match(/(?:by|until|up to)\s*sol\s*(\d+)/i);
   if (solQ && has(q, /走|距離|km|drive|driven|far/i)) add('query_nasa', { sql: `SELECT max(km) AS km_driven, max(sol) AS last_sol FROM rover_traverse WHERE mission = 'm20' AND sol <= ${Number(solQ[1])}` });
+  // Gazetteer: landing sites, crewed-landing candidates, or where/how big a named feature is.
+  if (has(q, /着陸(?:した|地点の一覧|地点を?全部|地点はどこ)|過去の着陸|landing sites|where did .* land|landers/i))
+    add('query_nasa', { sql: "SELECT name, agency, year, lat, lon FROM mars_names WHERE kind = 'landing' ORDER BY year" });
+  if (has(q, /有人着陸の?候補|crewed landing (?:site|candidate)|human landing (?:site|candidate)/i))
+    add('query_nasa', { sql: "SELECT name, lat, lon, diameter_km FROM mars_names WHERE kind = 'crewed' ORDER BY name" });
+  const named = q.match(/([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s*(?:クレーター|crater)?\s*(?:は|って)?\s*(?:どこ|どのくらい|大きさ|由来)/)
+    ?? q.match(/(?:where is|how (?:big|large) is|what is .* named after\??|where's)\s+(?:the\s+)?([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i);
+  if (named && !/^(Mars|Jezero Crater Perseverance)$/.test(named[1]))
+    add('query_nasa', { sql: `SELECT name, type, lat, lon, diameter_km, origin FROM mars_names WHERE kind = 'feature' AND name ILIKE '%${named[1].replace(/[^A-Za-z ]/g, '')}%' ORDER BY diameter_km DESC NULLS LAST LIMIT 5` });
   if (wantWalkRec) {
     add('import_walk', { lang });
     if (wantPlay || has(q, /再生|火星で歩|replay/i)) add('mars_replay', { action: 'play' });

@@ -168,6 +168,11 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
   await last.locator('.tool-chip-head').first().click();
   const body = await last.locator('.tool-chip-body').first().innerText();
   if (!/FROM eva WHERE hours > 8/.test(body) || !/data\.nasa\.gov/.test(body)) fail('query_nasa shows its SQL and source');
+  // Gazetteer table: a named feature and the landing sites.
+  const g = await ask('Gusev クレーターはどこ？');
+  if (!/name=Gusev.*lat=-14\.\d+/.test(g.text)) fail(`mars_names finds Gusev (${g.text.slice(0, 200)})`);
+  const l = await ask('過去の着陸地点を全部教えて');
+  if (!/10 行|10 rows/.test(l.text) || !/Viking 1/.test(l.text)) fail('mars_names lists the 10 landing sites');
 }
 
 // Globe: the whole-Mars globe opens, shows the landing sites, and flying down opens the Jezero map.
@@ -176,9 +181,22 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
   if (!chips.includes('view_globe:ok')) fail('view_globe called');
   await p.waitForSelector('.globe canvas', { timeout: 10000 }).catch(() => fail('globe shown'));
   await p.waitForFunction(() => !document.querySelector('.globe-msg'), null, { timeout: 15000 }).catch(() => fail('globe mosaic loaded'));
+  // Place names appear once the camera stops (hidden during a flight).
+  await p.waitForFunction(() => [...document.querySelectorAll('.globe-label.name')].filter((x) => x.style.display !== 'none').length > 5, null, { timeout: 15000 }).catch(() => fail('globe place names shown'));
   const labs = await p.locator('.globe-label').evaluateAll((e) => e.filter((x) => x.style.display !== 'none').map((x) => x.textContent));
   console.log('\nglobe labels', labs.join(' | '));
   if (!labs.some((l) => /Jezero/.test(l))) fail('globe marks the base at Jezero');
+  if (!labs.some((l) => /▲ Viking 1|▲ Curiosity|▲ InSight|▲ Zhurong/.test(l)) || !labs.some((l) => /◆ /.test(l))) fail('globe shows landing sites ▲ and crewed candidates ◆');
+  // Clicking a place name opens its card (name, type, size, origin, coordinates).
+  const pt = await p.evaluate(() => { for (const e of document.querySelectorAll('.globe-label.name.feature')) { if (e.style.display === 'none') continue; const r = e.getBoundingClientRect(); const x = r.left + 10, y = r.top + r.height / 2; if (document.elementFromPoint(x, y) === e) return { x, y }; } return null; });
+  if (!pt) fail('a place name is clickable');
+  else {
+    await p.mouse.click(pt.x, pt.y);
+    const card = await p.locator('.globe-card').innerText({ timeout: 3000 }).catch(() => '');
+    console.log('globe card:', card.replace(/\s+/g, ' '));
+    if (!/\d+\.\d+°[NS] \d+\.\d+°[EW]/.test(card) || !/ここへ降りる/.test(card)) fail('place card with coordinates and fly button');
+    await p.locator('.globe-card-x').click();
+  }
   await shot('globe');
   await p.locator('.globe-ctl button.primary').click();
   await p.waitForFunction(() => !document.querySelector('.globe'), null, { timeout: 15000 }).catch(() => fail('flying down opens the Jezero map'));

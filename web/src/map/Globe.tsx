@@ -1,6 +1,7 @@
 // Whole-Mars 3D globe (drag to turn, wheel to zoom), textured with a NASA global mosaic bundled in
 // web/public/data/globe/ (Viking MDIM 2.1 colour or MOLA shaded relief, 4096 × 2048,
-// equirectangular). Marks the landing sites, Jezero, the base and Perseverance's path. Zooming in
+// equirectangular). Shows the IAU place names by zoom (click one for its card), the landing sites
+// and crewed-landing candidates, Jezero, the base and Perseverance's path. Zooming in
 // close over Jezero hands over to the Jezero map (onEnter).
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
@@ -9,6 +10,15 @@ import { useT } from '../i18n';
 
 export interface GlobeMark { lat: number; lon: number; label: string; kind: 'base' | 'site' | 'jezero' }
 export interface GlobeCamera { lat: number; lon: number; distance?: number; seq: number }
+/** One gazetteer row (web/public/data/globe/mars_names.json, built by scripts/build-mars-names.mjs). */
+export interface MarsName { name: string; kind: 'feature' | 'landing' | 'crewed'; type: string; lat: number; lon: number; diameter_km: number | null; origin: string; link: string | null }
+type NameRow = [string, MarsName['kind'], string, number, number, number | null, string, string | null];
+let namesP: Promise<MarsName[]> | null = null;
+const loadNames = () => (namesP ??= fetch('./data/globe/mars_names.json').then((r) => (r.ok ? r.json() : []))
+  .then((rows: NameRow[]) => rows.map(([name, kind, type, lat, lon, diameter_km, origin, link]) => ({ name, kind, type, lat, lon, diameter_km, origin, link })))
+  .catch(() => { namesP = null; return []; }));
+/** Most labels on screen at once; the largest features win. */
+const MAX_NAMES = 60;
 
 interface Props {
   marks: GlobeMark[];
@@ -50,6 +60,10 @@ export function Globe({ marks, lines, focus, camera, onEnter, patch, startClose 
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   const [fading, setFading] = useState<'in' | 'out' | null>(startClose ? 'in' : null);
+  const [showNames, setShowNames] = useState(true);
+  const showNamesRef = useRef(true);
+  showNamesRef.current = showNames;
+  const [card, setCard] = useState<MarsName | null>(null);
   const sc = useRef<{ cam: THREE.PerspectiveCamera; ctl: OrbitControls; mat: THREE.MeshStandardMaterial;
     goal: THREE.Vector3 | null; marks: { v: THREE.Vector3; el: HTMLElement }[]; entered: boolean;
     fly: { t0: number; d0: THREE.Vector3; d1: THREE.Vector3; r0: number; r1: number; bump: number; done?: () => void } | null } | null>(null);
@@ -130,6 +144,31 @@ export function Globe({ marks, lines, focus, camera, onEnter, patch, startClose 
       markObjs.push({ v, el: lab });
     }
 
+    // Gazetteer labels: landing sites and crewed candidates always, IAU features by size for the
+    // current height (bigger than ~280 km per planet radius of altitude), largest first.
+    const names: { n: MarsName; v: THREE.Vector3; el: HTMLElement | null }[] = [];
+    loadNames().then((rows) => {
+      // A crewed candidate repeats its IAU feature, and the base mark already labels its spot: skip those.
+      const crewed = new Set(rows.filter((n) => n.kind === 'crewed').map((n) => n.name));
+      const nearMark = (n: MarsName) => marks.some((m) => Math.abs(m.lat - n.lat) < 0.3 && Math.abs(m.lon - n.lon) < 0.3);
+      for (const n of rows) {
+        if ((n.kind === 'feature' && crewed.has(n.name)) || (n.kind === 'landing' && nearMark(n))) continue;
+        names.push({ n, v: toVec(n.lat, n.lon, R * 1.001), el: null });
+      }
+    });
+    const nameEl = (x: (typeof names)[number]) => {
+      if (x.el) return x.el;
+      const lab = document.createElement('div');
+      lab.className = `globe-label name ${x.n.kind}`;
+      lab.textContent = x.n.kind === 'landing' ? `▲ ${x.n.name}` : x.n.kind === 'crewed' ? `◆ ${x.n.name}` : x.n.name;
+      lab.addEventListener('click', () => setCard(x.n));
+      labels.current?.appendChild(lab);
+      x.el = lab;
+      return lab;
+    };
+    let shown = new Set<(typeof names)[number]>();
+    let frame = 0;
+
     const ctl = new OrbitControls(cam, r.domElement);
     ctl.enableDamping = true;
     ctl.enablePan = false;
@@ -209,6 +248,38 @@ export function Globe({ marks, lines, focus, camera, onEnter, patch, startClose 
         m.el.style.display = facing ? '' : 'none';
         if (facing) m.el.style.transform = `translate(${((tmp.x + 1) / 2) * w}px, ${((1 - tmp.y) / 2) * h}px)`;
       }
+      // Gazetteer: choose which names show every few frames, place the shown ones every frame.
+      if (frame++ % 4 === 0) {
+        const next = new Set<(typeof names)[number]>();
+        if (showNamesRef.current && !s.fly) {
+          const minKm = 280 * alt;
+          // In front of the horizon (seen from height d, the horizon is at cos = R / d), with a margin.
+          const horizon = Math.min(0.999, R / cam.position.length() + 0.05);
+          const cand = names.filter((x) => (x.n.kind !== 'feature' || (x.n.diameter_km ?? 0) >= minKm) && x.v.dot(camDir) > horizon);
+          cand.sort((a, b) => (a.n.kind === 'feature' ? 1 : 0) - (b.n.kind === 'feature' ? 1 : 0) || (b.n.diameter_km ?? 0) - (a.n.diameter_km ?? 0));
+          // Screen boxes of the marks and placed labels: skip a name that would overlap one.
+          const boxes: [number, number, number, number][] = [];
+          const free = (x0: number, y0: number, bw: number) => !boxes.some(([a, b, c, d]) => x0 < c && x0 + bw > a && y0 < d && y0 + 14 > b);
+          for (const m of s.marks) if (m.el.style.display !== 'none') { const r0 = m.el.getBoundingClientRect(), rh = el.getBoundingClientRect(); boxes.push([r0.left - rh.left, r0.top - rh.top, r0.right - rh.left, r0.bottom - rh.top]); }
+          for (const x of cand) {
+            tmp.copy(x.v).project(cam);
+            if (Math.abs(tmp.x) > 1 || Math.abs(tmp.y) > 1 || tmp.z > 1) continue;
+            const px = ((tmp.x + 1) / 2) * w, py = ((1 - tmp.y) / 2) * h - 7, bw = 7 + x.n.name.length * 6.4;
+            if (!free(px, py, bw)) continue;
+            boxes.push([px, py, px + bw, py + 14]);
+            next.add(x);
+            if (next.size >= MAX_NAMES) break;
+          }
+        }
+        for (const x of shown) if (!next.has(x) && x.el) x.el.style.display = 'none';
+        shown = next;
+      }
+      for (const x of shown) {
+        const lab = nameEl(x);
+        tmp.copy(x.v).project(cam);
+        lab.style.display = '';
+        lab.style.transform = `translate(${((tmp.x + 1) / 2) * w}px, ${((1 - tmp.y) / 2) * h}px)`;
+      }
       // Close over the focus → hand over to the Jezero map.
       const d = cam.position.length();
       const over = camDir.dot(toVec(focus.lat, focus.lon).normalize()) > Math.cos((8 * Math.PI) / 180);
@@ -273,9 +344,27 @@ export function Globe({ marks, lines, focus, camera, onEnter, patch, startClose 
       <div ref={host} className="globe-canvas" />
       <div ref={labels} className="globe-labels" aria-hidden="true" />
       <div className="maplabel">{t('火星（全球）', 'Mars (whole planet)')}</div>
+      {card && (
+        <div className="globe-card" role="dialog" aria-label={card.name}>
+          <button className="globe-card-x" onClick={() => setCard(null)} aria-label={t('閉じる', 'Close')}>×</button>
+          <h4>{card.kind === 'landing' ? '▲ ' : card.kind === 'crewed' ? '◆ ' : ''}{card.name}</h4>
+          <p className="muted">{card.kind === 'landing' ? t('着陸地点', 'Landing site') : card.kind === 'crewed' ? t('有人着陸の候補地', 'Crewed-landing candidate') : card.type}
+            {card.diameter_km != null && <> · {t('大きさ', 'size')} {card.diameter_km >= 10 ? Math.round(card.diameter_km) : card.diameter_km.toFixed(1)} km</>}</p>
+          <p>{card.origin}</p>
+          <p className="muted">{Math.abs(card.lat).toFixed(2)}°{card.lat >= 0 ? 'N' : 'S'} {Math.abs(card.lon).toFixed(2)}°{card.lon >= 0 ? 'E' : 'W'}
+            {card.link && <> · <a href={card.link} target="_blank" rel="noreferrer">{card.kind === 'crewed' ? 'NASA' : 'IAU/USGS'}</a></>}</p>
+          <button className="primary" onClick={() => {
+            const c = card; setCard(null);
+            if (sc.current) sc.current.entered = true;
+            const nearFocus = Math.abs(c.lat - focus.lat) < 0.5 && Math.abs(c.lon - focus.lon) < 0.5;
+            flyTo(c.lat, c.lon, nearFocus ? CLOSE : CLOSE_FAR, () => enter(c.lat, c.lon));
+          }}>{t('ここへ降りる', 'Fly down here')}</button>
+        </div>
+      )}
       <div className="globe-ctl" role="group" aria-label={t('全球の表示', 'Globe view')}>
         <button className={tex === 'viking' ? 'on' : ''} onClick={() => setTex('viking')}>{t('写真（Viking）', 'Photo (Viking)')}</button>
         <button className={tex === 'mola' ? 'on' : ''} onClick={() => setTex('mola')}>{t('高さ（MOLA）', 'Height (MOLA)')}</button>
+        <button className={showNames ? 'on' : ''} onClick={() => setShowNames((x) => !x)} aria-pressed={showNames}>{t('地名', 'Names')}</button>
         <button className="primary" onClick={zoomTo}>{t('Jezero へ降りる', 'Fly down to Jezero')}</button>
       </div>
       {!ready && !failed && <div className="globe-msg">{t('火星の全球画像を読み込み中…', 'Loading the Mars mosaic…')}</div>}
