@@ -1,7 +1,8 @@
 // DuckDB-WASM over the whole-Hokkaido scan, for data exploration and agent tools.
-// The engine files are bundled from node_modules (Vite `?url`), so this works offline in Tauri
-// and on the static web build. Only the "eh" build ships (wasm exceptions: Chrome 95+, Safari
-// 15.2+, Firefox 100+, all Tauri webviews), which keeps the 39 MB "mvp" build out of the bundle. Every number in these tables comes from the Rust core: cell
+// Engine files: Tauri (and e2e) bundle the "eh" build from node_modules (Vite `?url`) so the app
+// works offline; the web build fetches the engine from jsDelivr, because the 33 MB wasm is over
+// Cloudflare Pages' 25 MiB per-file limit. __DUCKDB_LOCAL__ is a build-time constant (vite.config.ts),
+// so the web build drops the local imports and the wasm never lands in web/dist. Every number in these tables comes from the Rust core: cell
 // values from `scanColumns()`, match scores from `scan.scores()` (the same formula as the map).
 //   cells   (k, lat, lon, elev_m, relief_m, slope_deg, slope_p90_deg, shadow, ndvi, urban, crop,
 //            forest, water, barren, tmin_jan_c, tmax_aug_c, precip_mm, screened)
@@ -11,8 +12,6 @@
 //   score_<body>_<test> (k, score, excluded)                  created by ensureScores
 //   scan    view: cells ⨝ the score table of the last ensureScores pair
 import * as duckdb from '@duckdb/duckdb-wasm';
-import ehWasm from '@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url';
-import ehWorker from '@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url';
 import type { Core, Scan } from './core';
 import { scanColumns } from './wasm/analog_wasm.js';
 
@@ -47,6 +46,24 @@ const ident = (s: string) => {
   return s;
 };
 
+declare const __DUCKDB_LOCAL__: boolean;
+
+async function engine(): Promise<{ worker: Worker; wasm: string }> {
+  if (__DUCKDB_LOCAL__) {
+    const [{ default: wasm }, { default: workerUrl }] = await Promise.all([
+      import('@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url'),
+      import('@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url'),
+    ]);
+    return { worker: new Worker(workerUrl), wasm };
+  }
+  const bundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
+  // A cross-origin script can't be a Worker directly; a same-origin Blob that importScripts it can.
+  const blob = URL.createObjectURL(new Blob([`importScripts("${bundle.mainWorker}");`], { type: 'text/javascript' }));
+  const worker = new Worker(blob);
+  URL.revokeObjectURL(blob);
+  return { worker, wasm: bundle.mainModule };
+}
+
 let dbPromise: Promise<Db> | null = null;
 
 export function openDb(core: Core): Promise<Db> {
@@ -57,9 +74,9 @@ export function openDb(core: Core): Promise<Db> {
 
 async function open(core: Core): Promise<Db> {
   const scan = await core.loadScan(1);
-  const worker = new Worker(ehWorker);
+  const { worker, wasm } = await engine();
   const db = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), worker);
-  await db.instantiate(ehWasm);
+  await db.instantiate(wasm);
   const conn = await db.connect();
 
   const query = async (sql: string): Promise<Row[]> => {

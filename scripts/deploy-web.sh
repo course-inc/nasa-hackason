@@ -62,7 +62,7 @@ if git diff --quiet "$BASE" HEAD && [[ "$BASE" == "origin/$BRANCH" ]]; then
 fi
 git log --oneline "$BASE"..HEAD
 if $DRY; then echo "(dry run: not pushed)"; exit 0; fi
-git push -q origin "HEAD:$BRANCH"
+git push -q origin "HEAD:refs/heads/$BRANCH"
 echo "✓ pushed $BRANCH ($(git rev-parse --short HEAD))"
 
 # tachyon starts a "Tachyon Build" check run within seconds of a push, but has once missed one.
@@ -73,7 +73,7 @@ for attempt in 1 2; do
   for _ in 1 2 3 4 5 6; do [[ "$(checks)" != "0" ]] && break 2; sleep 10; done
   echo "⚠ no tachyon build started: pushing an empty commit to retrigger"
   git commit -q --allow-empty -m "$BRANCH: retrigger tachyon build"
-  git push -q origin "HEAD:$BRANCH"
+  git push -q origin "HEAD:refs/heads/$BRANCH"
 done
 [[ "$(checks)" != "0" ]] && echo "✓ tachyon build started: https://github.com/course-inc/nasa-hackason/commits/$BRANCH" \
   || echo "⚠ tachyon still hasn't started a build: check platform.txcloud.app"
