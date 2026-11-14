@@ -216,6 +216,10 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
   const restored = await p.locator('.walk .verdict').innerText();
   console.log('undo restores:', restored);
   if (/地図をクリック/.test(restored)) fail('↶ undoes the clear');
+  // The labelled undo bar over the map does the same.
+  if (!(await p.locator('.undo-bar button').count())) fail('undo bar shown once there is history');
+  await p.locator('.undo-bar button').first().click();
+  await p.locator('.undo-bar button').nth(1).click();
   await p.locator('.draw-toolbar a[data-m=redo]').click();
   if (!/地図をクリック/.test(await p.locator('.walk .verdict').innerText())) fail('↷ redoes the clear');
   await p.locator('.walk .maps .map').first().hover();
