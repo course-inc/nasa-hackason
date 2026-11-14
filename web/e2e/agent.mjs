@@ -166,6 +166,10 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
   const empty = await p.locator('.walk .verdict').innerText();
   console.log('\nempty route:', empty);
   if (!/地図をクリック/.test(empty)) fail('empty route tells what to do');
+  // Desktop: the panel folds away to a chip and the map is full screen.
+  await p.locator('.panel-fold').click();
+  if (!(await p.locator('.panel-chip').count())) fail('panel folds to a chip');
+  await p.locator('.panel-chip').click();
   await p.locator('.draw-toolbar a[data-m=example]').click();
   await shot('pc-ja');
 }
@@ -192,10 +196,14 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
   m.on('pageerror', (e) => errs.push(e.message));
   await m.route('**/*', (r) => (r.request().url().startsWith(BASE) ? r.continue() : r.fulfill({ status: 204 })));
   await m.goto(`${BASE}/#walk`);
-  await m.waitForSelector('.walk .verdict.ok, .walk .verdict.ng', { timeout: 20000 });
+  await m.waitForSelector('.panel-chip.ok, .panel-chip.ng', { timeout: 20000 });
   const mapBox = await m.locator('.maps .map').first().boundingBox();
   console.log('phone map', Math.round(mapBox.width), 'x', Math.round(mapBox.height), 'at y', Math.round(mapBox.y));
-  if (!(mapBox.height > 300 && mapBox.y < 120)) fail('phone: map on top and tall enough');
+  if (!(mapBox.height > 844 * 0.75 && mapBox.y < 120)) fail('phone: the map fills the screen');
+  await m.locator('.panel-chip').click();
+  await m.waitForSelector('.walk .verdict.ok, .walk .verdict.ng', { timeout: 5000 }).catch(() => fail('phone: the chip opens the panel sheet'));
+  if (SHOTS) await m.screenshot({ path: 'e2e/agent-phone-sheet.png' });
+  await m.locator('.panel-fold').click();
   if (await m.locator('.agent-panel').count()) fail('phone: question panel starts closed');
   if (await m.evaluate(() => document.documentElement.scrollWidth > innerWidth)) fail('phone: no sideways scroll');
   await m.locator('.agent-fab').click();

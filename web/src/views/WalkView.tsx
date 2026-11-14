@@ -37,6 +37,8 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const [showReach, setShowReach] = useState(true);
   const [showRover, setShowRover] = useState(true);
   const [view3d, setView3d] = useState(false);
+  // The map fills the screen; the panel floats over it and can be folded away (closed on phones).
+  const [panelOpen, setPanelOpen] = useState(() => typeof matchMedia === 'undefined' || !matchMedia('(max-width: 820px)').matches);
   const [fly, setFly] = useState<FlyTarget | null>(null);
   const [view] = useState<[number, number, number]>(() =>
     params.lat != null ? [params.lat, params.lon!, params.z ?? 13] : [LANDING.lat, LANDING.lon - 0.015, 13]);
@@ -322,7 +324,8 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   return (
     <section className="view walk" onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
       onDrop={(e) => { const f = e.dataTransfer.files?.[0]; if (f) { e.preventDefault(); onDropFile(f); } }}>
-      <aside className="panel">
+      <aside className={`panel ${panelOpen ? 'open' : 'closed'}`} aria-label={t('計画パネル', 'Plan panel')}>
+        <button className="panel-fold" onClick={() => setPanelOpen(false)} aria-label={t('パネルを畳む', 'Fold the panel')} title={t('パネルを畳んで地図を広く', 'Fold the panel to see more map')}>⟨</button>
         <h2 className="walk-title">{t('火星', 'Mars')} <small>{t('Jezero クレーター・Perseverance の着陸地点が基地', "Jezero crater · base at Perseverance's landing site")}</small></h2>
         <p className="muted">{t('基地から歩いて出て、酸素と冷却水が尽きる前に帰れるか。地図をクリックしてルートを引きます（最初の点が基地）。', 'Walk out from the base: can you get back before oxygen or cooling water runs out? Click the map to draw a route (the first point is the base).')}</p>
         {data?.errors.length ? <p className="warn">{data.errors.map((e) => ({
@@ -391,7 +394,13 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
         <p id="ev-terrain" className={`muted src ${fl('terrain') ?? ''} ${fl('hokkaido_terrain') ?? ''}`}>{t('データ: Mars 2020 Perseverance 走行記録（NASA/JPL MMGIS）、MRO HiRISE 画像と地形（NASA/UArizona, USGS）、MGS MOLA 地形、Mars Odyssey THEMIS、MRO CTX、data.nasa.gov 船外活動記録、NASADEM（北海道の地形、NASA/JPL）。北海道の航空写真は国土地理院（表示のみ）。', 'Data: Mars 2020 Perseverance traverse (NASA/JPL MMGIS), MRO HiRISE images and terrain (NASA/UArizona, USGS), MGS MOLA, Mars Odyssey THEMIS, MRO CTX, data.nasa.gov EVA records, NASADEM (Hokkaido terrain, NASA/JPL). Hokkaido aerial photos: GSI Japan (display only).')}{data?.dem?.src ? ` ${t('地形グリッド', 'Terrain grid')}: ${data.dem.src}` : ''}</p>
       </aside>
 
-      <div className={`maps ${walkRec || (rehOpen && reh.found.length) ? '' : 'single'}`}>
+      {!panelOpen && (
+        <button className={`panel-chip ${n < 2 ? '' : ev.ok ? 'ok' : 'ng'}`} onClick={() => setPanelOpen(true)} aria-label={t('パネルを開く', 'Open the panel')}>
+          <span>☰</span><b>{!data ? t('読み込み中…', 'Loading…') : n < 2 ? t('ルートを引く', 'Draw a route') : ev.ok ? t('帰れる', 'Can walk back') : t('引き返す', 'Turn back')}</b>
+          {n >= 2 && <small>{ev.out_km.toFixed(1)} km · {fmtH(ev.total_h)}</small>}
+        </button>
+      )}
+      <div className={`maps ${walkRec || (rehOpen && reh.found.length) ? '' : 'single'} ${panelOpen ? 'panel-open' : ''}`}>
         <div className="mapwrap">
           <PlanetMap core={core} world={WORLD} view={view} fly={fly} baseKey="viking" overlayKeys={HIRISE} collapsedLayers
             overlays={overlays} features={features} live={live} crosshair={mode !== 'pan'}
