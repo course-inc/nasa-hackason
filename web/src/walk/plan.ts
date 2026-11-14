@@ -11,13 +11,28 @@ export const WATER_PER_O2 = 3.1 / 2.7;
 export const MAX_SLOPE = 25;
 
 /** The sliders on the screen. reserve is in percent. */
-export interface PlanParams { speed: number; o2: number; water: number; reserve: number; footing?: boolean }
+export interface PlanParams { speed: number; o2: number; water: number; reserve: number; footing?: boolean;
+  /** Departure, local solar hour at Jezero (MEDA temperatures change the cooling water); default 9. */
+  start?: number }
+export const DEFAULT_START = 9;
 export const DEFAULT_PARAMS: PlanParams = { speed: 2, o2: 8, water: 8, reserve: 20 };
 
 export const evaParams = (q: PlanParams): EvaParams =>
-  ({ speed_kmh: q.speed, o2_h: q.o2, water_h: q.water, reserve: q.reserve / 100, min_reserve_h: 0.5, footing: q.footing ?? true });
-/** Put the footing switch into the Rust core's grid before a computation that reads it. */
-const foot = (core: Core, p: EvaParams) => { ensureFooting(core, p.footing ?? true); return p; };
+  ({ speed_kmh: q.speed, o2_h: q.o2, water_h: q.water, reserve: q.reserve / 100, min_reserve_h: 0.5, footing: q.footing ?? true, start_h: q.start ?? DEFAULT_START });
+/**
+ * Surface conditions before a computation: the footing switch into the Rust core's grid, and the
+ * cooling water scaled by the air temperature over the walk (Rust weather.rs; from the departure
+ * hour over the oxygen time). The water budget in hours goes up when colder air means less water use.
+ */
+export function waterFactor(core: Core, p: EvaParams): number {
+  if (p.start_h == null) return 1;
+  try { return core.weatherWalk(p.start_h, p.o2_h).water_factor; } catch { return 1; }
+}
+const foot = (core: Core, p: EvaParams): EvaParams => {
+  ensureFooting(core, p.footing ?? true);
+  const f = waterFactor(core, p);
+  return f === 1 ? p : { ...p, water_h: (p.water_h ?? 8) / f };
+};
 
 export function denseRoute(core: Core, data: WalkData | null, route: Waypoint[]): Dense {
   return data ? densify(core, WORLD, route, 40) : { pts: route, wp: route.map((_, i) => i) };

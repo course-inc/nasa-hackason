@@ -2,7 +2,8 @@
 //! TypeScript side (web/src/core.ts) owns the types and no extra glue crates are needed.
 
 use analog_core::{
-    conditions, data, eva, footing, grid, radiation, rehearsal, route, scoring, traverse, world,
+    conditions, data, eva, footing, grid, radiation, rehearsal, route, scoring, traverse, weather,
+    world,
 };
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
@@ -91,6 +92,7 @@ thread_local! {
     static GRIDS: RefCell<HashMap<String, grid::Grid>> = RefCell::new(HashMap::new());
     static TRAVERSE: RefCell<Option<traverse::Traverse>> = const { RefCell::new(None) };
     static EVAS: RefCell<Option<eva::EvaStats>> = const { RefCell::new(None) };
+    static WEATHER: RefCell<Option<weather::Weather>> = const { RefCell::new(None) };
 }
 
 fn parse_world(world: &str) -> Result<world::World, JsError> {
@@ -184,6 +186,39 @@ pub fn radiation_model() -> String {
         "dose_eq_msv_per_day": radiation::DOSE_EQ_MSV_PER_DAY, "dose_eq_sigma": radiation::DOSE_EQ_SIGMA,
         "absorbed_mgy_per_day": radiation::ABSORBED_MGY_PER_DAY,
         "career_limit_msv": radiation::CAREER_LIMIT_MSV, "spe_limit_msv": radiation::SPE_LIMIT_MSV,
+    }))
+}
+
+/// Store the Jezero hourly weather (jezero_weather.json, Perseverance MEDA).
+#[wasm_bindgen(js_name = setWeather)]
+pub fn set_weather(json_str: &str) -> Result<(), JsError> {
+    let w: weather::Weather = serde_json::from_str(json_str).map_err(err)?;
+    WEATHER.with(|x| *x.borrow_mut() = Some(w));
+    Ok(())
+}
+
+/// Cooling-water factor for a walk from local solar hour `start_h` lasting `hours`, plus the air
+/// temperature and pressure at the start: {water_factor, temp_k, pressure_pa}; factor 1 without data.
+#[wasm_bindgen(js_name = weatherWalk)]
+pub fn weather_walk(start_h: f64, hours: f64) -> String {
+    WEATHER.with(|x| {
+        let w = x.borrow();
+        json(&match w.as_ref() {
+            Some(w) => serde_json::json!({
+                "water_factor": w.mean_water_factor(start_h, hours),
+                "temp_k": w.temp_at(start_h), "pressure_pa": w.pressure_at(start_h),
+            }),
+            None => serde_json::json!({ "water_factor": 1.0, "temp_k": null, "pressure_pa": null }),
+        })
+    })
+}
+
+/// Weather model constants for the evidence text.
+#[wasm_bindgen(js_name = weatherModel)]
+pub fn weather_model() -> String {
+    json(&serde_json::json!({
+        "metabolic_w": weather::METABOLIC_W, "t_ref_k": weather::T_REF_K, "t_skin_k": weather::T_SKIN_K,
+        "leak_w_per_k": weather::LEAK_W_PER_K, "sol_hours": weather::SOL_HOURS,
     }))
 }
 

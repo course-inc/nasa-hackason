@@ -104,6 +104,25 @@
     "url": "https://doi.org/10.1126/science.1244797"
    },
    "note": "The figures analog-core radiation.rs uses: EVA dose = surface_dose_equivalent_rate × hours / 24"
+  },
+  "mars_weather": {
+   "files": [
+    "mars_weather.parquet"
+   ],
+   "rows": 299,
+   "bytes": 4785,
+   "columns": [
+    "sol",
+    "ltst_hour",
+    "air_temp_k",
+    "pressure_pa",
+    "samples"
+   ],
+   "source": {
+    "label": "Mars 2020 MEDA calibrated air temperature (ATS) and pressure (BAROCAP3), NASA PDS",
+    "url": "https://pds-atmospheres.nmsu.edu/data_and_services/atmospheres_data/PERSEVERANCE/meda.html"
+   },
+   "note": "Jezero crater, hourly means by local true solar time for 15 sols over one Mars year. air_temp_k: median of the 5 ATS sensors; pressure_pa: BAROCAP3"
   }
  }
 }
