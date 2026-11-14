@@ -1,5 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import './map/mapHook'; // before any map is created
 import { App } from './App';
 import { loadCore } from './core';
 import { AgentPanel } from './agent/AgentPanel';

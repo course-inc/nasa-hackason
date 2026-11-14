@@ -7,12 +7,13 @@ import { getElevation } from '../elevation';
 import { PlanetMap, missionOverlay, type Feature, type FlyTarget } from '../map/PlanetMap';
 import { LANDING, exampleRoute, loadWalkData, type WalkData } from '../walk/data';
 import { fmtH, reachImage, slopeColor } from '../walk/geo';
-import { WALKBACK_COLOR, WATER_PER_O2, WORLD, denseRoute, evaParams, evaluate, reachFrom, rehearsalPoints, roverCheck, roverWalkbackSql, turnIndex, turnWaypoint, walkbackState } from '../walk/plan';
+import { WALKBACK_COLOR, WATER_PER_O2, WORLD, denseRoute, easyLeg, evaParams, evaluate, reachFrom, rehearsalPoints, roverCheck, roverWalkbackSql, turnIndex, turnWaypoint, walkbackState } from '../walk/plan';
 import { setWalkController, type EvidenceTopic } from '../walk/controller';
 import { useLang, useT } from '../i18n';
 import { GpxError, SAMPLE_GPX, atDistance, importWalk, type WalkImport } from '../walk/gpx';
 import { EarthWalkPanel, WalkImportCard } from '../walk/WalkRecord';
 import { Guide } from '../walk/Guide';
+import { RouteEditor, type Preview } from '../walk/RouteEditor';
 import { Hud, type HudState } from '../walk/Hud';
 import { EvaCard, RoverCard } from '../walk/Evidence';
 import { RehearsalPanel, useRehearsal } from '../walk/Rehearsal';
@@ -29,7 +30,37 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const t = useT();
   const lang = useLang();
   const [data, setData] = useState<WalkData | null>(null);
-  const [route, setRoute] = useState<Waypoint[]>([]);
+  const [route, setRouteRaw] = useState<Waypoint[]>([]);
+  // Undo / redo for route edits (↶ ↷, Cmd/Ctrl+Z, Cmd/Ctrl+Shift+Z or Ctrl+Y). Every change of
+  // the route goes through setRoute and is recorded; the verdict, HUD and 3D follow the route.
+  const hist = useRef<{ past: Waypoint[][]; future: Waypoint[][] }>({ past: [], future: [] });
+  const [, setHistVer] = useState(0);
+  const routeNow = useRef<Waypoint[]>([]);
+  routeNow.current = route;
+  const setRoute = (next: Waypoint[] | ((r: Waypoint[]) => Waypoint[])) => {
+    const cur = routeNow.current;
+    const n = typeof next === 'function' ? next(cur) : next;
+    if (n === cur) return;
+    if (cur.length) { hist.current.past.push(cur); if (hist.current.past.length > 200) hist.current.past.shift(); }
+    hist.current.future = [];
+    routeNow.current = n;
+    setRouteRaw(n);
+    setHistVer((v) => v + 1);
+  };
+  const undo = () => {
+    const prev = hist.current.past.pop();
+    if (!prev) return;
+    hist.current.future.push(routeNow.current);
+    routeNow.current = prev;
+    setRouteRaw(prev); setHistVer((v) => v + 1);
+  };
+  const redo = () => {
+    const next = hist.current.future.pop();
+    if (!next) return;
+    hist.current.past.push(routeNow.current);
+    routeNow.current = next;
+    setRouteRaw(next); setHistVer((v) => v + 1);
+  };
   const [mode, setMode] = useState<Mode>('route');
   const [speed, setSpeed] = useState(2);
   const [o2, setO2] = useState(8);
@@ -41,6 +72,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const [globeOn, setGlobeOn] = useState(false);
   const [globeCam, setGlobeCam] = useState<GlobeCamera | null>(null);
   const [globeFromMap, setGlobeFromMap] = useState(false);
+  const [globeStart, setGlobeStart] = useState<{ lat: number; lon: number }>(LANDING);
   // The map fills the screen; the panel floats over it and can be folded away (closed on phones).
   const [panelOpen, setPanelOpen] = useState(() => typeof matchMedia === 'undefined' || !matchMedia('(max-width: 820px)').matches);
   const [fly, setFly] = useState<FlyTarget | null>(null);
@@ -50,7 +82,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   useEffect(() => {
     loadWalkData(core).then((d) => {
       setData(d);
-      setRoute((r) => (r.length ? r : d.traverseRaw.length ? exampleRoute(d.traverseRaw) : [LANDING]));
+      setRouteRaw((r) => (r.length ? r : d.traverseRaw.length ? exampleRoute(d.traverseRaw) : [LANDING]));
     });
   }, [core]);
   useEffect(() => {
@@ -110,11 +142,18 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   }, [rw]);
 
   // Elevation for waypoints outside the Jezero grid (Trek MOLA identify).
+  const [easy, setEasy] = useState(false);
   const addPoint = (lat: number, lon: number) => {
     const wp: Waypoint = { lat, lon, elev: undefined };
     if (mode === 'base') setRoute((r) => [wp, ...r.slice(1)]);
-    else setRoute((r) => [...r, wp]);
-    getElevation(WORLD, lat, lon).then((elev) => setRoute((r) => r.map((x) => (x.lat === lat && x.lon === lon ? { ...x, elev } : x))));
+    else {
+      // Easy-path mode: follow the least-effort walk from the last point (Rust Dijkstra on the grid).
+      const last = route[route.length - 1];
+      const leg = easy && last ? easyLeg(core, data, last, wp, p) : null;
+      if (leg) { leg[leg.length - 1] = wp; setRoute((r) => [...r, ...leg]); }
+      else setRoute((r) => [...r, wp]);
+    }
+    getElevation(WORLD, lat, lon).then((elev) => setRouteRaw((r) => r.map((x) => (x.lat === lat && x.lon === lon ? { ...x, elev } : x))));
     if (mode === 'base') setMode('route');
   };
 
@@ -209,6 +248,23 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
     return atDistance(core, 'earth', walkRec.earth, hud.phase === 'done' ? 0 : hud.km);
   }, [core, walkRec, hud]);
 
+  // Keyboard undo/redo for the route, only while this view is shown and not while typing.
+  const sectionRef = useRef<HTMLElement>(null);
+  const undoRef = useRef({ undo, redo });
+  undoRef.current = { undo, redo };
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || !sectionRef.current?.offsetParent) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); undoRef.current.undo(); }
+      else if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); undoRef.current.redo(); }
+    };
+    window.addEventListener('keydown', on);
+    return () => window.removeEventListener('keydown', on);
+  }, []);
+
   // ---- agent controller (agent/tools.ts drives the screen through this) ----
   const [camera, setCamera] = useState<Camera3D | null>(null);
   const [exag, setExag] = useState<number | undefined>(undefined);
@@ -264,6 +320,15 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   }, [core]);
   const fl = (topic: EvidenceTopic) => (flash === topic ? 'flash' : undefined);
 
+  // Route editor: where the map is, and what the walk would be with one more point there
+  // (same functions as the panel, so the rubber band and the verdict agree).
+  const [mapHost, setMapHost] = useState<HTMLDivElement | null>(null);
+  const routePreview = (pts: Waypoint[]): Preview | null => {
+    if (!data || pts.length < 2) return null;
+    const e = evaluate(core, denseRoute(core, data, pts), p);
+    return { ok: e.ok, out_km: e.out_km, total_h: e.total_h, o2_left: e.ticks.at(-1)?.o2_left ?? null };
+  };
+
   // ---- map features ----
   const roverFeatures = useMemo<Feature[]>(() => {
     if (rw) {
@@ -296,12 +361,18 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
       const last = pts[pts.length - 1];
       f.push({ kind: 'line', pts: [[last.lat, last.lon], [pts[0].lat, pts[0].lon]], color: '#ffffff', weight: 2, dash: '4 6', opacity: 0.7 });
     }
-    route.forEach((w, i) => f.push({
-      kind: 'point', lat: w.lat, lon: w.lon, radius: i === 0 ? 9 : 5, color: i === 0 ? '#ffffff' : '#ffd666',
-      tooltip: i === 0 ? t('基地（ここから出てここに戻る）', 'Base (start and finish)') : `WP${i}${w.elev != null ? `<br>${t('標高', 'Elevation')} ${Math.round(w.elev)} m` : ''}`,
-    }));
+    // Hover a segment for its distance, steepest slope and time (summed from the engine's legs).
+    // The waypoints themselves are drawn by RouteEditor as draggable handles.
+    for (let i = 0; i + 1 < dense.wp.length; i++) {
+      const a = dense.wp[i], b = dense.wp[i + 1], legs = ev.legs.slice(a, b);
+      if (!legs.length) continue;
+      const km = legs.reduce((x, l) => x + l.km, 0), h = legs.reduce((x, l) => x + l.hours, 0);
+      const known = legs.filter((l) => l.known), steep = known.length ? Math.max(...known.map((l) => Math.abs(l.slope_deg))) : null;
+      f.push({ kind: 'line', pts: pts.slice(a, b + 1).map((q) => [q.lat, q.lon] as [number, number]), color: '#000', weight: 16, opacity: 0.01,
+        tooltip: `${i === 0 ? t('基地', 'Base') : `WP${i}`} → WP${i + 1}<br>${km.toFixed(2)} km · ${t('最大の坂', 'steepest')} ${steep == null ? '—' : `${steep.toFixed(0)}°`} · ${fmtH(h)}` });
+    }
     if (turnIdx != null && pts[turnIdx]) {
-      f.push({ kind: 'point', lat: pts[turnIdx].lat, lon: pts[turnIdx].lon, radius: 9, color: '#faad14', tooltip: t('引き返し地点', 'Turn-back point'), openTooltip: true });
+      f.push({ kind: 'point', lat: pts[turnIdx].lat, lon: pts[turnIdx].lon, radius: 9, color: '#faad14', tooltip: t('🚩 引き返し地点', '🚩 Turn-back point'), openTooltip: true });
     }
     return f;
   }, [reachImg, showReach, roverFeatures, dense, ev, route, turnIdx, lang]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -309,7 +380,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const lines3d = useMemo<Line3D[]>(() => {
     const l: Line3D[] = [];
     if (data && showRover && !rw) for (const t of data.traverse) l.push({ pts: t, color: '#36cfc9', width: 2.5, opacity: 0.9 });
-    for (const f of features) if (f.kind === 'line') l.push({ pts: f.pts, color: f.color, width: (f.weight ?? 3) >= 5 ? 5 : (f.weight ?? 3) >= 4 ? 3.5 : 2, opacity: f.opacity });
+    for (const f of features) if (f.kind === 'line' && (f.opacity ?? 1) > 0.05) l.push({ pts: f.pts, color: f.color, width: (f.weight ?? 3) >= 5 ? 5 : (f.weight ?? 3) >= 4 ? 3.5 : 2, opacity: f.opacity });
     return l;
   }, [data, showRover, features, rw]);
   const points3d = useMemo<Point3D[]>(() => {
@@ -338,13 +409,15 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   ], [core, lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const n = route.length;
-  const tools: [Mode | 'undo' | 'clear' | 'example', string, string][] = [
+  const tools: [Mode | 'undo' | 'redo' | 'clear' | 'example' | 'easy', string, string][] = [
     ['pan', '✋', t('地図を動かす', 'Move the map')], ['route', '〰', t('ルートを引く', 'Draw the route')], ['base', '⌂', t('基地を置き直す', 'Move the base')],
-    ['undo', '↶', t('1つ戻す', 'Undo')], ['clear', '🗑', t('ルートを消す', 'Clear the route')], ['example', '★', t('例のルートに戻す', 'Example route')],
+    ['undo', '↶', t('戻す（⌘Z / Ctrl+Z）', 'Undo (⌘Z / Ctrl+Z)')], ['redo', '↷', t('やり直す（⌘⇧Z / Ctrl+Y）', 'Redo (⌘⇧Z / Ctrl+Y)')],
+    ['clear', '🗑', t('ルートを消す', 'Clear the route')], ['example', '★', t('例のルートに戻す', 'Example route')],
+    ['easy', '⤳', easy ? t('楽な道モード: オン（坂の楽な道で点をつなぐ）', 'Easy path: on (joins points along the easiest slopes)') : t('楽な道モード: オフ（まっすぐつなぐ）', 'Easy path: off (straight lines)')],
   ];
 
   return (
-    <section className="view walk" onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
+    <section ref={sectionRef} className="view walk" onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
       onDrop={(e) => { const f = e.dataTransfer.files?.[0]; if (f) { e.preventDefault(); onDropFile(f); } }}>
       <aside className={`panel ${panelOpen ? 'open' : 'closed'}`} aria-label={t('計画パネル', 'Plan panel')}>
         <button className="panel-fold" onClick={() => setPanelOpen(false)} aria-label={t('パネルを畳む', 'Fold the panel')} title={t('パネルを畳んで地図を広く', 'Fold the panel to see more map')}>⟨</button>
@@ -425,17 +498,22 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
         </button>
       )}
       <div className={`maps ${walkRec || (rehOpen && reh.found.length) ? '' : 'single'} ${panelOpen ? 'panel-open' : ''}`}>
-        <div className="mapwrap">
+        <div className="mapwrap" ref={setMapHost}
+          // Zooming out further at the smallest zoom (Leaflet greys out its − button there) goes back up to the globe.
+          onWheel={(e) => { if (e.deltaY > 0 && !globeOn && e.currentTarget.querySelector('.leaflet-control-zoom-out.leaflet-disabled')) { setGlobeStart(route[0] ?? LANDING); setGlobeFromMap(true); setGlobeOn(true); } }}
+          onClickCapture={(e) => { if (!globeOn && (e.target as HTMLElement).closest('.leaflet-control-zoom-out.leaflet-disabled')) { setGlobeStart(route[0] ?? LANDING); setGlobeFromMap(true); setGlobeOn(true); } }}>
           <PlanetMap core={core} world={WORLD} view={view} fly={fly} baseKey="viking" overlayKeys={HIRISE} collapsedLayers
             overlays={overlays} features={features} live={live} crosshair={mode !== 'pan'}
             onClick={(lat, lon) => mode !== 'pan' && !hud && addPoint(lat, lon)}>
             <div className="leaflet-bar draw-toolbar">
               {tools.map(([m, icon, title]) => (
-                <a key={m} href="#" title={title} aria-label={title} data-m={m} className={m === mode ? 'on' : ''} onClick={(e) => {
+                <a key={m} href="#" title={title} aria-label={title} data-m={m} className={`${m === mode || (m === 'easy' && easy) ? 'on' : ''}${(m === 'undo' && !hist.current.past.length) || (m === 'redo' && !hist.current.future.length) ? ' off' : ''}`} onClick={(e) => {
                   e.preventDefault(); e.stopPropagation();
-                  if (m === 'undo') setRoute((r) => r.slice(0, Math.max(1, r.length - 1)));
+                  if (m === 'undo') undo();
+                  else if (m === 'redo') redo();
                   else if (m === 'clear') setRoute((r) => r.slice(0, 1));
                   else if (m === 'example') { if (data) setRoute(exampleRoute(data.traverseRaw)); }
+                  else if (m === 'easy') { setEasy((x) => !x); setMode('route'); }
                   else setMode(m);
                 }}>{icon}</a>
               ))}
@@ -450,19 +528,33 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           )}
           {globeOn && (
             <div className="terrain-over globe-over">
-              <Globe marks={globeMarks} lines={data?.traverse ?? []} focus={LANDING} camera={globeCam} patch={globePatch} startClose={globeFromMap ? LANDING : null}
-                onEnter={() => { setGlobeOn(false); setView3d(false); setFly({ lat: LANDING.lat, lon: LANDING.lon, z: 13, seq: Date.now() }); }} />
+              <Globe marks={globeMarks} lines={data?.traverse ?? []} focus={LANDING} camera={globeCam} patch={globePatch} startClose={globeFromMap ? globeStart : null}
+                onEnter={(lat, lon) => {
+                  // Inside the Jezero grid: the Jezero map at street level; elsewhere the global 2D map there.
+                  const d = data?.dem;
+                  const inJezero = !!d && lat <= d.lat0 && lat >= d.lat0 - d.rows * d.dlat && lon >= d.lon0 && lon <= d.lon0 + d.cols * d.dlon;
+                  setGlobeOn(false); setView3d(false);
+                  setFly({ lat, lon, z: inJezero ? 13 : 7, seq: Date.now() });
+                }} />
             </div>
           )}
           {data?.demGrid && (
             <div className="view-toggle" role="group" aria-label={t('地図の表示', 'Map view')}>
-              <button className={globeOn ? 'on' : ''} onClick={() => { setGlobeFromMap(true); setGlobeOn(true); }} title={t('火星全体を回して見る', 'Turn the whole planet')}>🌐 {t('全球', 'Globe')}</button>
+              <button className={globeOn ? 'on' : ''} onClick={() => { setGlobeStart(route[0] ?? LANDING); setGlobeFromMap(true); setGlobeOn(true); }} title={t('火星全体を回して見る', 'Turn the whole planet')}>🌐 {t('全球', 'Globe')}</button>
               <button className={!globeOn && !view3d ? 'on' : ''} onClick={() => { setGlobeOn(false); setView3d(false); }}>2D</button>
               <button className={!globeOn && view3d ? 'on' : ''} onClick={() => { setGlobeOn(false); setView3d(true); }}>3D</button>
             </div>
           )}
           {hud && <Hud s={hud} limiting={ev.limiting} onStop={stop} />}
           {!hud && <Guide />}
+          <RouteEditor host={mapHost} route={route} drawing={mode === 'route' && !hud && !globeOn} onChange={setRoute}
+            preview={routePreview} connect={easy ? (a, b) => easyLeg(core, data, a, b, p) : undefined} onFinish={() => setMode('pan')} t={t} />
+          {!globeOn && !view3d && (
+            <div className="draw-hint" aria-live="polite">{mode === 'route'
+              ? (easy ? t('⤳ 楽な道モード（坂の楽な道でつなぐ）・', '⤳ Easy path (follows the easiest slopes) · ') : '') + t('クリックで点を追加・点をドラッグで移動・線の中の小さな点をドラッグで挿入・右クリックかダブルクリックで削除・Esc か Enter で終わる・⌘Z で戻す', 'Click to add a point · drag points to move · drag a small middle dot to insert · right-click or double-click to delete · Esc or Enter to finish · ⌘Z to undo')
+              : mode === 'base' ? t('クリックした所に基地を置き直す', 'Click to move the base')
+              : t('〰 を押すとルートを引けます（点はドラッグで動かせます）', 'Press 〰 to draw a route (points can be dragged)')}</div>
+          )}
         </div>
         {walkRec && <EarthWalkPanel core={core} rec={walkRec} walker={earthWalker} />}
         {!walkRec && rehOpen && reh.found.length > 0 && (

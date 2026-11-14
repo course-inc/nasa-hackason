@@ -141,6 +141,33 @@ pub fn reach(
     })
 }
 
+/// Least-effort walking path between two points on a stored grid: `[[lat, lon], …]` or `null`.
+#[wasm_bindgen(js_name = easyPath)]
+#[allow(clippy::too_many_arguments)]
+pub fn easy_path(
+    world: &str,
+    name: &str,
+    lat1: f64,
+    lon1: f64,
+    lat2: f64,
+    lon2: f64,
+    params: &str,
+    max_slope_deg: f64,
+) -> Result<String, JsError> {
+    let w = parse_world(world)?;
+    let p: route::EvaParams = serde_json::from_str(params).map_err(err)?;
+    with_grid(name, |g| {
+        json(&grid::easy_path(
+            w,
+            g,
+            (lat1, lon1),
+            (lat2, lon2),
+            &p,
+            max_slope_deg,
+        ))
+    })
+}
+
 /// Store the simplified Perseverance traverse (`{drives: [{sol, c: [[lon, lat, z], …]}]}`).
 #[wasm_bindgen(js_name = setTraverse)]
 pub fn set_traverse(traverse_json: &str) -> Result<String, JsError> {

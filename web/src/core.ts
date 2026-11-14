@@ -112,6 +112,8 @@ export interface Core extends Boot {
   setGrid: (name: string, g: Grid | string) => void;
   sampleGrid: (name: string, latlons: [number, number][]) => (number | null)[];
   reach: (world: World, grid: string, lat: number, lon: number, p: EvaParams, maxSlopeDeg: number) => Reach;
+  /** Least-effort walking path between two points on a grid, or null when none. */
+  easyPath: (world: World, grid: string, a: [number, number], b: [number, number], p: EvaParams, maxSlopeDeg: number) => [number, number][] | null;
   setTraverse: (json: string) => RoverStats;
   roverCheck: (pts: Waypoint[], nearM: number) => RouteCheck;
   walkSummary: (pts: TimedPoint[]) => WalkSummary;
@@ -168,6 +170,7 @@ export function loadCore(): Promise<Core> {
       setGrid: (name, g) => wasm.setGrid(name, typeof g === 'string' ? g : JSON.stringify(g)),
       sampleGrid: (name, ll) => JSON.parse(wasm.sampleGrid(name, JSON.stringify(ll))),
       reach: (world, grid, lat, lon, p, max) => JSON.parse(wasm.reach(world, grid, lat, lon, JSON.stringify(p), max)),
+      easyPath: (world, grid, a, b, p, max) => JSON.parse(wasm.easyPath(world, grid, a[0], a[1], b[0], b[1], JSON.stringify(p), max)),
       setTraverse: (json) => JSON.parse(wasm.setTraverse(json)),
       roverCheck: (pts, near) => JSON.parse(wasm.roverCheck(JSON.stringify(pts), near)),
       walkSummary: (pts) => JSON.parse(wasm.walkSummary(JSON.stringify(pts))),

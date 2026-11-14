@@ -9,6 +9,9 @@ import { publishAnswer } from './lastAnswer';
 import { startVoice, voiceStatus, type Recording, type VoiceStatus } from './voice';
 
 export const EXAMPLES = [
+  '2月に氷の試験をしたい',
+  '歩く訓練をしたい',
+  'ローバーが壊れたら？',
   '基地から3km先まで歩いて帰れる？',
   '同じ坂の練習コースを北海道で探して',
   'この訓練、北海道のどこでいつやる？',
@@ -18,6 +21,9 @@ export const EXAMPLES = [
   '歩いた記録で火星を歩いて見せて',
 ];
 export const EXAMPLES_EN = [
+  'An ice test in February',
+  'I want walking training',
+  'What if the rover breaks down?',
   'Can I walk back from 3 km out?',
   'Find a practice course in Hokkaido with the same slopes',
   'Where and when in Hokkaido should we train?',
@@ -84,6 +90,7 @@ export function AgentPanel() {
   const [items, setItems] = useState<Item[]>([]);
   const [busy, setBusy] = useState(false);
   const abort = useRef<AbortController | null>(null);
+  const answerText = useRef('');
   // Voice: whisper.cpp in the desktop app, the browser's speech recognition on the web.
   const [voice, setVoice] = useState<VoiceStatus>({ mode: 'none' });
   const [listening, setListening] = useState(false);
@@ -124,7 +131,7 @@ export function AgentPanel() {
     });
 
   const onEvent = (e: AgentEvent) => {
-    if (e.type === 'text') patchLast((it) => ({ ...it, text: it.text + e.text }));
+    if (e.type === 'text') { answerText.current += e.text; patchLast((it) => ({ ...it, text: it.text + e.text })); }
     else if (e.type === 'tool_call') patchLast((it) => ({ ...it, calls: [...it.calls, { id: e.id, name: e.name, args: e.args }] }));
     else if (e.type === 'tool_result') patchLast((it) => ({ ...it, calls: it.calls.map((c) => (c.id === e.id ? { ...c, result: e.result, ok: e.ok } : c)) }));
     else if (e.type === 'error') patchLast((it) => ({ ...it, error: e.message }));
@@ -136,6 +143,7 @@ export function AgentPanel() {
     if (!prompt || busy) return;
     setQ('');
     setBusy(true);
+    answerText.current = '';
     const ctl = new AbortController();
     abort.current = ctl;
     let agent = getAgent(chosen) ?? getAgent('rules')!;
@@ -154,10 +162,8 @@ export function AgentPanel() {
     } catch (e) {
       onEvent({ type: 'error', message: e instanceof Error ? e.message : String(e) });
     } finally {
-      patchLast((it) => {
-        if (it.text) publishAnswer({ q: prompt, a: it.text, at: Date.now() });
-        return { ...it, done: true };
-      });
+      patchLast((it) => ({ ...it, done: true }));
+      if (answerText.current) publishAnswer({ q: prompt, a: answerText.current, at: Date.now() });
       setBusy(false);
       abort.current = null;
     }

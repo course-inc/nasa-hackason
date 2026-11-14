@@ -21,7 +21,8 @@ interface Props {
   /** Where "enter" zooms to (Jezero / the base). */
   focus: { lat: number; lon: number };
   camera?: GlobeCamera | null;
-  onEnter: () => void;
+  /** Hand-over to the map after a fly-down; lat/lon of where the camera came down. */
+  onEnter: (lat: number, lon: number) => void;
 }
 
 const R = 1;
@@ -36,6 +37,8 @@ const ENTER_DISTANCE = 1.32; // camera distance from the centre at which a zoom 
 /** Final camera distance over the focus: ~6 km above the surface, about what the 2D map shows at
  * zoom 13 on a laptop screen, so the hand-over does not jump. */
 const CLOSE = 1 + 6.3 / 3389.5;
+/** Fly-down height for places away from Jezero, where only the global mosaic is sharp. */
+const CLOSE_FAR = 1 + 340 / 3389.5; // ≈ what the 2D map shows at zoom 7 (the Viking mosaic's own resolution)
 const FLY_MS = 2600;
 const ease = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
 
@@ -66,7 +69,7 @@ export function Globe({ marks, lines, focus, camera, onEnter, patch, startClose 
   const flyRef = useRef(flyTo);
   flyRef.current = flyTo;
   /** Fade the globe out over the map, then hand over. */
-  const enter = () => { setFading('out'); setTimeout(() => enterRef.current(), 650); };
+  const enter = (lat = focus.lat, lon = focus.lon) => { setFading('out'); setTimeout(() => enterRef.current(lat, lon), 650); };
 
   useEffect(() => {
     const el = host.current!;
@@ -122,7 +125,7 @@ export function Globe({ marks, lines, focus, camera, onEnter, patch, startClose 
       const lab = document.createElement('div');
       lab.className = `globe-label ${m.kind}`;
       lab.textContent = m.label;
-      lab.addEventListener('click', () => flyRef.current(m.lat, m.lon, 1.06));
+      lab.addEventListener('click', () => { if (sc.current) sc.current.entered = true; flyRef.current(m.lat, m.lon, m.kind === 'base' ? CLOSE : CLOSE_FAR, () => enter(m.lat, m.lon)); });
       labels.current?.appendChild(lab);
       markObjs.push({ v, el: lab });
     }
@@ -140,6 +143,22 @@ export function Globe({ marks, lines, focus, camera, onEnter, patch, startClose 
     ctl.target.set(0, 0, 0);
     sc.current = { cam, ctl, mat, goal: null, marks: markObjs, entered: !!startClose, fly: null };
     ctl.addEventListener('start', () => { if (sc.current) sc.current.goal = null; });
+    // Click anywhere on the planet (not a drag): fly down there and hand over to the map.
+    const ray = new THREE.Raycaster();
+    let down: { x: number; y: number } | null = null;
+    r.domElement.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY }; });
+    r.domElement.addEventListener('pointerup', (e) => {
+      if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5 || sc.current?.fly) return;
+      const rect = r.domElement.getBoundingClientRect();
+      ray.setFromCamera(new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1), cam);
+      const hit = ray.intersectObject(globe)[0];
+      if (!hit) return;
+      const v = hit.point.clone().normalize();
+      const lat = (Math.asin(v.y) * 180) / Math.PI, lon = (Math.atan2(-v.z, v.x) * 180) / Math.PI;
+      const nearFocus = Math.abs(lat - focus.lat) < 0.5 && Math.abs(lon - focus.lon) < 0.5;
+      if (sc.current) sc.current.entered = true;
+      flyRef.current(lat, lon, nearFocus ? CLOSE : CLOSE_FAR, () => enter(lat, lon));
+    });
 
     const resize = () => {
       const w = el.clientWidth || 1, h = el.clientHeight || 1;
@@ -241,7 +260,7 @@ export function Globe({ marks, lines, focus, camera, onEnter, patch, startClose 
     flyTo(camera.lat, camera.lon, camera.distance ?? 2.2);
   }, [camera?.seq]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const zoomTo = () => { const s = sc.current; if (s) { s.entered = true; flyTo(focus.lat, focus.lon, CLOSE, enter); } };
+  const zoomTo = () => { const s = sc.current; if (s) { s.entered = true; flyTo(focus.lat, focus.lon, CLOSE, () => enter()); } };
   // Coming back from the map: start close (faded in) and pull back out to the whole planet.
   useEffect(() => {
     if (!startClose) return;
@@ -261,7 +280,7 @@ export function Globe({ marks, lines, focus, camera, onEnter, patch, startClose 
       </div>
       {!ready && !failed && <div className="globe-msg">{t('火星の全球画像を読み込み中…', 'Loading the Mars mosaic…')}</div>}
       {failed && <div className="globe-msg warn">{t('全球画像を読み込めませんでした。2D の地図に戻って使えます。', 'Could not load the Mars mosaic. The 2D map still works.')}</div>}
-      <div className="terrain3d-help">{t('ドラッグで回転・ホイールで拡大。Jezero に近づくと地図に切り替わります', 'Drag to turn, wheel to zoom. Zooming in over Jezero opens the map')}</div>
+      <div className="terrain3d-help">{t('ドラッグで回転・ホイールで拡大・クリックでその場所へ降りる', 'Drag to turn, wheel to zoom, click to fly down there')}</div>
       <div className="globe-credit">{tex === 'viking' ? 'Viking MDIM 2.1 (NASA/USGS)' : 'MGS MOLA shaded relief (NASA/GSFC)'} · NASA Solar System Treks</div>
     </div>
   );

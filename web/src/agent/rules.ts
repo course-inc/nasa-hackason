@@ -51,7 +51,10 @@ export function plan(question: string, available: Set<string>): Step[] {
   const wantPlay = has(q, /歩いて見せ|歩く(?:様子|ところ)|ヘルメット|helmet|play|show (?:me )?(?:the )?walk|walk me/i);
   const want3d = has(q, /3D|立体|俯瞰|three.?d/i);
   const wantRehearsal = has(q, /練習|同じ坂|リハーサル|practi[cs]e|rehears|same slope/i);
-  const wantExplore = !wantRehearsal && has(q, /どこで|いつ|訓練|季節|時期|裸地|火山|火星っぽ|where|when|season|train|volcan/i);
+  const wantExplore = !wantRehearsal && has(q, /どこで|いつ|訓練|季節|時期|裸地|火山|火星っぽ|試験|テスト|\d+\s*月|where|when|season|train|volcan|test in|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i);
+  // Which rehearsal test and which Moon/Mars target the question is about (default: walking at Jezero).
+  const test = has(q, /氷|ice/i) ? 'ice' : has(q, /着陸|landing/i) ? 'landing' : has(q, /洞窟|溶岩洞|cave/i) ? 'caves' : has(q, /建設|表土|build|construct/i) ? 'build' : 'walk';
+  const target = test === 'ice' ? 'arcadia' : test === 'caves' ? 'arsia' : 'jezero';
   const wantEvidence = has(q, /根拠|出典|本当|ソース|データ元|証拠|evidence|source|really|proof|why/i);
   const wantWalkRec = has(q, /歩いた記録|GPX|散歩|歩いたログ|歩いた道|recorded walk|my walk|our walk|walk log/i);
   const wantRover = has(q, /壊れ|故障|ローバー.*(?:引き返|帰)|有人ローバー|break(?:s)? down|broke down|crewed rover/i);
@@ -78,7 +81,7 @@ export function plan(question: string, available: Set<string>): Step[] {
   }
   if (wantExplore) {
     const bare = has(q, /裸地|火山|植物がない|植生がない|火星っぽ|bare|volcan|no vegetation|mars-like/i);
-    add('explore_hokkaido', { target: 'jezero', test: 'walk', n: 5, ...(bare ? { bare_only: true } : {}) });
+    add('explore_hokkaido', { target, test, n: 5, ...(bare ? { bare_only: true } : {}) });
   }
   if (wantEvidence) {
     const topics: string[] = [];
@@ -89,7 +92,7 @@ export function plan(question: string, available: Set<string>): Step[] {
     if (has(q, /酸素|冷却水|水|消耗|O2|oxygen|water|consumab/i) && !Object.keys(params).length) topics.push('consumables');
     for (const topic of topics.length ? topics : ['rover', 'eva', 'consumables']) add('open_evidence', { topic, lang });
   }
-  if (!wantExplore && has(q, /季節|冬|夏|重み|season|winter|summer|weight/i)) add('view_scan', { target: 'jezero', test: 'walk', mode: 'scan' });
+  if (!wantExplore && has(q, /季節|冬|夏|重み|season|winter|summer|weight/i)) add('view_scan', { target, test, mode: 'scan' });
   if (has(q, /全球|地球儀|火星全体|火星の全体|globe|whole planet|whole mars/i)) add('view_globe', { on: true });
   if (!wantWalkRec && (want3d || (!steps.length && has(q, /見せて|show/i)))) add('view_3d', { on: true });
   if (wantPlay && !wantWalkRec) add('view_walk', { action: 'play' });
@@ -106,7 +109,7 @@ function exploreJa(r: ToolResult): string | null {
   if (!rows.length) return '条件に合う北海道の 1 km マスは見つかりませんでした。';
   const line = (x: (typeof rows)[number], i: number) =>
     `${i + 1}) ${x.near_site_ja ? `${x.near_site_ja}付近（${x.near_km} km）` : `北緯${x.lat.toFixed(2)} 東経${x.lon.toFixed(2)}`} 標高 ${Math.round(x.elev_m)} m・傾斜 ${x.slope_deg.toFixed(1)}°・スコア ${x.score.toFixed(2)}`;
-  return `この歩行訓練（Jezero／歩く）に向く北海道の場所: ${rows.map(line).join('; ')}。時期: ${rows[0].season_ja}。`;
+  return `この訓練に向く北海道の場所: ${rows.map(line).join('; ')}。時期: ${rows[0].season_ja}。`;
 }
 
 const HELP: Record<Lang, string> = {
@@ -131,7 +134,7 @@ export const rulesAgent: AgentPort = {
       if (s.name === 'explore_hokkaido' && ok) {
         const rows = result.data as { lat: number; lon: number }[] | undefined;
         if (rows?.length && tools.some((t) => t.name === 'view_scan')) {
-          await callTool('view_scan', { target: 'jezero', test: 'walk', mode: 'scan', focus: { lat: rows[0].lat, lon: rows[0].lon } }, onEvent);
+          await callTool('view_scan', { target: args.target ?? 'jezero', test: args.test ?? 'walk', mode: 'scan', focus: { lat: rows[0].lat, lon: rows[0].lon } }, onEvent);
         }
       }
       const tool = tools.find((t) => t.name === s.name);
