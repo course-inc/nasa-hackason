@@ -65,6 +65,11 @@ await step('3. WALKBACK でルートを引く', async () => {
   }
   await p.waitForTimeout(600);
   console.log('  verdict:', await p.locator('.walk .verdict').innerText());
+  // Route profile: elevation by distance, other items on the same axis.
+  const prof = await p.locator('#route-profile .rp-axis').innerText({ timeout: 5000 }).catch(() => '');
+  if (!/km/.test(prof)) fail('route profile under the plan');
+  await p.locator('#route-profile .rp-tabs button', { hasText: 'O₂' }).click().catch(() => fail('profile O₂ tab'));
+  await p.locator('#route-profile .rp-tabs button', { hasText: '標高' }).click().catch(() => {});
   await tiles('walk');
   if (SHOTS) await p.screenshot({ path: 'e2e/demo-2-route.png' });
 });
