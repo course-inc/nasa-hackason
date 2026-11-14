@@ -10,6 +10,7 @@ const BASE = process.env.BASE_URL ?? 'http://localhost:4173';
 const fail = (m) => { console.error('FAIL', m); process.exitCode = 1; };
 const b = await chromium.launch();
 const p = await b.newPage({ viewport: { width: 1280, height: 800 }, locale: 'ja-JP' });
+await p.addInitScript(() => { try { localStorage.setItem('walkback.guide.closed', '1'); } catch { /* */ } });
 const errs = [];
 p.on('pageerror', (e) => errs.push(e.message));
 p.on('console', (m) => m.type() === 'error' && !/Failed to load resource/.test(m.text()) && errs.push(m.text()));

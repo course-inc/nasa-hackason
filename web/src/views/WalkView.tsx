@@ -9,9 +9,10 @@ import { LANDING, exampleRoute, loadWalkData, type WalkData } from '../walk/data
 import { fmtH, reachImage, slopeColor } from '../walk/geo';
 import { WALKBACK_COLOR, WATER_PER_O2, WORLD, denseRoute, evaParams, evaluate, reachFrom, rehearsalPoints, roverCheck, roverWalkback, turnIndex, turnWaypoint, walkbackState } from '../walk/plan';
 import { setWalkController, type EvidenceTopic } from '../walk/controller';
-import { useT } from '../i18n';
+import { useLang, useT } from '../i18n';
 import { GpxError, SAMPLE_GPX, atDistance, importWalk, type WalkImport } from '../walk/gpx';
 import { EarthWalkPanel, WalkImportCard } from '../walk/WalkRecord';
+import { Guide } from '../walk/Guide';
 import { Hud, type HudState } from '../walk/Hud';
 import { EvaCard, RoverCard } from '../walk/Evidence';
 import { RehearsalPanel, useRehearsal } from '../walk/Rehearsal';
@@ -25,6 +26,7 @@ const HIRISE = ['hirise'];
 
 export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const t = useT();
+  const lang = useLang();
   const [data, setData] = useState<WalkData | null>(null);
   const [route, setRoute] = useState<Waypoint[]>([]);
   const [mode, setMode] = useState<Mode>('route');
@@ -260,7 +262,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
     return data && showRover
       ? [{ kind: 'lines', lines: data.traverse, color: '#36cfc9', weight: 2.5, opacity: 0.85, tooltip: t('Perseverance が実際に走った道', "Perseverance's real path") }]
       : [];
-  }, [data, showRover, rw, rwLines, flag]);
+  }, [data, showRover, rw, rwLines, flag, lang]); // eslint-disable-line react-hooks/exhaustive-deps
   const turnIdx = turnIndex(ev);
   const features = useMemo<Feature[]>(() => {
     const f: Feature[] = [];
@@ -289,7 +291,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
       f.push({ kind: 'point', lat: pts[turnIdx].lat, lon: pts[turnIdx].lon, radius: 9, color: '#faad14', tooltip: t('引き返し地点', 'Turn-back point'), openTooltip: true });
     }
     return f;
-  }, [reachImg, showReach, roverFeatures, dense, ev, route, turnIdx]);
+  }, [reachImg, showReach, roverFeatures, dense, ev, route, turnIdx, lang]); // eslint-disable-line react-hooks/exhaustive-deps
   // The same layers for the 3D view.
   const lines3d = useMemo<Line3D[]>(() => {
     const l: Line3D[] = [];
@@ -321,7 +323,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
     <section className="view walk" onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
       onDrop={(e) => { const f = e.dataTransfer.files?.[0]; if (f) { e.preventDefault(); onDropFile(f); } }}>
       <aside className="panel">
-        <h2 className="walk-title">WALKBACK <small>{t('Jezero クレーター（火星）', 'Jezero crater, Mars')}</small></h2>
+        <h2 className="walk-title">{t('火星', 'Mars')} <small>{t('Jezero クレーター・Perseverance の着陸地点が基地', "Jezero crater · base at Perseverance's landing site")}</small></h2>
         <p className="muted">{t('基地から歩いて出て、酸素と冷却水が尽きる前に帰れるか。地図をクリックしてルートを引きます（最初の点が基地）。', 'Walk out from the base: can you get back before oxygen or cooling water runs out? Click the map to draw a route (the first point is the base).')}</p>
         {data?.errors.length ? <p className="warn">{data.errors.map((e) => ({
           dem: t('火星の地形データを読み込めませんでした（判定は「地形不明＝急な登り」として計算します）。', 'Could not load the Mars terrain (unknown ground is counted as a steep climb).'),
@@ -368,25 +370,25 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
         <div id="ev-rover" className={fl('rover')}><RoverCard check={check} /></div>
         <div className={`card rover-walkback ${roverMode ? 'on' : ''}`} id="rover-walkback">
           <h4>{t('有人ローバーが壊れたら、歩いて帰れるか', 'If a crewed rover breaks down, can the crew walk back?')}</h4>
-          <p className="muted">Perseverance の実走ルートを人が乗ったローバーで走ったと仮定。着陸地点が基地。どこで壊れたら歩いて帰れなくなるか（上の条件と同じ酸素・冷却水）。</p>
-          <button onClick={() => setRoverMode(!roverMode)} disabled={!data?.rover}>{roverMode ? '探査車の道を元に戻す' : '探査車の道を色分けする'}</button>
+          <p className="muted">{t('Perseverance の実走ルートを人が乗ったローバーで走ったと仮定。着陸地点が基地。どこで壊れたら歩いて帰れなくなるか（上の条件と同じ酸素・冷却水）。', "Suppose a crew drove Perseverance's real path, with the landing site as the base. Where would a breakdown leave them unable to walk home (same oxygen and cooling water as above)?")}</p>
+          <button onClick={() => setRoverMode(!roverMode)} disabled={!data?.rover}>{roverMode ? t('探査車の道を元に戻す', 'Show the plain rover path') : t('探査車の道を色分けする', 'Colour the rover path')}</button>
           {rw && (
             <>
-              <div className="big-line"><b>{Math.round(rw.ok_share * 100)}%</b><span>の区間から歩いて帰れる（地形データのある走行 {rw.inside_km.toFixed(1)} km のうち）</span></div>
-              <div className="kv"><span>🚩 最初に帰れなくなる点</span><b className={flag ? 'ng' : ''}>{flag ? `走行 ${flag.km.toFixed(1)} km・sol ${flag.sol}` : 'なし（全区間から帰れる）'}</b></div>
-              <p className="muted">道の色: 緑 帰れる / 黄 ぎりぎり（使える分の85%超） / 赤 帰れない / 灰 地形データの外。Apollo の月面車も「壊れても歩いて帰れる距離」までしか離れませんでした（walkback 制約）。出典: Mars 2020 走行記録（NASA/JPL）、地形 HiRISE・MOLA。判定はこのアプリの計算です。</p>
+              <div className="big-line"><b>{Math.round(rw.ok_share * 100)}%</b><span>{t(`の区間から歩いて帰れる（地形データのある走行 ${rw.inside_km.toFixed(1)} km のうち）`, `of the path lets the crew walk home (of ${rw.inside_km.toFixed(1)} km driven with terrain data)`)}</span></div>
+              <div className="kv"><span>🚩 {t('最初に帰れなくなる点', 'First point with no walk home')}</span><b className={flag ? 'ng' : ''}>{flag ? t(`走行 ${flag.km.toFixed(1)} km・sol ${flag.sol}`, `${flag.km.toFixed(1)} km driven · sol ${flag.sol}`) : t('なし（全区間から帰れる）', 'None (walk home from anywhere)')}</b></div>
+              <p className="muted">{t('道の色: 緑 帰れる / 黄 ぎりぎり（使える分の85%超） / 赤 帰れない / 灰 地形データの外。Apollo の月面車も「壊れても歩いて帰れる距離」までしか離れませんでした（walkback 制約）。出典: Mars 2020 走行記録（NASA/JPL）、地形 HiRISE・MOLA。判定はこのアプリの計算です。', 'Path colours: green can walk home / yellow tight (over 85% of what is usable) / red cannot / grey outside the terrain data. Apollo rovers never drove farther than the crew could walk back (the walkback constraint). Sources: Mars 2020 traverse (NASA/JPL), HiRISE and MOLA terrain; the verdict is this app\'s calculation.')}</p>
             </>
           )}
         </div>
         <div id="ev-eva" className={fl('eva')}><EvaCard eva={data?.eva ?? null} planH={ev.total_h} longer={longer} /></div>
 
         <details>
-          <summary>地図の表示</summary>
-          <label className="check"><input type="checkbox" checked={showReach} onChange={(e) => setShowReach(e.target.checked)} /> 歩いて帰れる範囲</label>
-          <label className="check"><input type="checkbox" checked={showRover} onChange={(e) => setShowRover(e.target.checked)} /> 探査車の実走ルート</label>
-          <p className="muted">ルートの色: 緑 8°未満 / 黄 8〜15° / 赤 15°以上 / 灰 地形不明。帰れる範囲の黄色い縁が限界の線です。</p>
+          <summary>{t('地図の表示', 'Map layers')}</summary>
+          <label className="check"><input type="checkbox" checked={showReach} onChange={(e) => setShowReach(e.target.checked)} /> {t('歩いて帰れる範囲', 'Walk-home area')}</label>
+          <label className="check"><input type="checkbox" checked={showRover} onChange={(e) => setShowRover(e.target.checked)} /> {t('探査車の実走ルート', "Perseverance's real path")}</label>
+          <p className="muted">{t('ルートの色: 緑 8°未満 / 黄 8〜15° / 赤 15°以上 / 灰 地形不明。帰れる範囲の黄色い縁が限界の線です。', 'Route colours: green under 8° / yellow 8–15° / red over 15° / grey unknown. The yellow edge of the walk-home area is the limit.')}</p>
         </details>
-        <p id="ev-terrain" className={`muted src ${fl('terrain') ?? ''} ${fl('hokkaido_terrain') ?? ''}`}>データ: Mars 2020 Perseverance 走行記録（NASA/JPL MMGIS）、MRO HiRISE 画像と地形（NASA/UArizona, USGS）、MGS MOLA 地形、Mars Odyssey THEMIS、MRO CTX、data.nasa.gov 船外活動記録、NASADEM（北海道の地形、NASA/JPL）。北海道の航空写真は国土地理院（表示のみ）。{data?.dem?.src ? ` 地形グリッド: ${data.dem.src}` : ''}</p>
+        <p id="ev-terrain" className={`muted src ${fl('terrain') ?? ''} ${fl('hokkaido_terrain') ?? ''}`}>{t('データ: Mars 2020 Perseverance 走行記録（NASA/JPL MMGIS）、MRO HiRISE 画像と地形（NASA/UArizona, USGS）、MGS MOLA 地形、Mars Odyssey THEMIS、MRO CTX、data.nasa.gov 船外活動記録、NASADEM（北海道の地形、NASA/JPL）。北海道の航空写真は国土地理院（表示のみ）。', 'Data: Mars 2020 Perseverance traverse (NASA/JPL MMGIS), MRO HiRISE images and terrain (NASA/UArizona, USGS), MGS MOLA, Mars Odyssey THEMIS, MRO CTX, data.nasa.gov EVA records, NASADEM (Hokkaido terrain, NASA/JPL). Hokkaido aerial photos: GSI Japan (display only).')}{data?.dem?.src ? ` ${t('地形グリッド', 'Terrain grid')}: ${data.dem.src}` : ''}</p>
       </aside>
 
       <div className={`maps ${walkRec || (rehOpen && reh.found.length) ? '' : 'single'}`}>
@@ -409,24 +411,25 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           {view3d && data?.demGrid && (
             <div className="terrain-over">
               <Terrain3D grid={data.demGrid} radiusKm={core.world(WORLD).radius_km} palette="mars" lines={lines3d} points={points3d}
-                reach={showReach ? reachRaw : null} walker={walker} focus={focus3d} label="Jezero クレーター（3D）"
+                reach={showReach ? reachRaw : null} walker={walker} focus={focus3d} label={t('Jezero クレーター（3D）', 'Jezero crater (3D)')}
                 camera={camera} exaggeration={exag} />
             </div>
           )}
           {data?.demGrid && (
-            <div className="view-toggle" role="group" aria-label="地図の表示">
+            <div className="view-toggle" role="group" aria-label={t('地図の表示', 'Map view')}>
               <button className={view3d ? '' : 'on'} onClick={() => setView3d(false)}>2D</button>
               <button className={view3d ? 'on' : ''} onClick={() => setView3d(true)}>3D</button>
             </div>
           )}
           {hud && <Hud s={hud} limiting={ev.limiting} onStop={stop} />}
+          {!hud && <Guide />}
         </div>
         {walkRec && <EarthWalkPanel core={core} rec={walkRec} walker={earthWalker} />}
         {!walkRec && rehOpen && reh.found.length > 0 && (
           <RehearsalPanel core={core} mars={marsForReh} found={reh.found} selected={Math.min(rehSel, reh.found.length - 1)} onSelect={setRehSel} />
         )}
         {rehOpen && reh.status === 'done' && reh.found.length === 0 && (
-          <p className="warn floating">北海道の候補地の範囲（約21km四方）に収まるコースが見つかりませんでした。ルートを短くしてください。</p>
+          <p className="warn floating">{t('北海道の候補地の範囲（約21km四方）に収まるコースが見つかりませんでした。ルートを短くして（★で例のルートに戻すのが早いです）、もう一度探してください。', 'No Hokkaido practice course fits (each area is about 21 km across). Shorten the route (★ restores the example) and search again.')}</p>
         )}
       </div>
     </section>

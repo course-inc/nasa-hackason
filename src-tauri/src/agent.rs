@@ -627,7 +627,13 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let mut report = String::from("| model | question | first text s (median / max) | done s (median / max) | right tool+args | numbers match |\n|---|---|---|---|---|---|\n");
         for m in &models {
-            for q in &QUESTIONS {
+            let only: Option<Vec<usize>> = std::env::var("BENCH_Q")
+                .ok()
+                .map(|v| v.split(',').filter_map(|x| x.trim().parse().ok()).collect());
+            for (qi, q) in QUESTIONS.iter().enumerate() {
+                if only.as_ref().is_some_and(|o| !o.contains(&(qi + 1))) {
+                    continue;
+                }
                 let mut rs: Vec<Run> = Vec::new();
                 for _ in 0..runs {
                     writeln!(stdin.lock().unwrap(), "{}", json!({"type":"reset"})).unwrap();
