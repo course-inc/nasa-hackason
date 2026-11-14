@@ -95,24 +95,28 @@ pub struct Reach {
     pub max_km: f64,
 }
 
-/// Walk-home area around a base. Steps steeper than `max_slope_deg` are not walkable.
-pub fn reach(
+/// Base cell index of `(lat, lon)`, clamped into the grid.
+fn base_cell(g: &Grid, lat: f64, lon: f64) -> (usize, usize) {
+    let (br, bc) = g.rc(lat, lon);
+    (
+        br.round().clamp(0.0, (g.rows - 1) as f64) as usize,
+        bc.round().clamp(0.0, (g.cols - 1) as f64) as usize,
+    )
+}
+
+/// Effort-hours from the base cell to every cell (`reverse`: from every cell back to the base),
+/// up to the budget; steps steeper than `max_slope_deg` are not walkable.
+fn efforts(
     world: World,
     g: &Grid,
-    base_lat: f64,
-    base_lon: f64,
+    start: usize,
     p: &EvaParams,
     max_slope_deg: f64,
-) -> Reach {
+    reverse: bool,
+) -> Vec<f64> {
     let n = g.rows * g.cols;
     let budget = p.budget();
     let (dy, dx) = g.cell_m(world);
-    let (br, bc) = g.rc(base_lat, base_lon);
-    let (br, bc) = (
-        br.round().clamp(0.0, (g.rows - 1) as f64) as usize,
-        bc.round().clamp(0.0, (g.cols - 1) as f64) as usize,
-    );
-    let start = br * g.cols + bc;
     let max_slope = max_slope_deg.to_radians().tan();
     let speed_mh = p.speed_kmh * 1000.0;
     // Effort-hours to step from cell a to neighbour b.
@@ -137,40 +141,74 @@ pub fn reach(
         (1, -1),
         (1, 1),
     ];
-    let run = |reverse: bool| -> Vec<f64> {
-        let mut best = vec![f64::INFINITY; n];
-        let mut heap = BinaryHeap::new();
-        best[start] = 0.0;
-        heap.push(Node(0.0, start));
-        while let Some(Node(cost, i)) = heap.pop() {
-            if cost > best[i] || cost > budget {
+    let mut best = vec![f64::INFINITY; n];
+    let mut heap = BinaryHeap::new();
+    best[start] = 0.0;
+    heap.push(Node(0.0, start));
+    while let Some(Node(cost, i)) = heap.pop() {
+        if cost > best[i] || cost > budget {
+            continue;
+        }
+        let (r, c) = ((i / g.cols) as i64, (i % g.cols) as i64);
+        for (ddr, ddc) in dirs {
+            let (nr, nc) = (r + ddr, c + ddc);
+            if nr < 0 || nc < 0 || nr >= g.rows as i64 || nc >= g.cols as i64 {
                 continue;
             }
-            let (r, c) = ((i / g.cols) as i64, (i % g.cols) as i64);
-            for (ddr, ddc) in dirs {
-                let (nr, nc) = (r + ddr, c + ddc);
-                if nr < 0 || nc < 0 || nr >= g.rows as i64 || nc >= g.cols as i64 {
-                    continue;
-                }
-                let j = nr as usize * g.cols + nc as usize;
-                let dist = ((ddr as f64 * dy).powi(2) + (ddc as f64 * dx).powi(2)).sqrt();
-                // Outbound: i → j. Return trip: walking j → i, so cost the reverse step.
-                let s = if reverse {
-                    step(j, i, dist)
-                } else {
-                    step(i, j, dist)
-                };
-                if let Some(s) = s {
-                    let nc2 = cost + s;
-                    if nc2 < best[j] {
-                        best[j] = nc2;
-                        heap.push(Node(nc2, j));
-                    }
+            let j = nr as usize * g.cols + nc as usize;
+            let dist = ((ddr as f64 * dy).powi(2) + (ddc as f64 * dx).powi(2)).sqrt();
+            // Outbound: i → j. Return trip: walking j → i, so cost the reverse step.
+            let s = if reverse {
+                step(j, i, dist)
+            } else {
+                step(i, j, dist)
+            };
+            if let Some(s) = s {
+                let nc2 = cost + s;
+                if nc2 < best[j] {
+                    best[j] = nc2;
+                    heap.push(Node(nc2, j));
                 }
             }
         }
-        best
-    };
+    }
+    best
+}
+
+/// Per cell: effort to walk back to the base only, as a share of the budget (≤ 1: can walk home).
+/// `None` where the base cannot be reached within the budget. Used when the crew is already out
+/// there (for example a rover that broke down) and only the walk home counts.
+pub fn home_ratio(
+    world: World,
+    g: &Grid,
+    base_lat: f64,
+    base_lon: f64,
+    p: &EvaParams,
+    max_slope_deg: f64,
+) -> Vec<Option<f64>> {
+    let budget = p.budget();
+    let (br, bc) = base_cell(g, base_lat, base_lon);
+    efforts(world, g, br * g.cols + bc, p, max_slope_deg, true)
+        .into_iter()
+        .map(|t| (t.is_finite() && budget > 0.0).then(|| t / budget))
+        .collect()
+}
+
+/// Walk-home area around a base. Steps steeper than `max_slope_deg` are not walkable.
+pub fn reach(
+    world: World,
+    g: &Grid,
+    base_lat: f64,
+    base_lon: f64,
+    p: &EvaParams,
+    max_slope_deg: f64,
+) -> Reach {
+    let n = g.rows * g.cols;
+    let budget = p.budget();
+    let (dy, dx) = g.cell_m(world);
+    let (br, bc) = base_cell(g, base_lat, base_lon);
+    let start = br * g.cols + bc;
+    let run = |reverse: bool| efforts(world, g, start, p, max_slope_deg, reverse);
     let out = run(false);
     let back = run(true);
     let mut area = 0.0;

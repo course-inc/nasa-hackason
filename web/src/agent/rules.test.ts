@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { extractKm, extractParams, plan } from './rules';
 
-const ALL = new Set(['walkback_check', 'open_evidence', 'explore_hokkaido', 'view_scan', 'view_3d', 'view_overlay', 'view_set_params', 'view_walk']);
+const ALL = new Set(['walkback_check', 'rover_walkback', 'import_walk', 'mars_replay', 'open_evidence', 'explore_hokkaido', 'view_scan', 'view_3d', 'view_overlay', 'view_set_params', 'view_walk']);
 const names = (q: string) => plan(q, ALL).map((s) => s.name);
 
 describe('rules agent routing', () => {
@@ -18,6 +18,15 @@ describe('rules agent routing', () => {
     expect(extractKm('速さ3km/hで')).toBeUndefined();
     expect(extractKm('５ｋｍ先')).toBeUndefined(); // full-width digits are normalised in plan(), not here
     expect(plan('５km先まで帰れる？', ALL)[0].args.route).toEqual({ away_km: 5 });
+  });
+  it('crewed rover breakdown', () => {
+    expect(names('有人ローバーが壊れたら歩いて帰れる？')).toEqual(['rover_walkback']);
+    expect(names('酸素4時間でローバーが故障したら？')).toEqual(['view_set_params', 'rover_walkback']);
+    expect(names('What if the crewed rover breaks down?')).toEqual(['rover_walkback']);
+  });
+  it('recorded walk', () => {
+    expect(names('歩いた記録で火星を歩いて見せて')).toEqual(['import_walk', 'mars_replay']);
+    expect(names('この散歩、火星なら帰れた？')).toEqual(['import_walk']);
   });
   it('bare ground and season keywords', () => {
     expect(plan('火山っぽい裸地で訓練するならどこ？', ALL)[0].args).toMatchObject({ bare_only: true });

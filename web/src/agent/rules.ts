@@ -52,10 +52,17 @@ export function plan(question: string, available: Set<string>): Step[] {
   const wantRehearsal = has(q, /練習|同じ坂|リハーサル|practi[cs]e|rehears|same slope/i);
   const wantExplore = !wantRehearsal && has(q, /どこで|いつ|訓練|季節|時期|裸地|火山|火星っぽ|where|when|season|train|volcan/i);
   const wantEvidence = has(q, /根拠|出典|本当|ソース|データ元|証拠|evidence|source|really|proof|why/i);
-  const wantCheck = has(q, /帰れ|戻れ|帰って|戻って|歩いて帰|帰還|間に合|return|walk back|get back|make it back|come back/i) || (km != null && !wantExplore);
+  const wantWalkRec = has(q, /歩いた記録|GPX|散歩|歩いたログ|歩いた道|recorded walk|my walk|our walk|walk log/i);
+  const wantRover = has(q, /壊れ|故障|ローバー.*(?:引き返|帰)|有人ローバー|break(?:s)? down|broke down|crewed rover/i);
+  const wantCheck = !wantRover && has(q, /帰れ|戻れ|帰って|戻って|歩いて帰|帰還|間に合|return|walk back|get back|make it back|come back/i) || (km != null && !wantExplore);
 
   if (Object.keys(params).length) add('view_set_params', params);
-  if (wantCheck || wantRehearsal || (wantPlay && !wantExplore)) {
+  if (wantWalkRec) {
+    add('import_walk', { lang });
+    if (wantPlay || has(q, /再生|火星で歩|replay/i)) add('mars_replay', { action: 'play' });
+  }
+  if (wantRover) add('rover_walkback', { lang });
+  if (!wantWalkRec && (wantCheck || wantRehearsal || (wantPlay && !wantExplore && !wantRover))) {
     const args: Record<string, unknown> = { lang };
     if (km != null) args.route = /走|ローバー|探査車|drive|rover/i.test(q) ? { along_rover_km: km } : { away_km: km };
     if (wantRehearsal) args.with_rehearsal = true;
@@ -76,8 +83,8 @@ export function plan(question: string, available: Set<string>): Step[] {
     for (const topic of topics.length ? topics : ['rover', 'eva', 'consumables']) add('open_evidence', { topic, lang });
   }
   if (!wantExplore && has(q, /季節|冬|夏|重み|season|winter|summer|weight/i)) add('view_scan', { target: 'jezero', test: 'walk', mode: 'scan' });
-  if (want3d || (!steps.length && has(q, /見せて|show/i))) add('view_3d', { on: true });
-  if (wantPlay) add('view_walk', { action: 'play' });
+  if (!wantWalkRec && (want3d || (!steps.length && has(q, /見せて|show/i)))) add('view_3d', { on: true });
+  if (wantPlay && !wantWalkRec) add('view_walk', { action: 'play' });
   if (!steps.length && Object.keys(params).length === 0) return [];
   // Sliders alone: report what they mean for the current route.
   if (steps.length === 1 && steps[0].name === 'view_set_params') add('walkback_check', { lang });

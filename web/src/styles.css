@@ -274,3 +274,7 @@ button:disabled { opacity: .5; cursor: default; }
 .agent-input { display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--line); }
 .agent-input input { flex: 1; min-width: 0; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; }
 .agent-fab { position: fixed; z-index: 3000; right: 12px; bottom: 30px; border-radius: 20px; padding: 8px 14px; box-shadow: 0 4px 16px rgba(0,0,0,.5); }
+.walk-badge { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin: 6px 0; }
+.walk-badge.measured { background: rgba(82,196,26,.15); color: var(--ok); }
+.walk-badge.synthetic { background: rgba(250,173,20,.15); color: var(--warn); }
+.measured-speed { color: var(--accent); }

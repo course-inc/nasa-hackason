@@ -11,6 +11,8 @@ export const EXAMPLES = [
   'この訓練、北海道のどこでいつやる？',
   '根拠を見せて',
   '3Dで歩いて見せて',
+  '有人ローバーが壊れたら歩いて帰れる？',
+  '歩いた記録で火星を歩いて見せて',
 ];
 
 interface Call { id: string; name: string; args: unknown; result?: ToolResult; ok?: boolean }
@@ -58,13 +60,21 @@ export function AgentPanel() {
   const [agentId, setAgentId] = useState<string | null>(null);
   const chosen = agentId ?? (avail['pi-rs'] ? 'pi-rs' : 'rules');
 
-  const [open, setOpen] = useState(true);
+  // Open by default on WALKBACK; elsewhere a small button, so it never covers the other tabs.
+  const isWalk = () => /^#(walk|mars)/.test(location.hash);
+  const [open, setOpen] = useState(isWalk);
   const [q, setQ] = useState('');
   const [items, setItems] = useState<Item[]>([]);
   const [busy, setBusy] = useState(false);
   const abort = useRef<AbortController | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   useEffect(() => { logRef.current?.scrollTo({ top: logRef.current.scrollHeight }); }, [items]);
+  const used = items.length > 0 || busy;
+  useEffect(() => {
+    const on = () => { if (!used) setOpen(isWalk()); };
+    window.addEventListener('hashchange', on);
+    return () => window.removeEventListener('hashchange', on);
+  }, [used]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const patchLast = (f: (it: Extract<Item, { kind: 'agent' }>) => Extract<Item, { kind: 'agent' }>) =>
     setItems((xs) => {

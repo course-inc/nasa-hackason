@@ -54,6 +54,12 @@ export interface RouteCheck {
 }
 export interface EvaRecord { id: string; country: string; crew: string; vehicle: string; date: string; hours: number }
 export interface EvaStats { count: number; median_h: number; p90_h: number; max_h: number; longest: EvaRecord | null; hours: number[]; apollo_hours: number[] }
+export interface WalkbackPoint { lat: number; lon: number; km: number; sol: number; ratio: number | null; inside: boolean }
+/** Crewed-rover breakdown check along Perseverance's path (analog-core traverse::walkback). */
+export interface RoverWalkback { points: WalkbackPoint[]; first_stranded: number | null; ok_share: number; inside_km: number; budget_h: number }
+/** #11 A: a recorded walk point; elevation from NASADEM, never from the GPS. t in seconds. */
+export interface TimedPoint { lat: number; lon: number; elev: number | null; t: number }
+export interface WalkSummary { km: number; elapsed_h: number; moving_h: number; climb_m: number; descent_m: number; flat_kmh: number; moving_kmh: number }
 export interface RehearsalMatch {
   pts: [number, number, number][]; rms_deg: number; score: number; rotation_deg: number; mirrored: boolean;
   climb_mars_m: number; climb_earth_m: number;
@@ -108,6 +114,9 @@ export interface Core extends Boot {
   reach: (world: World, grid: string, lat: number, lon: number, p: EvaParams, maxSlopeDeg: number) => Reach;
   setTraverse: (json: string) => RoverStats;
   roverCheck: (pts: Waypoint[], nearM: number) => RouteCheck;
+  walkSummary: (pts: TimedPoint[]) => WalkSummary;
+  transplantWalk: (pts: TimedPoint[], baseLat: number, baseLon: number) => [number, number][];
+  roverWalkback: (world: World, grid: string, lat: number, lon: number, p: EvaParams, maxSlopeDeg: number) => RoverWalkback | null;
   setEvaCsv: (csv: string) => EvaStats;
   evaLongerShare: (hours: number) => number;
   rehearse: (from: World, pts: Waypoint[], grid: string, stride: number, rotStepDeg: number, top: number) => RehearsalMatch[];
@@ -159,6 +168,9 @@ export function loadCore(): Promise<Core> {
       reach: (world, grid, lat, lon, p, max) => JSON.parse(wasm.reach(world, grid, lat, lon, JSON.stringify(p), max)),
       setTraverse: (json) => JSON.parse(wasm.setTraverse(json)),
       roverCheck: (pts, near) => JSON.parse(wasm.roverCheck(JSON.stringify(pts), near)),
+      walkSummary: (pts) => JSON.parse(wasm.walkSummary(JSON.stringify(pts))),
+      transplantWalk: (pts, lat, lon) => JSON.parse(wasm.transplantWalk(JSON.stringify(pts), lat, lon)),
+      roverWalkback: (world, grid, lat, lon, p, max) => JSON.parse(wasm.roverWalkback(world, grid, lat, lon, JSON.stringify(p), max)),
       setEvaCsv: (csv) => JSON.parse(wasm.setEvaCsv(csv)),
       evaLongerShare: (h) => wasm.evaLongerShare(h),
       rehearse: (from, pts, grid, stride, rot, top) => JSON.parse(wasm.rehearse(from, JSON.stringify(pts), grid, stride, rot, top)),

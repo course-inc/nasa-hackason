@@ -9,7 +9,7 @@ const BASE = process.env.BASE_URL ?? 'http://localhost:4173';
 const SHOTS = process.env.SHOTS !== '0';
 const fail = (m) => { console.error('FAIL', m); process.exitCode = 1; };
 const b = await chromium.launch();
-const p = await b.newPage({ viewport: { width: 1440, height: 900 } });
+const p = await b.newPage({ viewport: { width: 1440, height: 900 }, locale: 'ja-JP' });
 const errs = [];
 p.on('pageerror', (e) => errs.push(e.message));
 p.on('console', (m) => m.type() === 'error' && !/Failed to load resource/.test(m.text()) && errs.push(m.text()));
@@ -98,6 +98,55 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
   await p.waitForSelector('.hud', { timeout: 5000 }).catch(() => fail('helmet HUD'));
   await p.waitForTimeout(2500);
   await shot('3d-walk');
+}
+
+// B) Crewed rover breaks down on Perseverance's path → flag and share match the card.
+{
+  await p.locator('.walk .btns button.primary').click().catch(() => undefined); // stop the walk
+  const { text, chips } = await ask('有人ローバーが壊れたら歩いて帰れる？');
+  if (!chips.includes('rover_walkback:ok')) fail('rover_walkback called');
+  await p.waitForSelector('#rover-walkback .big-line', { timeout: 10000 }).catch(() => fail('rover walkback card'));
+  const share = (await p.locator('#rover-walkback .big-line b').innerText()).trim();
+  if (!text.includes(`${share} の区間`)) fail(`share matches the card (${share})`);
+  const flag = (await p.locator('#rover-walkback .kv b').innerText()).trim(); // 走行 X km・sol Y | なし…
+  const m = flag.match(/走行 ([\d.]+) km・sol (\d+)/);
+  if (m ? !text.includes(`走行 ${m[1]} km（sol ${m[2]}）`) : !text.includes('どこで壊れても')) fail(`flag matches the card (${flag})`);
+  await shot('rover-walkback');
+  // Less oxygen → the flag moves closer to the base.
+  const before = m ? Number(m[1]) : Infinity;
+  const r2 = await ask('酸素4時間で有人ローバーが壊れたら？');
+  const m2 = r2.text.match(/走行 ([\d.]+) km（sol/);
+  console.log('  flag with O2 8 h →', before, 'km; with O2 4 h →', m2?.[1], 'km');
+  if (!m2 || !(Number(m2[1]) <= before)) fail('flag moves with the O2 slider');
+}
+
+// A) Recorded walk (GPX) → Hokkaido and Mars side by side; numbers match the card.
+{
+  await p.locator('.walk .btns button.primary', { hasText: '止める' }).click().catch(() => undefined);
+  const { text, chips } = await ask('歩いた記録で火星を歩いて見せて');
+  if (!chips.includes('import_walk:ok') || !chips.includes('mars_replay:ok')) fail('import_walk + mars_replay');
+  const card = await p.locator('#walk-import').innerText();
+  const km = card.match(/歩いた距離\s*([\d.]+) km/)?.[1], speed = card.match(/平地に直した速さ\s*([\d.]+) km\/h/)?.[1];
+  if (!km || !text.includes(`${(+km).toFixed(1)} km`)) fail(`walk km matches the card (${km})`);
+  if (!speed || !text.includes(`${speed} km/h`)) fail(`measured speed matches the card (${speed})`);
+  if (!/仮の自作データ/.test(card) || !/仮の自作データ/.test(text)) fail('synthetic sample labelled as such');
+  if (!(await p.locator('.earth-walk').count())) fail('Hokkaido walk map');
+  await p.waitForSelector('.hud', { timeout: 5000 }).catch(() => fail('helmet HUD replay'));
+  await p.waitForTimeout(3000);
+  await shot('gpx');
+  // A GPX picked with the file input (same sample file, renamed: not labelled synthetic by name).
+  await p.locator('#walk-import input[type=file]').setInputFiles({
+    name: 'team-walk.gpx', mimeType: 'application/gpx+xml',
+    buffer: Buffer.from((await (await fetch(`${BASE}/data/walks/sample-sapporo-maruyama-SYNTHETIC.gpx`)).text())),
+  });
+  await p.waitForTimeout(800);
+  if (!/仮の自作データ/.test(await p.locator('#walk-import').innerText())) fail('desc marks the sample as synthetic even when renamed');
+  // A GPX without times: a clear message, no crash.
+  await p.locator('#walk-import input[type=file]').setInputFiles({ name: 'no-time.gpx', mimeType: 'application/gpx+xml',
+    buffer: Buffer.from('<gpx><trk><trkseg><trkpt lat="43.05" lon="141.3"/><trkpt lat="43.06" lon="141.3"/></trkseg></trk></gpx>') });
+  await p.waitForTimeout(500);
+  if (!/時刻がありません/.test(await p.locator('#walk-import').innerText())) fail('no-time GPX message');
+  await p.locator('#walk-import button', { hasText: 'やめる' }).click();
 }
 
 // English question, slider values typed in it.

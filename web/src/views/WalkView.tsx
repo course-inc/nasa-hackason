@@ -7,13 +7,16 @@ import { getElevation } from '../elevation';
 import { PlanetMap, missionOverlay, type Feature, type FlyTarget } from '../map/PlanetMap';
 import { LANDING, exampleRoute, loadWalkData, type WalkData } from '../walk/data';
 import { fmtH, reachImage, slopeColor } from '../walk/geo';
-import { WATER_PER_O2, WORLD, denseRoute, evaParams, evaluate, reachFrom, rehearsalPoints, roverCheck, turnIndex, turnWaypoint } from '../walk/plan';
+import { WALKBACK_COLOR, WATER_PER_O2, WORLD, denseRoute, evaParams, evaluate, reachFrom, rehearsalPoints, roverCheck, roverWalkback, turnIndex, turnWaypoint, walkbackState } from '../walk/plan';
 import { setWalkController, type EvidenceTopic } from '../walk/controller';
+import { useT } from '../i18n';
+import { GpxError, SAMPLE_GPX, atDistance, importWalk, type WalkImport } from '../walk/gpx';
+import { EarthWalkPanel, WalkImportCard } from '../walk/WalkRecord';
 import { Hud, type HudState } from '../walk/Hud';
 import { EvaCard, RoverCard } from '../walk/Evidence';
 import { RehearsalPanel, useRehearsal } from '../walk/Rehearsal';
 import { Terrain3D, type Camera3D, type Line3D, type Point3D } from '../map/Terrain3D';
-import type { Reach } from '../core';
+import type { Reach, RoverWalkback } from '../core';
 
 type Mode = 'pan' | 'route' | 'base';
 export interface WalkParams { world?: World; lat?: number; lon?: number; z?: number }
@@ -21,6 +24,7 @@ export interface WalkParams { world?: World; lat?: number; lon?: number; z?: num
 const HIRISE = ['hirise'];
 
 export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
+  const t = useT();
   const [data, setData] = useState<WalkData | null>(null);
   const [route, setRoute] = useState<Waypoint[]>([]);
   const [mode, setMode] = useState<Mode>('route');
@@ -65,6 +69,31 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
     }, 60);
     return () => clearTimeout(id);
   }, [core, data, base?.lat, base?.lon, p]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // B: crewed rover on Perseverance's path breaks down: can the crew walk home from each point?
+  const [roverMode, setRoverMode] = useState(false);
+  const [rw, setRw] = useState<RoverWalkback | null>(null);
+  useEffect(() => {
+    if (!roverMode || !data) { setRw(null); return; }
+    const id = setTimeout(() => setRw(roverWalkback(core, data, p)), 60);
+    return () => clearTimeout(id);
+  }, [core, data, p, roverMode]);
+  const flag = rw?.first_stranded != null ? rw.points[rw.first_stranded] : null;
+  const rwLines = useMemo(() => {
+    if (!rw) return [] as { pts: [number, number][]; color: string }[];
+    const out: { pts: [number, number][]; color: string }[] = [];
+    let cur: { pts: [number, number][]; color: string } | null = null;
+    for (const pt of rw.points) {
+      const color = WALKBACK_COLOR[walkbackState(pt)];
+      const ll: [number, number] = [pt.lat, pt.lon];
+      if (!cur || cur.color !== color) {
+        if (cur) cur.pts.push(ll);
+        cur = { pts: cur ? [cur.pts[cur.pts.length - 1], ll] : [ll], color };
+        out.push(cur);
+      } else cur.pts.push(ll);
+    }
+    return out.filter((l) => l.pts.length > 1);
+  }, [rw]);
 
   // Elevation for waypoints outside the Jezero grid (Trek MOLA identify).
   const addPoint = (lat: number, lon: number) => {
@@ -127,12 +156,51 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const marsForReh = useMemo(() => rehearsalPoints(core, data, route), [core, data, route]);
   const startRehearsal = () => { setRehOpen(true); setRehSel(0); reh.run(marsForReh); };
 
+  // ---- A: a GPX walk in Hokkaido, replayed on Mars ----
+  const [walkRec, setWalkRec] = useState<WalkImport | null>(null);
+  const [walkErr, setWalkErr] = useState<string | null>(null);
+  const [walkBusy, setWalkBusy] = useState(false);
+  const loadWalk = async (text: string, file: string): Promise<WalkImport> => {
+    setWalkBusy(true); setWalkErr(null);
+    try {
+      await loadWalkData(core);
+      const rec = await importWalk(core, text, file);
+      stop();
+      setWalkRec(rec);
+      setRoute(rec.route);
+      live$.current.route = rec.route;
+      const v = Math.min(5, Math.max(0.5, Math.round(rec.summary.flat_kmh * 100) / 100));
+      setSpeed(v); live$.current.speed = v;
+      setRehOpen(false);
+      setFly({ lat: LANDING.lat, lon: LANDING.lon, z: 15, seq: Date.now() });
+      return rec;
+    } catch (e) {
+      const code = e instanceof GpxError ? e.message : '';
+      setWalkErr(code === 'no-time' ? t('この GPX には時刻がありません。時刻つきで記録した GPX（多くの登山・ランニングアプリの書き出し）を使ってください。', 'This GPX has no times. Use a GPX recorded with times (most hiking or running apps export one).')
+        : code === 'no-points' ? t('GPX に歩いた点（trkpt）が見つかりませんでした。トラックとして書き出した GPX を使ってください。', 'No track points (trkpt) in this GPX. Export the walk as a track.')
+        : code === 'not-gpx' ? t('GPX として読めませんでした。.gpx ファイルを選んでください。', 'This is not a GPX file. Choose a .gpx file.')
+        : t('歩いた記録を読み込めませんでした。もう一度試すか、別の GPX を選んでください。', 'Could not load the walk. Try again or choose another GPX.'));
+      throw e;
+    } finally { setWalkBusy(false); }
+  };
+  const loadSample = async () => {
+    const r = await fetch(SAMPLE_GPX);
+    if (!r.ok) { setWalkErr(t('例の GPX を読み込めませんでした。', 'Could not load the sample GPX.')); throw new Error('sample'); }
+    return loadWalk(await r.text(), SAMPLE_GPX.split('/').pop()!);
+  };
+  const clearWalk = () => { stop(); setWalkRec(null); setWalkErr(null); if (data) setRoute(exampleRoute(data.traverseRaw)); setSpeed(2); };
+  const onDropFile = (f: File) => { f.text().then((t) => loadWalk(t, f.name)).catch(() => undefined); };
+  const earthWalker = useMemo<[number, number] | null>(() => {
+    if (!walkRec || !hud) return null;
+    return atDistance(core, 'earth', walkRec.earth, hud.phase === 'done' ? 0 : hud.km);
+  }, [core, walkRec, hud]);
+
   // ---- agent controller (agent/tools.ts drives the screen through this) ----
   const [camera, setCamera] = useState<Camera3D | null>(null);
   const [exag, setExag] = useState<number | undefined>(undefined);
   const [flash, setFlash] = useState<EvidenceTopic | null>(null);
-  const live$ = useRef({ route, speed, o2, water, reserve, play, stop, startRehearsalWith: reh.run, found: reh.found });
-  live$.current = { route, speed, o2, water, reserve, play, stop, startRehearsalWith: reh.run, found: reh.found };
+  const live$ = useRef({ route, speed, o2, water, reserve, play, stop, startRehearsalWith: reh.run, found: reh.found, loadWalk, loadSample, walkRec });
+  live$.current = { route, speed, o2, water, reserve, play, stop, startRehearsalWith: reh.run, found: reh.found, loadWalk, loadSample, walkRec };
   useEffect(() => {
     setWalkController({
       core,
@@ -157,6 +225,14 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
         }
       },
       setOverlay: (o) => { if (o.rover != null) setShowRover(o.rover); if (o.reach != null) setShowReach(o.reach); },
+      flyTo: (lat, lon, z) => setFly({ lat, lon, z, seq: Date.now() }),
+      importWalk: (text, file) => live$.current.loadWalk(text, file),
+      importSample: () => live$.current.loadSample(),
+      walk: () => live$.current.walkRec,
+      setRoverMode: (on) => {
+        setRoverMode(on);
+        if (on) setTimeout(() => document.getElementById('rover-walkback')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+      },
       play: () => live$.current.play(),
       stop: () => live$.current.stop(),
       openEvidence: (topic) => {
@@ -174,9 +250,17 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const fl = (topic: EvidenceTopic) => (flash === topic ? 'flash' : undefined);
 
   // ---- map features ----
-  const roverFeatures = useMemo<Feature[]>(() => (data && showRover
-    ? [{ kind: 'lines', lines: data.traverse, color: '#36cfc9', weight: 2.5, opacity: 0.85, tooltip: 'Perseverance が実際に走った道' }]
-    : []), [data, showRover]);
+  const roverFeatures = useMemo<Feature[]>(() => {
+    if (rw) {
+      const f: Feature[] = rwLines.map((l) => ({ kind: 'line', pts: l.pts, color: l.color, weight: 4, opacity: 0.95 }));
+      if (flag) f.push({ kind: 'point', lat: flag.lat, lon: flag.lon, radius: 10, color: '#ff4d4f', openTooltip: true,
+        tooltip: t(`🚩 人が乗っていたらここで引き返し<br>走行 ${flag.km.toFixed(1)} km・sol ${flag.sol}`, `🚩 With a crew aboard, turn back here<br>${flag.km.toFixed(1)} km driven · sol ${flag.sol}`) });
+      return f;
+    }
+    return data && showRover
+      ? [{ kind: 'lines', lines: data.traverse, color: '#36cfc9', weight: 2.5, opacity: 0.85, tooltip: t('Perseverance が実際に走った道', "Perseverance's real path") }]
+      : [];
+  }, [data, showRover, rw, rwLines, flag]);
   const turnIdx = turnIndex(ev);
   const features = useMemo<Feature[]>(() => {
     const f: Feature[] = [];
@@ -199,25 +283,26 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
     }
     route.forEach((w, i) => f.push({
       kind: 'point', lat: w.lat, lon: w.lon, radius: i === 0 ? 9 : 5, color: i === 0 ? '#ffffff' : '#ffd666',
-      tooltip: i === 0 ? '基地（ここから出てここに戻る）' : `WP${i}${w.elev != null ? `<br>標高 ${Math.round(w.elev)} m` : ''}`,
+      tooltip: i === 0 ? t('基地（ここから出てここに戻る）', 'Base (start and finish)') : `WP${i}${w.elev != null ? `<br>${t('標高', 'Elevation')} ${Math.round(w.elev)} m` : ''}`,
     }));
     if (turnIdx != null && pts[turnIdx]) {
-      f.push({ kind: 'point', lat: pts[turnIdx].lat, lon: pts[turnIdx].lon, radius: 9, color: '#faad14', tooltip: 'ここで引き返す', openTooltip: true });
+      f.push({ kind: 'point', lat: pts[turnIdx].lat, lon: pts[turnIdx].lon, radius: 9, color: '#faad14', tooltip: t('引き返し地点', 'Turn-back point'), openTooltip: true });
     }
     return f;
   }, [reachImg, showReach, roverFeatures, dense, ev, route, turnIdx]);
   // The same layers for the 3D view.
   const lines3d = useMemo<Line3D[]>(() => {
     const l: Line3D[] = [];
-    if (data && showRover) for (const t of data.traverse) l.push({ pts: t, color: '#36cfc9', width: 2.5, opacity: 0.9 });
-    for (const f of features) if (f.kind === 'line') l.push({ pts: f.pts, color: f.color, width: (f.weight ?? 3) >= 5 ? 5 : 2, opacity: f.opacity });
+    if (data && showRover && !rw) for (const t of data.traverse) l.push({ pts: t, color: '#36cfc9', width: 2.5, opacity: 0.9 });
+    for (const f of features) if (f.kind === 'line') l.push({ pts: f.pts, color: f.color, width: (f.weight ?? 3) >= 5 ? 5 : (f.weight ?? 3) >= 4 ? 3.5 : 2, opacity: f.opacity });
     return l;
-  }, [data, showRover, features]);
+  }, [data, showRover, features, rw]);
   const points3d = useMemo<Point3D[]>(() => {
     const ps: Point3D[] = route.map((w, i) => ({ lat: w.lat, lon: w.lon, color: i === 0 ? '#ffffff' : '#ffd666', size: i === 0 ? 2.2 : 1.2 }));
     if (turnIdx != null && dense.pts[turnIdx]) ps.push({ lat: dense.pts[turnIdx].lat, lon: dense.pts[turnIdx].lon, color: '#faad14', size: 2 });
+    if (flag) ps.push({ lat: flag.lat, lon: flag.lon, color: '#ff4d4f', size: 3 });
     return ps;
-  }, [route, turnIdx, dense]);
+  }, [route, turnIdx, dense, flag]);
   const focus3d = useMemo(() => {
     if (route.length < 2) return null;
     const la = route.map((w) => w.lat), lo = route.map((w) => w.lon);
@@ -228,51 +313,71 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
 
   const n = route.length;
   const tools: [Mode | 'undo' | 'clear' | 'example', string, string][] = [
-    ['pan', '✋', '地図を動かす'], ['route', '〰', 'ルートを引く'], ['base', '⌂', '基地を置き直す'],
-    ['undo', '↶', '1つ戻す'], ['clear', '🗑', 'ルートを消す'], ['example', '★', '例のルートに戻す'],
+    ['pan', '✋', t('地図を動かす', 'Move the map')], ['route', '〰', t('ルートを引く', 'Draw the route')], ['base', '⌂', t('基地を置き直す', 'Move the base')],
+    ['undo', '↶', t('1つ戻す', 'Undo')], ['clear', '🗑', t('ルートを消す', 'Clear the route')], ['example', '★', t('例のルートに戻す', 'Example route')],
   ];
 
   return (
-    <section className="view walk">
+    <section className="view walk" onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
+      onDrop={(e) => { const f = e.dataTransfer.files?.[0]; if (f) { e.preventDefault(); onDropFile(f); } }}>
       <aside className="panel">
-        <h2 className="walk-title">WALKBACK <small>Jezero クレーター</small></h2>
-        <p className="muted">基地から歩いて出て、酸素と冷却水が尽きる前に帰れるか。地図をクリックしてルートを引きます（最初の点が基地）。</p>
-        {data?.errors.length ? <p className="warn">読み込めなかったデータ: {data.errors.join(' / ')}</p> : null}
+        <h2 className="walk-title">WALKBACK <small>{t('Jezero クレーター（火星）', 'Jezero crater, Mars')}</small></h2>
+        <p className="muted">{t('基地から歩いて出て、酸素と冷却水が尽きる前に帰れるか。地図をクリックしてルートを引きます（最初の点が基地）。', 'Walk out from the base: can you get back before oxygen or cooling water runs out? Click the map to draw a route (the first point is the base).')}</p>
+        {data?.errors.length ? <p className="warn">{data.errors.map((e) => ({
+          dem: t('火星の地形データを読み込めませんでした（判定は「地形不明＝急な登り」として計算します）。', 'Could not load the Mars terrain (unknown ground is counted as a steep climb).'),
+          traverse: t('探査車の走行記録を読み込めませんでした（実走ルートとの比較とローバーの判定は出ません）。', "Could not load Perseverance's path (no rover comparison)."),
+          eva: t('船外活動の記録を読み込めませんでした（実際の船外活動との比較は出ません）。', 'Could not load the EVA records (no EVA comparison).'),
+          hokkaido: t('北海道の地形データを読み込めませんでした（練習コース探しは使えません）。', 'Could not load the Hokkaido terrain (no practice courses).'),
+        } as Record<string, string>)[e] ?? e).join(' ')} {t('ページを再読み込みしてください。', 'Reload the page to try again.')}</p> : null}
 
         <div className={`verdict ${n < 2 ? '' : ev.ok ? 'ok' : 'ng'}`}>
-          {n < 2 ? 'ルートを引いてください' : ev.ok ? '帰れる' : `途中で引き返す（WP${turnWaypoint(ev, dense)} の手前）`}
+          {!data ? t('データを読み込み中…', 'Loading data…') : n < 2 ? t('地図をクリックしてルートを引いてください', 'Click the map to draw a route') : ev.ok ? t('帰れる', 'Can walk back') : t(`途中で引き返す（引き返し地点: WP${turnWaypoint(ev, dense)} の手前）`, `Turn back before WP${turnWaypoint(ev, dense)}`)}
         </div>
         {n >= 2 && (
           <>
-            <div className="kv"><span>行き / 帰り（まっすぐ）</span><b>{ev.out_km.toFixed(1)} km / {ev.back_km.toFixed(1)} km</b></div>
-            <div className="kv"><span>かかる時間</span><b>{fmtH(ev.total_h)}</b></div>
-            <div className="kv"><span>体力の消費 / 使える分</span><b>{ev.total_effort_h.toFixed(1)} / {ev.usable_h.toFixed(1)} h</b></div>
-            <div className="kv"><span>先に尽きるもの</span><b className={ev.limiting === 'water' ? 'water' : ''}>{ev.limiting === 'water' ? '冷却水' : '酸素'}</b></div>
-            {reachImg && <div className="kv"><span>歩いて帰れる範囲</span><b>{reachImg.area.toFixed(0)} km²（最遠 {reachImg.max.toFixed(1)} km）</b></div>}
-            {ev.unknown_segments > 0 && <p className="warn">地形が分からない区間 {ev.unknown_segments} か所は、急な登り（約17°）として安全側で計算しています。</p>}
+            <div className="kv"><span>{t('行き / 帰り（まっすぐ）', 'Out / back (straight)')}</span><b>{ev.out_km.toFixed(1)} km / {ev.back_km.toFixed(1)} km</b></div>
+            <div className="kv"><span>{t('かかる時間', 'Time')}</span><b>{fmtH(ev.total_h)}</b></div>
+            <div className="kv"><span>{t('体力の消費 / 使える分', 'Effort used / usable')}</span><b>{ev.total_effort_h.toFixed(1)} / {ev.usable_h.toFixed(1)} h</b></div>
+            <div className="kv"><span>{t('先に尽きるもの', 'Runs out first')}</span><b className={ev.limiting === 'water' ? 'water' : ''}>{ev.limiting === 'water' ? t('冷却水', 'Cooling water') : t('酸素', 'Oxygen')}</b></div>
+            {reachImg && <div className="kv"><span>{t('歩いて帰れる範囲', 'Walk-home area')}</span><b>{reachImg.area.toFixed(0)} km²{t('（最遠 ', ' (farthest ')}{reachImg.max.toFixed(1)} km{t('）', ')')}</b></div>}
+            {ev.unknown_segments > 0 && <p className="warn">{t(`地形が分からない区間 ${ev.unknown_segments} か所は、急な登り（約17°）として安全側で計算しています。`, `${ev.unknown_segments} segments without terrain data are counted as a steep climb (~17°), to stay on the safe side.`)}</p>}
           </>
         )}
         <div className="btns">
-          <button className="primary" onClick={hud ? stop : play} disabled={n < 2}>{hud ? '■ 止める' : '▶ ヘルメットで歩く'}</button>
+          <button className="primary" onClick={hud ? stop : play} disabled={n < 2}>{hud ? t('■ 止める', '■ Stop') : t('▶ ヘルメットで歩く', '▶ Walk it (helmet view)')}</button>
           <button onClick={startRehearsal} disabled={marsForReh.length < 3 || !data?.hokkaido.length || reh.status === 'running'}>
-            {reh.status === 'running' ? `探しています ${reh.done}/${reh.total}` : '北海道で練習コースを探す'}
+            {reh.status === 'running' ? t(`探しています ${reh.done}/${reh.total}`, `Searching ${reh.done}/${reh.total}`) : t('北海道で練習コースを探す', 'Find a practice course in Hokkaido')}
           </button>
         </div>
 
         <details open id="ev-consumables" className={fl('consumables')}>
-          <summary>条件</summary>
-          <label>歩く速さ（平地） <b>{speed}</b> km/h
+          <summary>{t('条件', 'Settings')}</summary>
+          <label>{t('歩く速さ（平地）', 'Walking speed (flat)')} <b>{+speed.toFixed(2)}</b> km/h{walkRec && Math.abs(speed - walkRec.summary.flat_kmh) < 0.01 ? (walkRec.synthetic ? t('（仮データの値）', ' (sample value)') : t('（チームの実測）', " (team's measurement)")) : ''}
             <input id="speed" type="range" min={0.5} max={5} step={0.5} value={speed} onChange={(e) => setSpeed(+e.target.value)} /></label>
-          <label>酸素 <b>{o2}</b> 時間分
+          <label>{t('酸素', 'Oxygen')} <b>{o2}</b> {t('時間分', 'h')}
             <input id="o2" type="range" min={2} max={12} step={0.5} value={o2} onChange={(e) => setO2(+e.target.value)} /></label>
-          <label>冷却水 <b>{water}</b> 時間分
+          <label>{t('冷却水', 'Cooling water')} <b>{water}</b> {t('時間分', 'h')}
             <input id="water" type="range" min={2} max={12} step={0.5} value={water} onChange={(e) => setWater(+e.target.value)} /></label>
-          <label>残しておく余裕 <b>{reserve}</b>%（最低30分）
+          <label>{t('残しておく余裕', 'Reserve at arrival')} <b>{reserve}</b>%{t('（最低30分）', ' (at least 30 min)')}
             <input id="reserve" type="range" min={0} max={50} step={5} value={reserve} onChange={(e) => setReserve(+e.target.value)} /></label>
-          <p className="muted">急いで歩くと冷却水は酸素の約1.15倍の速さで減ります（NASA の歩行帰還試験、Gernhardt 2010）。帰着時に30分・2割を残すのは Apollo 以来の慣例です。</p>
+          <p className="muted">{t('急いで歩くと冷却水は酸素の約1.15倍の速さで減ります（NASA の歩行帰還試験、Gernhardt 2010）。帰着時に30分・2割を残すのは Apollo 以来の慣例です。', 'Walking hard uses cooling water about 1.15× as fast as oxygen (NASA walkback tests, Gernhardt 2010). Arriving with 30 min / 20% left is Apollo-era practice.')}</p>
         </details>
 
+        <WalkImportCard rec={walkRec} error={walkErr} busy={walkBusy} onFile={onDropFile}
+          onSample={() => { loadSample().catch(() => undefined); }} onClear={clearWalk} />
         <div id="ev-rover" className={fl('rover')}><RoverCard check={check} /></div>
+        <div className={`card rover-walkback ${roverMode ? 'on' : ''}`} id="rover-walkback">
+          <h4>{t('有人ローバーが壊れたら、歩いて帰れるか', 'If a crewed rover breaks down, can the crew walk back?')}</h4>
+          <p className="muted">Perseverance の実走ルートを人が乗ったローバーで走ったと仮定。着陸地点が基地。どこで壊れたら歩いて帰れなくなるか（上の条件と同じ酸素・冷却水）。</p>
+          <button onClick={() => setRoverMode(!roverMode)} disabled={!data?.rover}>{roverMode ? '探査車の道を元に戻す' : '探査車の道を色分けする'}</button>
+          {rw && (
+            <>
+              <div className="big-line"><b>{Math.round(rw.ok_share * 100)}%</b><span>の区間から歩いて帰れる（地形データのある走行 {rw.inside_km.toFixed(1)} km のうち）</span></div>
+              <div className="kv"><span>🚩 最初に帰れなくなる点</span><b className={flag ? 'ng' : ''}>{flag ? `走行 ${flag.km.toFixed(1)} km・sol ${flag.sol}` : 'なし（全区間から帰れる）'}</b></div>
+              <p className="muted">道の色: 緑 帰れる / 黄 ぎりぎり（使える分の85%超） / 赤 帰れない / 灰 地形データの外。Apollo の月面車も「壊れても歩いて帰れる距離」までしか離れませんでした（walkback 制約）。出典: Mars 2020 走行記録（NASA/JPL）、地形 HiRISE・MOLA。判定はこのアプリの計算です。</p>
+            </>
+          )}
+        </div>
         <div id="ev-eva" className={fl('eva')}><EvaCard eva={data?.eva ?? null} planH={ev.total_h} longer={longer} /></div>
 
         <details>
@@ -284,7 +389,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
         <p id="ev-terrain" className={`muted src ${fl('terrain') ?? ''} ${fl('hokkaido_terrain') ?? ''}`}>データ: Mars 2020 Perseverance 走行記録（NASA/JPL MMGIS）、MRO HiRISE 画像と地形（NASA/UArizona, USGS）、MGS MOLA 地形、Mars Odyssey THEMIS、MRO CTX、data.nasa.gov 船外活動記録、NASADEM（北海道の地形、NASA/JPL）。北海道の航空写真は国土地理院（表示のみ）。{data?.dem?.src ? ` 地形グリッド: ${data.dem.src}` : ''}</p>
       </aside>
 
-      <div className={`maps ${rehOpen && reh.found.length ? '' : 'single'}`}>
+      <div className={`maps ${walkRec || (rehOpen && reh.found.length) ? '' : 'single'}`}>
         <div className="mapwrap">
           <PlanetMap core={core} world={WORLD} view={view} fly={fly} baseKey="viking" overlayKeys={HIRISE} collapsedLayers
             overlays={overlays} features={features} live={live} crosshair={mode !== 'pan'}
@@ -316,7 +421,8 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           )}
           {hud && <Hud s={hud} limiting={ev.limiting} onStop={stop} />}
         </div>
-        {rehOpen && reh.found.length > 0 && (
+        {walkRec && <EarthWalkPanel core={core} rec={walkRec} walker={earthWalker} />}
+        {!walkRec && rehOpen && reh.found.length > 0 && (
           <RehearsalPanel core={core} mars={marsForReh} found={reh.found} selected={Math.min(rehSel, reh.found.length - 1)} onSelect={setRehSel} />
         )}
         {rehOpen && reh.status === 'done' && reh.found.length === 0 && (

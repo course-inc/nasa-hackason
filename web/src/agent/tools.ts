@@ -3,7 +3,7 @@
 import type { Core, Waypoint } from '../core';
 import { LANDING, exampleRoute, loadHokkaidoGrid, type WalkData } from '../walk/data';
 import { fmtH } from '../walk/geo';
-import { computePlan, rehearsalPoints, turnIndex, turnWaypoint, WATER_PER_O2, type PlanParams } from '../walk/plan';
+import { computePlan, evaParams, rehearsalPoints, roverWalkback, turnIndex, turnWaypoint, WATER_PER_O2, type PlanParams } from '../walk/plan';
 import { nextFrame, walkController, type EvidenceTopic } from '../walk/controller';
 import { registerTool } from './port';
 import type { ToolDef, ToolResult } from './types';
@@ -150,6 +150,101 @@ const walkbackCheck: ToolDef = {
       },
       sources: [SRC.engine, SRC.rover, SRC.hirise, SRC.mola, SRC.gernhardt, ...(a.with_rehearsal ? [SRC.nasadem] : [])],
     };
+  },
+};
+
+// ---------- rover_walkback (B) ----------
+const PARAM_PROPS = {
+  speed_kmh: { type: 'number', minimum: 0.5, maximum: 5, description: 'Walking speed on flat ground' },
+  o2_h: { type: 'number', minimum: 2, maximum: 12, description: 'Oxygen supply in hours' },
+  water_h: { type: 'number', minimum: 2, maximum: 12, description: 'Cooling water supply in hours' },
+  reserve: { type: 'number', minimum: 0, maximum: 50, description: 'Reserve kept at arrival, percent (at least 30 min)' },
+};
+const roverWalkbackTool: ToolDef = {
+  name: 'rover_walkback',
+  kind: 'compute',
+  description: 'Crewed rover breakdown check: assume a crew drove Perseverance\'s real path from the landing site (the base). For each point, could they walk home if the rover broke down there (walk-home only, same O₂/cooling-water settings)? Colours the path on the map (green ok / yellow tight / red no) and returns the first point they could not walk home from (flag: km driven, sol) and the share of the path they could walk home from. Unset parameters keep the screen\'s values.',
+  parameters: { type: 'object', properties: { ...PARAM_PROPS, lang: LANG }, additionalProperties: false },
+  async run(a: Record<string, unknown> = {}) {
+    const l = lang(a);
+    const c = await walkController();
+    const data = await c.data();
+    const params = paramsFrom(a, c.params());
+    c.setParams(params);
+    c.setRoverMode(true);
+    const r = roverWalkback(c.core, data, evaParams(params));
+    if (!r) throw new Error('rover traverse or Jezero grid not loaded');
+    const flag = r.first_stranded != null ? r.points[r.first_stranded] : null;
+    c.set3d(false);
+    if (flag) c.flyTo((flag.lat + LANDING.lat) / 2, (flag.lon + LANDING.lon) / 2, 12);
+    const total = r.points.at(-1)?.km ?? 0;
+    const text = t(l,
+      (flag
+        ? `有人ローバーが Perseverance の道を走って壊れた場合、歩いて基地に帰れなくなる最初の点は 走行 ${r1(flag.km)} km（sol ${flag.sol}）。人が乗っていたらここで引き返し。`
+        : '有人ローバーが Perseverance の道のどこで壊れても、歩いて基地に帰れる。') +
+        ` 地形データのある走行 ${r1(r.inside_km)} km のうち ${Math.round(r.ok_share * 100)}% の区間から歩いて帰れる（記録全体 ${r1(total)} km）。条件: 速さ ${params.speed} km/h、酸素 ${params.o2} 時間、冷却水 ${params.water} 時間、余裕 ${params.reserve}%。`,
+      (flag
+        ? `If a crewed rover drove Perseverance's path and broke down, the first point the crew could not walk home from is at ${r1(flag.km)} km driven (sol ${flag.sol}): turn back there.`
+        : 'Wherever a crewed rover broke down on Perseverance\'s path, the crew could walk home.') +
+        ` They could walk home from ${Math.round(r.ok_share * 100)}% of the ${r1(r.inside_km)} km with terrain data (whole record ${r1(total)} km). Settings: speed ${params.speed} km/h, O₂ ${params.o2} h, water ${params.water} h, reserve ${params.reserve}%.`);
+    return {
+      text,
+      data: { flag: flag && { lat: flag.lat, lon: flag.lon, km: flag.km, sol: flag.sol, ratio: flag.ratio }, ok_share: r.ok_share, inside_km: r.inside_km, total_km: total, budget_h: r.budget_h, params },
+      sources: [SRC.rover, SRC.hirise, SRC.mola, { label: 'Apollo LRV walkback constraint (concept; numbers are this app\'s calculation)', url: 'https://www.hq.nasa.gov/alsj/lrvhand.html' }, SRC.engine],
+    };
+  },
+};
+
+// ---------- import_walk / mars_replay (A) ----------
+const importWalkTool: ToolDef = {
+  name: 'import_walk',
+  kind: 'compute',
+  description: 'Walk in Hokkaido, move on Mars: load a recorded walk (GPX) and lay the same shape onto Jezero from the base. Elevation comes from NASADEM (Hokkaido) and the Jezero DEM (Mars), never from the GPS. The walkers\' flat-ground speed is measured from the GPX times. Returns the walk (km, time, climb, measured speed) and whether the same walk on Mars could return. Without gpx it uses the walk already loaded on screen, else the bundled synthetic sample.',
+  parameters: {
+    type: 'object',
+    properties: {
+      gpx: { type: 'string', description: 'GPX file contents (optional)' },
+      sample: { type: 'boolean', description: 'Use the bundled synthetic sample walk (Sapporo, made up, not a recording)' },
+      lang: LANG,
+    },
+    additionalProperties: false,
+  },
+  async run(a: { gpx?: string; sample?: boolean; lang?: string } = {}) {
+    const l = lang(a);
+    const c = await walkController();
+    const data = await c.data();
+    const rec = typeof a.gpx === 'string' && a.gpx.trim() ? await c.importWalk(a.gpx, 'gpx') : !a.sample && c.walk() ? c.walk()! : await c.importSample();
+    const params = c.params();
+    const plan = computePlan(c.core, data, rec.route, params);
+    const s = rec.summary, ev = plan.ev;
+    const who = rec.synthetic ? t(l, '仮の自作データ（実測ではありません）', 'synthetic sample (not a recording)') : t(l, 'チームの実測', "the team's own recording");
+    const text = t(l,
+      `歩いた記録（${who}）: ${r1(s.km)} km、${fmtH(s.elapsed_h)}（歩いていた時間 ${fmtH(s.moving_h)}）、登り ${rec.area ? `${Math.round(s.climb_m)} m（NASADEM）` : '不明（標高データの範囲外）'}、平地に直した速さ ${s.flat_kmh.toFixed(2)} km/h。` +
+        ` 同じ道を火星の基地から歩くと: ${ev.ok ? '帰れる' : `帰れない（途中で引き返す、出発から ${r1(ev.ticks[turnIndex(ev)!]?.km ?? 0)} km 地点）`}。かかる時間 ${fmtH(ev.total_h)}、体力の消費 ${r1(ev.total_effort_h)} / 使える分 ${r1(ev.usable_h)} h、先に尽きるもの: ${ev.limiting === 'water' ? '冷却水' : '酸素'}。`,
+      `Recorded walk (${who}): ${r1(s.km)} km, ${fmtH(s.elapsed_h)} (moving ${fmtH(s.moving_h)}), climb ${rec.area ? `${Math.round(s.climb_m)} m (NASADEM)` : 'unknown (outside the elevation data)'}, flat-ground speed ${s.flat_kmh.toFixed(2)} km/h.` +
+        ` The same walk from the Mars base: ${ev.ok ? 'can walk back' : `cannot complete it (turn back ${r1(ev.ticks[turnIndex(ev)!]?.km ?? 0)} km out)`}. Time ${fmtH(ev.total_h)}, effort ${r1(ev.total_effort_h)} of ${r1(ev.usable_h)} usable h, runs out first: ${ev.limiting === 'water' ? 'cooling water' : 'oxygen'}.`);
+    return {
+      text,
+      data: { synthetic: rec.synthetic, name: rec.name, summary: s, area: rec.area?.id ?? null, mars: { ok: ev.ok, total_h: ev.total_h, effort_h: ev.total_effort_h, usable_h: ev.usable_h, limiting: ev.limiting }, params },
+      sources: [SRC.nasadem, SRC.hirise, SRC.mola, SRC.engine],
+    };
+  },
+};
+
+const marsReplay: ToolDef = {
+  name: 'mars_replay',
+  kind: 'view',
+  description: `Replay the loaded walk: the Hokkaido walk and the same walk on Mars move together while the helmet display shows O₂ and cooling water going down. ${'Only changes what is shown; returns no numbers.'}`,
+  parameters: { type: 'object', properties: { action: { type: 'string', enum: ['play', 'stop'] } }, additionalProperties: false },
+  async run(a: { action?: string } = {}) {
+    const c = await walkController();
+    await c.data();
+    if (!c.walk()) await c.importSample();
+    c.set3d(false);
+    await nextFrame();
+    if (a.action === 'stop') { c.stop(); return { text: 'Stopped.' }; }
+    c.play();
+    return { text: 'Replaying the walk in Hokkaido and on Mars.' };
   },
 };
 
@@ -315,7 +410,7 @@ const viewWalk: ToolDef = {
   },
 };
 
-export const WALK_TOOLS: ToolDef[] = [walkbackCheck, openEvidence, view3d, viewOverlay, viewSetParams, viewWalk];
+export const WALK_TOOLS: ToolDef[] = [walkbackCheck, roverWalkbackTool, importWalkTool, marsReplay, openEvidence, view3d, viewOverlay, viewSetParams, viewWalk];
 
 /**
  * Register the WALKBACK tools and #10's Hokkaido tools.

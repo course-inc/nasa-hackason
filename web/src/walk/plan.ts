@@ -1,7 +1,7 @@
 // One plan → all its numbers. The WALKBACK screen and the agent tools both call this, so what a
 // tool reports is exactly what the screen shows. Every number comes from the Rust core.
-import type { Core, EvaParams, Reach, RouteCheck, RouteEval, Waypoint, World } from '../core';
-import { JEZERO, type WalkData } from './data';
+import type { Core, EvaParams, Reach, RouteCheck, RouteEval, RoverWalkback, Waypoint, World } from '../core';
+import { JEZERO, LANDING, type WalkData } from './data';
 import { densify, type Dense } from './geo';
 
 export const WORLD: World = 'mars';
@@ -64,3 +64,20 @@ export function computePlan(core: Core, data: WalkData | null, route: Waypoint[]
     reach: reachFrom(core, data, route[0], p),
   };
 }
+
+/** Share of the budget above which the walk home is "tight" (same edge as the walk-home area map). */
+export const TIGHT = 0.85;
+
+/**
+ * B: a crewed rover drives Perseverance's path from the landing site (the base) and breaks down.
+ * From each point, could the crew walk home with these consumables? (Rust: home_ratio + walkback)
+ */
+export function roverWalkback(core: Core, data: WalkData | null, p: EvaParams): RoverWalkback | null {
+  if (!data?.dem || !data.rover) return null;
+  try { return core.roverWalkback(WORLD, JEZERO, LANDING.lat, LANDING.lon, p, MAX_SLOPE); } catch { return null; }
+}
+
+export type WalkbackState = 'ok' | 'tight' | 'no' | 'out';
+export const walkbackState = (pt: { ratio: number | null; inside: boolean }): WalkbackState =>
+  !pt.inside ? 'out' : pt.ratio == null || pt.ratio > 1 ? 'no' : pt.ratio > TIGHT ? 'tight' : 'ok';
+export const WALKBACK_COLOR: Record<WalkbackState, string> = { ok: '#52c41a', tight: '#fadb14', no: '#ff4d4f', out: '#8c8c8c' };
