@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Core, Gap, SiteScore } from '../core';
 import { PlanetMap, missionOverlay, type Feature, type FlyTarget } from '../map/PlanetMap';
 import { useScanSection } from './ScanSection';
+import { DEFAULT_TARGET, DEFAULT_TEST, scanViewBus } from '../agent/scanBus';
 
 export interface TargetParams { body?: string; test?: string; site?: string; mode?: string }
 type Lang = 'en' | 'ja';
@@ -70,8 +71,9 @@ export function scoreColor(s: number): string {
 export function TargetView({ core, params }: { core: Core; params: TargetParams }) {
   const tests = useMemo(() => core.profiles.filter((p) => p.test), [core]);
   const [lang, setLang] = useState<Lang>(loadLang);
-  const [bodyId, setBodyId] = useState(params.body && core.bodies.some((b) => b.id === params.body) ? params.body : 'mons_mouton');
-  const [testId, setTestId] = useState(params.test && tests.some((t) => t.id === params.test) ? params.test : tests[0].id);
+  // Mars by default (#10 inside #11 WALKBACK: where and when in Hokkaido to train for Mars).
+  const [bodyId, setBodyId] = useState(params.body && core.bodies.some((b) => b.id === params.body) ? params.body : DEFAULT_TARGET);
+  const [testId, setTestId] = useState(params.test && tests.some((t) => t.id === params.test) ? params.test : DEFAULT_TEST);
   const [siteId, setSiteId] = useState<string | null>(params.site ?? null);
   const [earthFly, setEarthFly] = useState<FlyTarget | null>(null);
   const [mode, setMode] = useState<'sites' | 'scan'>(params.mode === 'scan' ? 'scan' : 'sites');
@@ -104,6 +106,19 @@ export function TargetView({ core, params }: { core: Core; params: TargetParams 
 
   const fly = useCallback((lat: number, lon: number, z: number) => setEarthFly({ lat, lon, z, seq: Date.now() }), []);
   const scanView = useScanSection({ core, enabled: mode === 'scan', bodyId, testId, lang, siteName, onFly: fly });
+
+  // view_scan agent tool: switch target / test / mode and fly to (and open) a point.
+  const { focusAt } = scanView;
+  useEffect(() => scanViewBus.subscribe((r) => {
+    const b = r.target && core.bodies.some((x) => x.id === r.target) ? r.target : bodyId;
+    const te = r.test && tests.some((x) => x.id === r.test) ? r.test : testId;
+    setBodyId(b); setTestId(te); setSiteId(null);
+    if (r.mode) setMode(r.mode);
+    if (r.focus) {
+      fly(r.focus.lat, r.focus.lon, 11);
+      focusAt(r.focus.lat, r.focus.lon, b, te);
+    } else if (r.mode === 'scan') fly(43.4, 142.8, 7);
+  }), [core, tests, bodyId, testId, fly, focusAt]);
 
   useEffect(() => { try { localStorage.setItem(LANG_KEY, lang); } catch { /* private mode */ } }, [lang]);
   useEffect(() => {

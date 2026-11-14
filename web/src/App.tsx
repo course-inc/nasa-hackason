@@ -28,6 +28,16 @@ export function App() {
   const [visited, setVisited] = useState<Set<string>>(() => new Set([parseHash().view]));
 
   useEffect(() => { loadCore().then(setCore, (e) => setError(String(e))); }, []);
+  // Scan tools for agents, the console and e2e (#11 registers them in its own harness).
+  useEffect(() => {
+    if (!core) return;
+    const tools = () => import('./agent/explore').then((m) => ({ explore: m.makeExploreTool(core), view: m.makeScanViewTool(core) }));
+    (window as unknown as { analogScan: unknown }).analogScan = {
+      explore: (args?: object) => tools().then((t) => t.explore.run(args ?? {})),
+      view: (args?: object) => tools().then((t) => t.view.run(args ?? {})),
+      tools: () => tools().then((t) => [t.explore, t.view]),
+    };
+  }, [core]);
   useEffect(() => {
     const on = () => {
       const r = parseHash();

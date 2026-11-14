@@ -307,3 +307,61 @@ pub fn scan_gaps(k: usize, body_id: &str, test: &str) -> Result<String, JsError>
         json(&analog_core::target::gaps(&s.site(k), b, test))
     })
 }
+
+/// Every land cell as columns (for the duckdb `cells` table in web/src/db.ts): terrain, MODIS
+/// shares as fractions (null = no data), height-corrected NASA POWER climate and the land-cover
+/// screen reason (null = open ground). Same units as `scanCell`.
+#[wasm_bindgen(js_name = scanColumns)]
+pub fn scan_columns() -> Result<String, JsError> {
+    #[derive(Serialize, Default)]
+    struct Cols {
+        k: Vec<usize>,
+        lat: Vec<f64>,
+        lon: Vec<f64>,
+        elev_m: Vec<f64>,
+        relief_m: Vec<f64>,
+        slope_deg: Vec<f64>,
+        slope_p90_deg: Vec<f64>,
+        shadow: Vec<f64>,
+        ndvi: Vec<Option<f64>>,
+        urban: Vec<Option<f64>>,
+        crop: Vec<Option<f64>>,
+        forest: Vec<Option<f64>>,
+        water: Vec<Option<f64>>,
+        barren: Vec<Option<f64>>,
+        tmin_jan_c: Vec<Option<f64>>,
+        tmax_aug_c: Vec<Option<f64>>,
+        precip_mm: Vec<Option<f64>>,
+        screened: Vec<Option<String>>,
+    }
+    fn opt(v: &[f64], k: usize, div: f64) -> Option<f64> {
+        v.get(k).copied().filter(|x| *x >= 0.0).map(|x| x / div)
+    }
+    with_scan(|s| {
+        let c = &s.cells;
+        let mut o = Cols::default();
+        for k in 0..s.len() {
+            let (lat, lon) = s.latlon(k);
+            let cl = s.climate(k);
+            o.k.push(k);
+            o.lat.push(lat);
+            o.lon.push(lon);
+            o.elev_m.push(c.elev[k]);
+            o.relief_m.push(c.relief[k]);
+            o.slope_deg.push(c.slope[k] / 10.0);
+            o.slope_p90_deg.push(c.p90[k] / 10.0);
+            o.shadow.push(c.shadow[k] / 1000.0);
+            o.ndvi.push(opt(&c.ndvi, k, 1000.0));
+            o.urban.push(opt(&c.urban, k, 100.0));
+            o.crop.push(opt(&c.crop, k, 100.0));
+            o.forest.push(opt(&c.forest, k, 100.0));
+            o.water.push(opt(&c.water, k, 100.0));
+            o.barren.push(opt(&c.barren, k, 100.0));
+            o.tmin_jan_c.push(cl.map(|x| x.tmin[0]));
+            o.tmax_aug_c.push(cl.map(|x| x.tmax[7]));
+            o.precip_mm.push(cl.map(|x| x.precip));
+            o.screened.push(analog_core::scan::screen_reason(s, k));
+        }
+        json(&o)
+    })
+}

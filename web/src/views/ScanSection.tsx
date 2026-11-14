@@ -1,7 +1,7 @@
 // #10 tier 2: the whole of Hokkaido cut into 1 km cells, every cell scored in Rust/WASM with the
 // same formulas as the 14 known sites. Returns the side-panel content plus the map features
 // (heat map + best candidates) for TargetView to place.
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Core, Gap, Scan } from '../core';
 import type { Feature } from '../map/PlanetMap';
 import { heatImage, percentiles } from '../scanHeat';
@@ -60,7 +60,12 @@ export function useScanSection({ core, enabled, bodyId, testId, lang, siteName, 
 }) {
   const [scan, setScan] = useState<Scan | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [cellK, setCellK] = useState<number | null>(null);
+  // The selected cell belongs to one target/test pair, so switching pairs falls back to the best
+  // cell, while focusAt() can pick the pair and the point together (view_scan tool).
+  const pair = `${bodyId}/${testId}`;
+  const [sel, setSel] = useState<{ pair: string; k?: number; at?: [number, number] } | null>(null);
+  const setCellK = (kk: number) => setSel({ pair, k: kk });
+  const focusAt = useCallback((lat: number, lon: number, body: string, test: string) => setSel({ pair: `${body}/${test}`, at: [lat, lon] }), []);
   const t = T[lang];
 
   useEffect(() => {
@@ -72,8 +77,8 @@ export function useScanSection({ core, enabled, bodyId, testId, lang, siteName, 
   const pct = useMemo(() => (scores ? percentiles(scores) : null), [scores]);
   const heat = useMemo(() => (scan && pct ? heatImage(scan.meta, scan.cells, pct) : null), [scan, pct]);
   const result = useMemo(() => (scan && scores ? scan.top(scores, 10, 15) : null), [scan, scores]);
-  useEffect(() => setCellK(null), [bodyId, testId]);
-  const k = cellK ?? result?.top[0]?.k ?? null;
+  const selK = sel && sel.pair === pair ? sel.k ?? (sel.at && scan ? scan.cellAt(sel.at[0], sel.at[1]) : null) : null;
+  const k = selK ?? result?.top[0]?.k ?? null;
   const cell = useMemo(() => (scan && k !== null ? scan.cell(k, bodyId, testId) : null), [scan, k, bodyId, testId]);
   const gaps = useMemo<Gap[]>(() => (scan && k !== null ? scan.gaps(k, bodyId, testId) : []), [scan, k, bodyId, testId]);
 
@@ -97,9 +102,9 @@ export function useScanSection({ core, enabled, bodyId, testId, lang, siteName, 
     if (kk !== null) setCellK(kk);
   };
 
-  if (!enabled) return { panel: null, features, onMapClick: undefined };
-  if (error) return { panel: <p className="warn">{t.failed}: {error}</p>, features, onMapClick };
-  if (!scan || !result || !scores) return { panel: <p className="muted">{t.loading}</p>, features, onMapClick };
+  if (!enabled) return { panel: null, features, onMapClick: undefined, focusAt };
+  if (error) return { panel: <p className="warn">{t.failed}: {error}</p>, features, onMapClick, focusAt };
+  if (!scan || !result || !scores) return { panel: <p className="muted">{t.loading}</p>, features, onMapClick, focusAt };
 
   const n = scan.meta.n;
   const known = result.sites.filter((s) => s.earth_id !== 'sapporo');
@@ -187,5 +192,5 @@ export function useScanSection({ core, enabled, bodyId, testId, lang, siteName, 
       <p className="muted">{[scan.meta.src.dem, scan.meta.src.vegetation, scan.meta.src.landcover, scan.meta.src.climate].filter(Boolean).join(' · ')}</p>
     </div>
   );
-  return { panel, features, onMapClick };
+  return { panel, features, onMapClick, focusAt };
 }

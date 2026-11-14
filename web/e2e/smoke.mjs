@@ -59,6 +59,25 @@ await p.waitForSelector('#scan-cell .total b');
 console.log('scan check:', await p.locator('#scan .check-line').innerText());
 await p.screenshot({ path: 'e2e/shot-scan.png' });
 
+// #10 inside #11: Mars by default; explore_hokkaido runs DuckDB over the scan; view_scan drives the view.
+await p.goto(`${BASE}/?fresh#target`); // new document: no state from the scan above
+await p.waitForSelector('#rank-list li');
+const defBody = await p.locator('#target-body').inputValue();
+console.log('default target', defBody); if (defBody !== 'jezero') fail('default target jezero');
+const ex = await p.evaluate(async () => {
+  for (let i = 0; i < 100 && !window.analogScan; i++) await new Promise((r) => setTimeout(r, 100));
+  const r = await window.analogScan.explore({ target: 'jezero', test: 'walk', n: 5, where: 'elev_m >= 500' });
+  return { n: r.data.length, top: r.data[0], sql: r.sql, text: r.text, sources: r.sources.length };
+}).catch((e) => ({ error: String(e) }));
+console.log('explore_hokkaido:', ex.text ?? ex.error);
+if (!(ex.n >= 1) || !/FROM cells c JOIN score_jezero_walk/.test(ex.sql ?? '') || !(ex.top?.elev_m >= 500)) fail('explore_hokkaido');
+const bad = await p.evaluate(() => window.analogScan.explore({ where: 'elev_m > 0; DROP TABLE cells' }).then(() => 'ran', (e) => String(e)));
+if (!/where:/.test(bad)) fail('explore where validation');
+await p.evaluate((t) => window.analogScan.view({ target: 'arcadia', test: 'landing', mode: 'scan', focus: { lat: t.lat, lon: t.lon } }), ex.top);
+await p.waitForSelector('#scan-cell .total b', { timeout: 20000 }).catch(() => fail('view_scan cell'));
+const cellHead = await p.locator('#scan-cell h4').first().innerText();
+console.log('view_scan:', await p.locator('#target-body').inputValue(), '|', cellHead);
+if ((await p.locator('#target-body').inputValue()) !== 'arcadia' || !cellHead.includes(ex.top.lat.toFixed(3))) fail('view_scan');
 
 await p.goto(`${BASE}/#analogs`);
 await p.waitForSelector('#site-list li');
