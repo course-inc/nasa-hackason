@@ -25,7 +25,7 @@ export function Splash({ ready, steps, onDone }: {
 }) {
   const t = useT();
   const first = useRef(!seen());
-  const minMs = first.current ? 4000 : 2000;
+  const minMs = first.current ? 2000 : 700;
   const [t0] = useState(() => performance.now());
   const [leaving, setLeaving] = useState(false);
   const done = useRef(false);
