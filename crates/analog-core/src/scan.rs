@@ -5,7 +5,7 @@
 //! its own 0.5° × 0.625° grid).
 
 use crate::data::{earth_sites, Body, EarthSite};
-use crate::scoring::{profile, score_pair, PairScore, Weights};
+use crate::scoring::{profile, score_pair, screen_out, PairScore, Weights};
 use serde::{Deserialize, Serialize};
 
 /// Height correction for air temperature (standard atmosphere lapse rate).
@@ -269,7 +269,7 @@ pub fn scan_weights(profile_id: &str) -> Weights {
     w
 }
 
-/// Share of forest (MODIS IGBP classes 1–5) at or above which a cell is screened out, in %.
+/// Share of forest (MODIS IGBP classes 1–5) above which a cell is screened out, in %.
 pub const FOREST_SCREEN_PCT: f64 = 50.0;
 
 /// Scan-only screen on top of [`crate::scoring::screen_out`]: a cell that is mostly forest is
@@ -280,10 +280,24 @@ fn screen_scan(scan: &Scan, s: &mut PairScore, k: usize) {
     if s.excluded.is_some() {
         return;
     }
-    if Cells::opt(&scan.cells.forest, k).is_some_and(|x| x >= FOREST_SCREEN_PCT) {
+    if Cells::opt(&scan.cells.forest, k).is_some_and(|x| x > FOREST_SCREEN_PCT) {
         s.total = 0.0;
         s.excluded = Some("森林が大部分のため除外（MODIS 土地被覆）".into());
     }
+}
+
+/// Why cell `k` is screened out, if it is: the same reason [`score_cell`] gives, which depends
+/// only on land cover, not on the target or profile.
+pub fn screen_reason(scan: &Scan, k: usize) -> Option<String> {
+    let mut s = PairScore {
+        body_id: String::new(),
+        total: 1.0,
+        raw: 1.0,
+        excluded: screen_out(&scan.site(k)),
+        dims: Vec::new(),
+    };
+    screen_scan(scan, &mut s, k);
+    s.excluded
 }
 
 fn score_cell(scan: &Scan, k: usize, b: &Body, w: &Weights) -> PairScore {
@@ -319,10 +333,28 @@ fn km(a: (f64, f64), b: (f64, f64)) -> f64 {
     dx.hypot(dy)
 }
 
-/// Best cells, at least `min_km` apart, best first.
+/// Best cells, at least `min_km` apart, best first. Many cells reach the same score (every cell
+/// at the target slope gets full terrain), so scores are compared to 0.01 and ties go to the
+/// barest ground: lower summer NDVI first (cells without NDVI last), then more barren land
+/// cover, then more relief.
 pub fn top(scan: &Scan, scores: &[f32], n: usize, min_km: f64) -> Vec<Candidate> {
+    let c = &scan.cells;
+    let key = |k: usize| {
+        (
+            -((scores[k] as f64 * 100.0).round() as i64),
+            Cells::opt(&c.ndvi, k).unwrap_or(f64::INFINITY),
+            -Cells::opt(&c.barren, k).unwrap_or(-1.0),
+            -c.relief[k],
+        )
+    };
     let mut order: Vec<usize> = (0..scores.len()).collect();
-    order.sort_by(|a, b| scores[*b].total_cmp(&scores[*a]));
+    order.sort_by(|a, b| {
+        let (ka, kb) = (key(*a), key(*b));
+        ka.0.cmp(&kb.0)
+            .then(ka.1.total_cmp(&kb.1))
+            .then(ka.2.total_cmp(&kb.2))
+            .then(ka.3.total_cmp(&kb.3))
+    });
     let mut out: Vec<Candidate> = Vec::new();
     for k in order {
         if out.len() >= n {
@@ -362,6 +394,8 @@ pub struct SiteCheck {
     pub rank: Option<usize>,
     /// Share of land cells scoring below it (0–1).
     pub percentile: Option<f64>,
+    /// Why the site's own cell is screened out (forest, water, built-up or cropland), if it is.
+    pub excluded: Option<String>,
 }
 
 pub fn site_checks(scan: &Scan, scores: &[f32]) -> Vec<SiteCheck> {
@@ -380,6 +414,7 @@ pub fn site_checks(scan: &Scan, scores: &[f32]) -> Vec<SiteCheck> {
                 score: s.map(|s| s as f64),
                 rank,
                 percentile: rank.map(|r| 1.0 - (r as f64 - 1.0) / n),
+                excluded: k.and_then(|k| screen_reason(scan, k)),
             }
         })
         .collect()
@@ -532,13 +567,16 @@ mod tests {
     #[test]
     fn gibs_land_cover_screens_forest_and_water() {
         let mut sc = tiny();
-        sc.cells.forest = vec![90.0, 50.0, 0.0, 49.0, -1.0];
+        sc.cells.forest = vec![90.0, 51.0, 0.0, 50.0, -1.0];
         sc.cells.water = vec![0.0, 0.0, 0.0, 0.0, 80.0];
         let b = bodies().iter().find(|b| b.id == "mons_mouton").unwrap();
         let s = scores(&sc, b, "landing");
         assert_eq!(s[0], 0.0, "mostly forest is screened out");
-        assert_eq!(s[1], 0.0, "50 % forest is screened out");
-        assert!(s[2] > 0.0 && s[3] > 0.0, "open ground stays");
+        assert_eq!(s[1], 0.0, "51 % forest is screened out");
+        assert!(
+            s[2] > 0.0 && s[3] > 0.0,
+            "open ground and exactly half forest stay"
+        );
         assert_eq!(s[4], 0.0, "lake is screened out");
         assert_eq!(sc.site(4).landcover_center.as_deref(), Some("Water Bodies"));
         let d = detail(&sc, 0, b, "landing").unwrap();
@@ -554,6 +592,20 @@ mod tests {
             .unwrap()
             .contains("Water Bodies"));
         assert_eq!(w.water, Some(0.8));
+        assert!(screen_reason(&sc, 0).unwrap().contains("森林"));
+        assert!(screen_reason(&sc, 3).is_none());
+        assert_eq!(screen_reason(&sc, 4), w.score.excluded);
+    }
+
+    #[test]
+    fn ties_go_to_the_barest_ground() {
+        let mut sc = tiny();
+        sc.cells.ndvi = vec![800.0, 300.0, 500.0, -1.0, 100.0];
+        // Cells 0–3 tie (to 0.01); cell 4 scores lower even though it is barest.
+        let s = vec![0.671, 0.668, 0.672, 0.67, 0.5];
+        let t = top(&sc, &s, 5, 0.0);
+        let order: Vec<usize> = t.iter().map(|c| c.k).collect();
+        assert_eq!(order, vec![1, 2, 0, 3, 4]);
     }
 
     #[test]

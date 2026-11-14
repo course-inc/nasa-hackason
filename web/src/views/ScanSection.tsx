@@ -23,6 +23,8 @@ const T = {
     shadow: 'Winter noon shadow', temp: 'Air temperature', jan: 'Jan night', aug: 'Aug day', precip: 'Precipitation',
     ndvi: 'Summer NDVI (MODIS)', cover: 'Built-up / cropland / forest / barren (MODIS)',
     excluded: { forest: 'Screened out: mostly forest — no room to land, walk or build', water: 'Screened out: mostly water', other: 'Screened out: mostly built-up land or cropland' },
+    siteScreened: { forest: 'cell mostly forest', water: 'cell mostly water', other: 'cell built-up / farm' },
+    checkNote: 'Small domes and craters are smaller than a 1 km cell, so the cell can be mostly forest; the 500 m grid will resolve them.',
     note: 'Rock type is not in the grid yet, so geology is left out of this score. Air temperature is NASA POWER corrected for height; vegetation and land cover are NASA MODIS.',
     gaps: 'What Hokkaido cannot reproduce here', match: 'Match',
   },
@@ -40,10 +42,17 @@ const T = {
     shadow: '冬の正午に影になる割合', temp: '気温', jan: '1月の夜', aug: '8月の昼', precip: '年降水量',
     ndvi: '夏の植生指数 NDVI（MODIS）', cover: '市街地 / 農地 / 森林 / 裸地（MODIS）',
     excluded: { forest: '除外：大部分が森林で、着陸・歩行・建設の練習ができない', water: '除外：大部分が水面', other: '除外：大部分が市街地か農地' },
+    siteScreened: { forest: 'マスの大部分が森林', water: 'マスの大部分が水面', other: 'マスが市街地・農地' },
+    checkNote: '小さな溶岩ドームや火口は 1 km マスより小さく、マスとしては森が大部分になる。500 m マスで見分けられるようにする。',
     note: '岩石の種類はまだマスに入っていないので、地質はこの点数から外しています。気温は NASA POWER を標高で補正した値、植生と土地被覆は NASA MODIS。',
     gaps: 'このマスで再現できないこと', match: '一致度',
   },
 } as const;
+
+/** Which screen excluded a cell, from the core's reason text (see scan::screen_reason). */
+function screenKind(reason: string): 'forest' | 'water' | 'other' {
+  return reason.includes('森林') ? 'forest' : reason.includes('Water Bodies') ? 'water' : 'other';
+}
 
 export function useScanSection({ core, enabled, bodyId, testId, lang, siteName, onFly }: {
   core: Core; enabled: boolean; bodyId: string; testId: string; lang: Lang;
@@ -94,7 +103,7 @@ export function useScanSection({ core, enabled, bodyId, testId, lang, siteName, 
 
   const n = scan.meta.n;
   const known = result.sites.filter((s) => s.earth_id !== 'sapporo');
-  const inTop = known.filter((s) => (s.percentile ?? 0) >= 0.9).length;
+  const inTop = known.filter((s) => !s.excluded && (s.percentile ?? 0) >= 0.9).length;
   const fmt1 = (v: number) => (Math.round(v * 10) / 10).toString();
 
   const panel = (
@@ -126,7 +135,7 @@ export function useScanSection({ core, enabled, bodyId, testId, lang, siteName, 
           <div className="kv"><span>{t.shadow}</span><b>{Math.round(cell.shadow * 100)}%</b></div>
           {cell.ndvi !== null && <div className="kv"><span>{t.ndvi}</span><b>{cell.ndvi.toFixed(2)}</b></div>}
           {cell.urban !== null && <div className="kv"><span>{t.cover}</span><b>{[cell.urban, cell.crop, cell.forest, cell.barren].map((x) => `${Math.round((x ?? 0) * 100)}%`).join(' / ')}</b></div>}
-          {cell.score.excluded && <p className="warn">⛔ {cell.score.excluded.includes('森林') ? t.excluded.forest : cell.score.excluded.includes('Water Bodies') ? t.excluded.water : t.excluded.other}</p>}
+          {cell.score.excluded && <p className="warn">⛔ {t.excluded[screenKind(cell.score.excluded)]}</p>}
           {cell.climate && (
             <>
               <div className="kv"><span>{t.temp} ({t.jan} / {t.aug})</span><b>{fmt1(cell.climate.tmin[0])} / {fmt1(cell.climate.tmax[7])} °C</b></div>
@@ -161,12 +170,19 @@ export function useScanSection({ core, enabled, bodyId, testId, lang, siteName, 
             {known.map((s) => (
               <tr key={s.earth_id} onClick={() => { if (s.k !== null) { setCellK(s.k); const c = scan.cell(s.k, bodyId, testId); onFly(c.lat, c.lon, 11); } }}>
                 <th>{siteName(s.earth_id)}</th>
-                <td>{s.rank ? t.rank(s.rank, n) : t.outside}</td>
-                <td className={(s.percentile ?? 0) >= 0.9 ? 'good' : ''}>{s.percentile !== null ? `${t.top10} ${Math.max(0.1, Math.round((1 - s.percentile) * 1000) / 10)}%` : ''}</td>
+                {s.excluded ? (
+                  <td colSpan={2} className="muted">⛔ {t.siteScreened[screenKind(s.excluded)]}</td>
+                ) : (
+                  <>
+                    <td>{s.rank ? t.rank(s.rank, n) : t.outside}</td>
+                    <td className={(s.percentile ?? 0) >= 0.9 ? 'good' : ''}>{s.percentile !== null ? `${t.top10} ${Math.max(0.1, Math.round((1 - s.percentile) * 1000) / 10)}%` : ''}</td>
+                  </>
+                )}
               </tr>
             ))}
           </tbody>
         </table>
+        {known.some((s) => s.excluded) && <p className="muted">{t.checkNote}</p>}
       </details>
       <p className="muted">{[scan.meta.src.dem, scan.meta.src.vegetation, scan.meta.src.landcover, scan.meta.src.climate].filter(Boolean).join(' · ')}</p>
     </div>

@@ -67,7 +67,7 @@ export interface ScanCandidate {
   k: number; lat: number; lon: number; score: number; elev_m: number; slope_deg: number; shadow: number;
   near: [string, number] | null;
 }
-export interface ScanSiteCheck { earth_id: string; k: number | null; score: number | null; rank: number | null; percentile: number | null }
+export interface ScanSiteCheck { earth_id: string; k: number | null; score: number | null; rank: number | null; percentile: number | null; excluded: string | null }
 export interface ScanCell {
   k: number; lat: number; lon: number; elev_m: number; relief_m: number; slope_deg: number; slope_p90_deg: number;
   shadow: number; land: number; ndvi: number | null; urban: number | null; crop: number | null; barren: number | null;
