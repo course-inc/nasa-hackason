@@ -59,6 +59,13 @@ export function roverCheck(points: string, near_m: number): string;
 export function roverWalkback(world: string, name: string, lat: number, lon: number, params: string, max_slope_deg: number): string;
 
 /**
+ * Crewed-rover breakdown check on traverse rows read with SQL (`[{drive, seq, sol, lat, lon,
+ * elev_m, km}]` in drive/seq order, from the rover_traverse parquet). Same calculation as
+ * `roverWalkback`; only where the path comes from differs.
+ */
+export function roverWalkbackFrom(world: string, name: string, lat: number, lon: number, params: string, max_slope_deg: number, rows: string): string;
+
+/**
  * Bilinear elevations for `[[lat, lon], …]` from a stored grid (null outside or in holes).
  */
 export function sampleGrid(name: string, latlons: string): string;
@@ -145,6 +152,7 @@ export interface InitOutput {
     readonly rehearse: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
     readonly roverCheck: (a: number, b: number, c: number) => [number, number, number, number];
     readonly roverWalkback: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
+    readonly roverWalkbackFrom: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => [number, number, number, number];
     readonly sampleGrid: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly scanCell: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
     readonly scanCellAt: (a: number, b: number) => [number, number, number];

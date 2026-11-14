@@ -349,6 +349,58 @@ export function roverWalkback(world, name, lat, lon, params, max_slope_deg) {
 }
 
 /**
+ * Crewed-rover breakdown check on traverse rows read with SQL (`[{drive, seq, sol, lat, lon,
+ * elev_m, km}]` in drive/seq order, from the rover_traverse parquet). Same calculation as
+ * `roverWalkback`; only where the path comes from differs.
+ * @param {string} world
+ * @param {string} name
+ * @param {number} lat
+ * @param {number} lon
+ * @param {string} params
+ * @param {number} max_slope_deg
+ * @param {string} rows
+ * @returns {string}
+ */
+export function roverWalkbackFrom(world, name, lat, lon, params, max_slope_deg, rows) {
+    let deferred9_0;
+    let deferred9_1;
+    try {
+        const val5 = +lat;
+        const val6 = +lon;
+        const val7 = +max_slope_deg;
+        let ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3;
+        try {
+            ptr0 = passStringToWasm0(world, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passStringToWasm0(params, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len2 = WASM_VECTOR_LEN;
+            ptr3 = passStringToWasm0(rows, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len3 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr3) { wasm.__wbindgen_free(ptr3, len3 * 1, 1); }
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 1, 1); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+            throw e;
+        }
+        const ret = wasm.roverWalkbackFrom(ptr0, len0, ptr1, len1, val5, val6, ptr2, len2, val7, ptr3, len3);
+        var ptr8 = ret[0];
+        var len8 = ret[1];
+        if (ret[3]) {
+            ptr8 = 0; len8 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred9_0 = ptr8;
+        deferred9_1 = len8;
+        return getStringFromWasm0(ptr8, len8);
+    } finally {
+        wasm.__wbindgen_free(deferred9_0, deferred9_1, 1);
+    }
+}
+
+/**
  * Bilinear elevations for `[[lat, lon], …]` from a stored grid (null outside or in holes).
  * @param {string} name
  * @param {string} latlons
