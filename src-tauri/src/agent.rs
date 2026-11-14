@@ -25,6 +25,7 @@ use tokio::sync::{oneshot, Mutex};
 pub const SYSTEM_PROMPT: &str = "あなたは火星の船外活動計画の相棒。数字は必ずツールの結果だけを使い、自分で計算・推測しない。答えには出典（ツールの sources）を添える。表示ツールで地図を動かして見せる。ユーザーの言語で答える。";
 const ANTHROPIC_URL: &str = "https://api.anthropic.com/v1/messages";
 const OLLAMA_URL: &str = "http://127.0.0.1:11434/v1/chat/completions";
+const OLLAMA_DEFAULT: &str = "qwen2.5:7b";
 const TOOL_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub struct ToolReply {
@@ -142,20 +143,55 @@ fn pick_model() -> Result<(Arc<dyn Model>, ModelInfo), String> {
             },
         ));
     }
-    let addr: SocketAddr = "127.0.0.1:11434".parse().unwrap();
-    if TcpStream::connect_timeout(&addr, Duration::from_millis(400)).is_ok() {
+    if let Some(installed) = ollama_models() {
+        // PI_RS_MODEL, else qwen2.5:7b if pulled, else the first installed model that can call tools.
+        let model = name
+            .or_else(|| {
+                installed
+                    .iter()
+                    .find(|m| m.0 == OLLAMA_DEFAULT)
+                    .map(|m| m.0.clone())
+            })
+            .or_else(|| installed.iter().find(|m| m.1).map(|m| m.0.clone()))
+            .ok_or_else(|| {
+                format!("Ollama has no model that can call tools: ollama pull {OLLAMA_DEFAULT}")
+            })?;
         let m = pi_rs::ollama::Ollama::new(OLLAMA_URL, None).map_err(|e| e.to_string())?;
         return Ok((
             Arc::new(m),
             ModelInfo {
                 provider: "ollama",
-                model: name.unwrap_or_else(|| "qwen2.5:7b".into()),
+                model,
             },
         ));
     }
     Err(
-        "no model: set ANTHROPIC_API_KEY, or start Ollama (ollama serve; ollama pull qwen2.5:7b)"
-            .into(),
+        format!("no model: set ANTHROPIC_API_KEY, or start Ollama (ollama serve; ollama pull {OLLAMA_DEFAULT})"),
+    )
+}
+
+/// Installed Ollama models as (name, can call tools), or None when no server answers.
+fn ollama_models() -> Option<Vec<(String, bool)>> {
+    use std::io::{Read, Write};
+    let addr: SocketAddr = "127.0.0.1:11434".parse().unwrap();
+    let mut s = TcpStream::connect_timeout(&addr, Duration::from_millis(400)).ok()?;
+    s.set_read_timeout(Some(Duration::from_secs(3))).ok()?;
+    s.write_all(b"GET /api/tags HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+        .ok()?;
+    let mut body = String::new();
+    s.read_to_string(&mut body).ok()?;
+    let json: Value = serde_json::from_str(body.split("\r\n\r\n").nth(1)?).ok()?;
+    Some(
+        json["models"]
+            .as_array()?
+            .iter()
+            .filter_map(|m| {
+                let tools = m["capabilities"]
+                    .as_array()
+                    .is_none_or(|c| c.iter().any(|x| x == "tools"));
+                Some((m["name"].as_str()?.to_string(), tools))
+            })
+            .collect(),
     )
 }
 
@@ -374,5 +410,47 @@ mod tests {
         });
         let answer = state.prompt("帰れる？".into()).await.unwrap();
         assert_eq!(answer, "帰れます");
+    }
+
+    /// Real model (ANTHROPIC_API_KEY or local Ollama): it must call walkback_check and quote it.
+    ///   cargo test -p analog-finder --lib -- --ignored --nocapture
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn real_model_calls_the_tool() {
+        let (model, info) = pick_model().expect("a model");
+        println!("model: {} / {}", info.provider, info.model);
+        let state = Arc::new(AgentState::default());
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(String, Value)>();
+        let emit: Emit =
+            Arc::new(move |e: &str, v: Value| tx.send((e.into(), v)).map_err(|e| e.to_string()));
+        let specs = vec![ToolSpec {
+            name: "walkback_check".into(),
+            description: "Check whether the astronaut can walk back to the base on Mars. Returns the verdict and distances.".into(),
+            parameters: json!({"type":"object","properties":{"route":{"type":"object","properties":{"away_km":{"type":"number"}}}}}),
+        }];
+        state.start(specs, model, info, emit).unwrap();
+        let st = state.clone();
+        let called = Arc::new(AtomicUsize::new(0));
+        let c2 = called.clone();
+        tokio::spawn(async move {
+            while let Some((event, v)) = rx.recv().await {
+                if event == "agent-tool-call" {
+                    println!("tool call: {v}");
+                    c2.fetch_add(1, Ordering::SeqCst);
+                    st.tool_result(v["id"].as_str().unwrap(), ToolReply {
+                        ok: true,
+                        output: "判定: 帰れる。行き 6.1 km / 帰り（まっすぐ）3.0 km、かかる時間 4:36。".into(),
+                        details: Value::Null,
+                    });
+                }
+            }
+        });
+        let answer = state
+            .prompt("基地から3km先まで歩いて帰れる？".into())
+            .await
+            .unwrap();
+        println!("answer: {answer}");
+        assert!(called.load(Ordering::SeqCst) >= 1, "model called the tool");
+        assert!(answer.contains("6.1"), "answer quotes the tool");
     }
 }
