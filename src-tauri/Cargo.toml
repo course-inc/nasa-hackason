@@ -1,0 +1,19 @@
+[package]
+name = "analog-finder"
+description = "Hokkaido Analog Finder desktop shell (Tauri v2). The UI is web/ and its logic runs as WASM."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[lib]
+name = "analog_finder_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+analog-core = { path = "../crates/analog-core" }
+serde.workspace = true
+serde_json.workspace = true
