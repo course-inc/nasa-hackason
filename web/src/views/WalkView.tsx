@@ -2,24 +2,23 @@
 // walk home from (O₂ and cooling water), check the plan against Perseverance's real drives and
 // real EVA durations, play it back through a helmet display, and find the same walk in Hokkaido.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Core, EvaParams, Waypoint, World } from '../core';
+import type { Core, Waypoint, World } from '../core';
 import { getElevation } from '../elevation';
 import { PlanetMap, missionOverlay, type Feature, type FlyTarget } from '../map/PlanetMap';
-import { JEZERO, LANDING, exampleRoute, loadWalkData, type WalkData } from '../walk/data';
-import { densify, fmtH, reachImage, slopeColor } from '../walk/geo';
+import { LANDING, exampleRoute, loadWalkData, type WalkData } from '../walk/data';
+import { fmtH, reachImage, slopeColor } from '../walk/geo';
+import { WATER_PER_O2, WORLD, denseRoute, evaParams, evaluate, reachFrom, rehearsalPoints, roverCheck, turnIndex, turnWaypoint } from '../walk/plan';
+import { setWalkController, type EvidenceTopic } from '../walk/controller';
 import { Hud, type HudState } from '../walk/Hud';
 import { EvaCard, RoverCard } from '../walk/Evidence';
 import { RehearsalPanel, useRehearsal } from '../walk/Rehearsal';
-import { Terrain3D, type Line3D, type Point3D } from '../map/Terrain3D';
+import { Terrain3D, type Camera3D, type Line3D, type Point3D } from '../map/Terrain3D';
 import type { Reach } from '../core';
 
 type Mode = 'pan' | 'route' | 'base';
 export interface WalkParams { world?: World; lat?: number; lon?: number; z?: number }
 
-const WORLD: World = 'mars';
-const WATER_PER_O2 = 3.1 / 2.7; // same constant as analog-core route.rs (Gernhardt 2010)
-const MAX_SLOPE = 25;
-const HIRISE = ['hirise']; // steeper steps are not walkable in the walk-home area
+const HIRISE = ['hirise'];
 
 export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const [data, setData] = useState<WalkData | null>(null);
@@ -46,14 +45,11 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
     if (params.lat != null && params.lon != null) setFly({ lat: params.lat, lon: params.lon, z: params.z ?? 13, seq: Date.now() });
   }, [params.lat, params.lon, params.z]);
 
-  const p: EvaParams = useMemo(() => ({ speed_kmh: speed, o2_h: o2, water_h: water, reserve: reserve / 100, min_reserve_h: 0.5 }),
-    [speed, o2, water, reserve]);
-  const dense = useMemo(() => (data ? densify(core, WORLD, route, 40) : { pts: route, wp: route.map((_, i) => i) }), [core, data, route]);
-  const ev = useMemo(() => core.evaluateRoute(WORLD, dense.pts, p), [core, dense, p]);
-  const check = useMemo(() => {
-    if (!data?.rover || dense.pts.length < 2) return null;
-    try { return core.roverCheck(dense.pts, 100); } catch { return null; }
-  }, [core, data, dense]);
+  // Same functions as the agent tools (walk/plan.ts), so both always show the same numbers.
+  const p = useMemo(() => evaParams({ speed, o2, water, reserve }), [speed, o2, water, reserve]);
+  const dense = useMemo(() => denseRoute(core, data, route), [core, data, route]);
+  const ev = useMemo(() => evaluate(core, dense, p), [core, dense, p]);
+  const check = useMemo(() => roverCheck(core, data, dense), [core, data, dense]);
   const longer = useMemo(() => (data?.eva ? core.evaLongerShare(ev.total_h) : 0), [core, data, ev.total_h]);
 
   // Walk-home area (recomputed shortly after the base or the budget changes).
@@ -63,11 +59,9 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   useEffect(() => {
     if (!data?.dem || !base) return;
     const id = setTimeout(() => {
-      try {
-        const r = core.reach(WORLD, JEZERO, base.lat, base.lon, p, MAX_SLOPE);
-        setReachImg({ ...reachImage(r, data.dem!), area: r.area_km2, max: r.max_km });
-        setReachRaw(r);
-      } catch { setReachImg(null); setReachRaw(null); }
+      const r = reachFrom(core, data, base, p);
+      setReachImg(r ? { ...reachImage(r, data.dem!), area: r.area_km2, max: r.max_km } : null);
+      setReachRaw(r);
     }, 60);
     return () => clearTimeout(id);
   }, [core, data, base?.lat, base?.lon, p]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -90,7 +84,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
     if (dense.pts.length < 2) return;
     cancelAnimationFrame(raf.current);
     const pts = dense.pts, ticks = ev.ticks;
-    const turn = ev.point_of_no_return != null ? Math.max(1, ev.point_of_no_return - 1) : pts.length - 1;
+    const turn = turnIndex(ev) ?? pts.length - 1;
     const tt = ticks[turn];
     const eTurn = (1 - tt.o2_left) * ev.usable_o2_h;
     const homeE = Math.max(0, ev.usable_h - tt.margin_h - eTurn);
@@ -130,14 +124,60 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const reh = useRehearsal(core, data?.hokkaido ?? []);
   const [rehOpen, setRehOpen] = useState(false);
   const [rehSel, setRehSel] = useState(0);
-  const marsForReh = useMemo(() => (data ? densify(core, WORLD, route, 80).pts.filter((x) => x.elev != null) : []), [core, data, route]);
+  const marsForReh = useMemo(() => rehearsalPoints(core, data, route), [core, data, route]);
   const startRehearsal = () => { setRehOpen(true); setRehSel(0); reh.run(marsForReh); };
+
+  // ---- agent controller (agent/tools.ts drives the screen through this) ----
+  const [camera, setCamera] = useState<Camera3D | null>(null);
+  const [exag, setExag] = useState<number | undefined>(undefined);
+  const [flash, setFlash] = useState<EvidenceTopic | null>(null);
+  const live$ = useRef({ route, speed, o2, water, reserve, play, stop, startRehearsalWith: reh.run, found: reh.found });
+  live$.current = { route, speed, o2, water, reserve, play, stop, startRehearsalWith: reh.run, found: reh.found };
+  useEffect(() => {
+    setWalkController({
+      core,
+      data: () => loadWalkData(core),
+      route: () => live$.current.route,
+      params: () => ({ speed: live$.current.speed, o2: live$.current.o2, water: live$.current.water, reserve: live$.current.reserve }),
+      setRoute: (r) => { live$.current.route = r; setRoute(r); },
+      setParams: (q) => {
+        if (q.speed != null) { setSpeed(q.speed); live$.current.speed = q.speed; }
+        if (q.o2 != null) { setO2(q.o2); live$.current.o2 = q.o2; }
+        if (q.water != null) { setWater(q.water); live$.current.water = q.water; }
+        if (q.reserve != null) { setReserve(q.reserve); live$.current.reserve = q.reserve; }
+      },
+      runRehearsal: (pts) => { setRehOpen(true); setRehSel(0); return live$.current.startRehearsalWith(pts); },
+      selectRehearsal: (i) => { setRehOpen(true); setRehSel(i); },
+      set3d: setView3d,
+      setCamera: (c) => {
+        if (c.exaggeration != null) setExag(c.exaggeration);
+        if ([c.lat, c.lon, c.distance_m, c.heading_deg, c.tilt_deg].some((x) => x != null)) {
+          setCamera({ target: c.lat != null && c.lon != null ? { lat: c.lat, lon: c.lon } : undefined,
+            distance: c.distance_m, heading: c.heading_deg, tilt: c.tilt_deg, seq: Date.now() });
+        }
+      },
+      setOverlay: (o) => { if (o.rover != null) setShowRover(o.rover); if (o.reach != null) setShowReach(o.reach); },
+      play: () => live$.current.play(),
+      stop: () => live$.current.stop(),
+      openEvidence: (topic) => {
+        setFlash(topic);
+        setTimeout(() => {
+          const el = document.getElementById(`ev-${topic === 'hokkaido_terrain' ? 'terrain' : topic}`);
+          if (el instanceof HTMLDetailsElement) el.open = true;
+          el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 50);
+        setTimeout(() => setFlash((f) => (f === topic ? null : f)), 4000);
+      },
+    });
+    return () => setWalkController(null);
+  }, [core]);
+  const fl = (topic: EvidenceTopic) => (flash === topic ? 'flash' : undefined);
 
   // ---- map features ----
   const roverFeatures = useMemo<Feature[]>(() => (data && showRover
     ? [{ kind: 'lines', lines: data.traverse, color: '#36cfc9', weight: 2.5, opacity: 0.85, tooltip: 'Perseverance が実際に走った道' }]
     : []), [data, showRover]);
-  const turnIdx = ev.point_of_no_return != null ? Math.max(1, ev.point_of_no_return - 1) : null;
+  const turnIdx = turnIndex(ev);
   const features = useMemo<Feature[]>(() => {
     const f: Feature[] = [];
     if (reachImg && showReach) f.push({ kind: 'image', url: reachImg.url, bounds: reachImg.bounds, opacity: 0.55 });
@@ -200,7 +240,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
         {data?.errors.length ? <p className="warn">読み込めなかったデータ: {data.errors.join(' / ')}</p> : null}
 
         <div className={`verdict ${n < 2 ? '' : ev.ok ? 'ok' : 'ng'}`}>
-          {n < 2 ? 'ルートを引いてください' : ev.ok ? '帰れる' : `途中で引き返す（WP${dense.wp.findIndex((w) => w >= (ev.point_of_no_return ?? 0))} の手前）`}
+          {n < 2 ? 'ルートを引いてください' : ev.ok ? '帰れる' : `途中で引き返す（WP${turnWaypoint(ev, dense)} の手前）`}
         </div>
         {n >= 2 && (
           <>
@@ -219,7 +259,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           </button>
         </div>
 
-        <details open>
+        <details open id="ev-consumables" className={fl('consumables')}>
           <summary>条件</summary>
           <label>歩く速さ（平地） <b>{speed}</b> km/h
             <input id="speed" type="range" min={0.5} max={5} step={0.5} value={speed} onChange={(e) => setSpeed(+e.target.value)} /></label>
@@ -232,8 +272,8 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           <p className="muted">急いで歩くと冷却水は酸素の約1.15倍の速さで減ります（NASA の歩行帰還試験、Gernhardt 2010）。帰着時に30分・2割を残すのは Apollo 以来の慣例です。</p>
         </details>
 
-        <RoverCard check={check} />
-        <EvaCard eva={data?.eva ?? null} planH={ev.total_h} longer={longer} />
+        <div id="ev-rover" className={fl('rover')}><RoverCard check={check} /></div>
+        <div id="ev-eva" className={fl('eva')}><EvaCard eva={data?.eva ?? null} planH={ev.total_h} longer={longer} /></div>
 
         <details>
           <summary>地図の表示</summary>
@@ -241,7 +281,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           <label className="check"><input type="checkbox" checked={showRover} onChange={(e) => setShowRover(e.target.checked)} /> 探査車の実走ルート</label>
           <p className="muted">ルートの色: 緑 8°未満 / 黄 8〜15° / 赤 15°以上 / 灰 地形不明。帰れる範囲の黄色い縁が限界の線です。</p>
         </details>
-        <p className="muted src">データ: Mars 2020 Perseverance 走行記録（NASA/JPL MMGIS）、MRO HiRISE 画像と地形（NASA/UArizona, USGS）、MGS MOLA 地形、Mars Odyssey THEMIS、MRO CTX、data.nasa.gov 船外活動記録、NASADEM（北海道の地形、NASA/JPL）。北海道の航空写真は国土地理院（表示のみ）。{data?.dem?.src ? ` 地形グリッド: ${data.dem.src}` : ''}</p>
+        <p id="ev-terrain" className={`muted src ${fl('terrain') ?? ''} ${fl('hokkaido_terrain') ?? ''}`}>データ: Mars 2020 Perseverance 走行記録（NASA/JPL MMGIS）、MRO HiRISE 画像と地形（NASA/UArizona, USGS）、MGS MOLA 地形、Mars Odyssey THEMIS、MRO CTX、data.nasa.gov 船外活動記録、NASADEM（北海道の地形、NASA/JPL）。北海道の航空写真は国土地理院（表示のみ）。{data?.dem?.src ? ` 地形グリッド: ${data.dem.src}` : ''}</p>
       </aside>
 
       <div className={`maps ${rehOpen && reh.found.length ? '' : 'single'}`}>
@@ -264,7 +304,8 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           {view3d && data?.demGrid && (
             <div className="terrain-over">
               <Terrain3D grid={data.demGrid} radiusKm={core.world(WORLD).radius_km} palette="mars" lines={lines3d} points={points3d}
-                reach={showReach ? reachRaw : null} walker={walker} focus={focus3d} label="Jezero クレーター（3D）" />
+                reach={showReach ? reachRaw : null} walker={walker} focus={focus3d} label="Jezero クレーター（3D）"
+                camera={camera} exaggeration={exag} />
             </div>
           )}
           {data?.demGrid && (

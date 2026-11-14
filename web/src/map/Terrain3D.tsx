@@ -11,6 +11,11 @@ import type { GridData } from '../walk/data';
 
 export interface Line3D { pts: [number, number][]; color: string; width: number; opacity?: number }
 export interface Point3D { lat: number; lon: number; color: string; size: number }
+/**
+ * Camera request (agent view_3d tool). heading: direction the camera looks, degrees clockwise from
+ * north. tilt: how far it looks down from the horizon (90 = straight down). A new seq re-applies it.
+ */
+export interface Camera3D { target?: { lat: number; lon: number }; distance?: number; heading?: number; tilt?: number; seq: number }
 
 interface Props {
   grid: GridData;
@@ -24,6 +29,9 @@ interface Props {
   /** [[south, west], [north, east]] the camera frames first. */
   focus?: [[number, number], [number, number]] | null;
   label?: string;
+  camera?: Camera3D | null;
+  /** Height exaggeration set from outside (the ×1/×2/×4 buttons still work). */
+  exaggeration?: number;
 }
 
 const MAX_SIDE = 360;
@@ -86,13 +94,15 @@ function texture(g: GridData, palette: 'mars' | 'earth', reach: Reach | null | u
   return t;
 }
 
-export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], reach, walker, focus, label }: Props) {
+export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], reach, walker, focus, label, camera, exaggeration }: Props) {
   const host = useRef<HTMLDivElement>(null);
-  const [exag, setExag] = useState(palette === 'mars' ? 2 : 1.5);
+  const [exag, setExag] = useState(exaggeration ?? (palette === 'mars' ? 2 : 1.5));
+  useEffect(() => { if (exaggeration != null) setExag(exaggeration); }, [exaggeration]);
   const scene = useRef<{
     r: THREE.WebGLRenderer; s: THREE.Scene; cam: THREE.PerspectiveCamera; ctl: OrbitControls;
     project: (lat: number, lon: number, lift?: number) => THREE.Vector3; overlay: THREE.Group; walker: THREE.Mesh;
     terrain: THREE.Mesh; mats: LineMaterial[];
+    goal: { pos: THREE.Vector3; target: THREE.Vector3 } | null;
   } | null>(null);
 
   // Terrain mesh + renderer: rebuilt when the grid or the height scale changes.
@@ -158,7 +168,8 @@ export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], re
     cam.position.copy(target).add(new THREE.Vector3(-0.55, 0.75, 0.9).normalize().multiplyScalar(fspan * 1.5));
 
     const mats: LineMaterial[] = [];
-    scene.current = { r, s, cam, ctl, project, overlay, walker: walkerMesh, terrain, mats };
+    scene.current = { r, s, cam, ctl, project, overlay, walker: walkerMesh, terrain, mats, goal: null };
+    ctl.addEventListener('start', () => { if (scene.current) scene.current.goal = null; }); // the user takes over
 
     const resize = () => {
       const w = el.clientWidth || 1, h = el.clientHeight || 1;
@@ -171,7 +182,14 @@ export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], re
     ro.observe(el);
     resize();
     let raf = 0;
-    const loop = () => { ctl.update(); r.render(s, cam); raf = requestAnimationFrame(loop); };
+    const loop = () => {
+      const goal = scene.current?.goal;
+      if (goal) { // ease towards a camera request
+        cam.position.lerp(goal.pos, 0.12); ctl.target.lerp(goal.target, 0.12);
+        if (cam.position.distanceTo(goal.pos) < span / 5000) { cam.position.copy(goal.pos); ctl.target.copy(goal.target); scene.current!.goal = null; }
+      }
+      ctl.update(); r.render(s, cam); raf = requestAnimationFrame(loop);
+    };
     loop();
     return () => {
       cancelAnimationFrame(raf); ro.disconnect(); ctl.dispose();
@@ -222,6 +240,21 @@ export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], re
       sc.overlay.add(mesh);
     }
   }, [lines, points, exag, grid]);
+
+  // Camera requests: look at target from distance, heading and tilt (missing parts keep the current view).
+  useEffect(() => {
+    const sc = scene.current;
+    if (!sc || !camera) return;
+    const target = camera.target ? sc.project(camera.target.lat, camera.target.lon) : sc.ctl.target.clone();
+    const off = sc.cam.position.clone().sub(sc.ctl.target);
+    const dist = camera.distance ?? off.length();
+    const curHeading = Math.atan2(-off.x, off.z) * 180 / Math.PI;
+    const curTilt = Math.asin(Math.max(-1, Math.min(1, off.y / (off.length() || 1)))) * 180 / Math.PI;
+    const h = ((camera.heading ?? curHeading) * Math.PI) / 180;
+    const t = (Math.max(5, Math.min(89, camera.tilt ?? curTilt)) * Math.PI) / 180;
+    const pos = target.clone().add(new THREE.Vector3(-Math.sin(h) * Math.cos(t), Math.sin(t), Math.cos(h) * Math.cos(t)).multiplyScalar(dist));
+    sc.goal = { pos, target };
+  }, [camera?.seq, exag, grid]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const sc = scene.current;

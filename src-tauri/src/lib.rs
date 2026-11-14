@@ -4,6 +4,9 @@
 
 use analog_core::{route, scoring, world::World};
 
+#[cfg(feature = "agent")]
+mod agent;
+
 #[tauri::command]
 fn rank_all(profile: String) -> Vec<scoring::SiteRanking> {
     scoring::rank_all(&scoring::profile(&profile).w)
@@ -20,8 +23,22 @@ fn evaluate_route(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![rank_all, evaluate_route])
+    let builder = tauri::Builder::default();
+    #[cfg(feature = "agent")]
+    let builder =
+        builder
+            .manage(agent::AgentState::default())
+            .invoke_handler(tauri::generate_handler![
+                rank_all,
+                evaluate_route,
+                agent::agent_start,
+                agent::agent_prompt,
+                agent::agent_tool_result,
+                agent::agent_abort
+            ]);
+    #[cfg(not(feature = "agent"))]
+    let builder = builder.invoke_handler(tauri::generate_handler![rank_all, evaluate_route]);
+    builder
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -8,28 +8,36 @@ import { loadHokkaidoGrid, type GridData, type HokkaidoSite } from './data';
 
 export interface Found { site: HokkaidoSite; m: RehearsalMatch }
 
+/** Best rehearsal course on each Hokkaido grid, best first (Rust core: rehearse). */
+export async function findRehearsals(core: Core, sites: HokkaidoSite[], marsPts: Waypoint[], onProgress?: (done: number, found: Found[]) => void): Promise<Found[]> {
+  const found: Found[] = [];
+  if (marsPts.length < 3) return found;
+  for (let i = 0; i < sites.length; i++) {
+    const s = sites[i];
+    await loadHokkaidoGrid(core, s.id).catch(() => undefined);
+    await new Promise((r) => setTimeout(r, 0)); // let the progress paint
+    try {
+      const m = core.rehearse('mars', marsPts, `hk:${s.id}`, 5, 20, 1)[0];
+      if (m) found.push({ site: s, m });
+    } catch { /* grid missing or route larger than the area */ }
+    onProgress?.(i + 1, [...found]);
+  }
+  return found.sort((a, b) => b.m.score - a.m.score);
+}
+
 export function useRehearsal(core: Core, sites: HokkaidoSite[]) {
   const [state, setState] = useState<{ status: 'idle' | 'running' | 'done' | 'error'; done: number; found: Found[]; error?: string }>(
     { status: 'idle', done: 0, found: [] });
-  const run = async (marsPts: Waypoint[]) => {
-    if (marsPts.length < 3) return;
+  const run = async (marsPts: Waypoint[]): Promise<Found[]> => {
+    if (marsPts.length < 3) return [];
     setState({ status: 'running', done: 0, found: [] });
-    const found: Found[] = [];
     try {
-      for (let i = 0; i < sites.length; i++) {
-        const s = sites[i];
-        await loadHokkaidoGrid(core, s.id).catch(() => undefined);
-        await new Promise((r) => setTimeout(r, 0)); // let the progress paint
-        try {
-          const m = core.rehearse('mars', marsPts, `hk:${s.id}`, 5, 20, 1)[0];
-          if (m) found.push({ site: s, m });
-        } catch { /* grid missing or route larger than the area */ }
-        setState({ status: 'running', done: i + 1, found: [...found] });
-      }
-      found.sort((a, b) => b.m.score - a.m.score);
+      const found = await findRehearsals(core, sites, marsPts, (done, f) => setState({ status: 'running', done, found: f }));
       setState({ status: 'done', done: sites.length, found });
+      return found;
     } catch (e) {
-      setState({ status: 'error', done: 0, found, error: String(e) });
+      setState({ status: 'error', done: 0, found: [], error: String(e) });
+      throw e;
     }
   };
   return { ...state, run, total: sites.length };
