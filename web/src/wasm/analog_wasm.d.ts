@@ -12,6 +12,11 @@ export function bootstrap(): string;
 export function distanceKm(world: string, lat1: number, lon1: number, lat2: number, lon2: number): number;
 
 /**
+ * Least-effort walking path between two points on a stored grid: `[[lat, lon], …]` or `null`.
+ */
+export function easyPath(world: string, name: string, lat1: number, lon1: number, lat2: number, lon2: number, params: string, max_slope_deg: number): string;
+
+/**
  * Share (0–1) of real EVAs longer than `hours`; -1 if the CSV is not loaded.
  */
 export function evaLongerShare(hours: number): number;
@@ -53,6 +58,19 @@ export function rehearse(from_world: string, points: string, grid_name: string, 
 export function roverCheck(points: string, near_m: number): string;
 
 /**
+ * Crewed-rover breakdown check along the stored traverse: from each point, could the crew walk
+ * back to the base (grid `name`, same EvaParams as the walk-home area)?
+ */
+export function roverWalkback(world: string, name: string, lat: number, lon: number, params: string, max_slope_deg: number): string;
+
+/**
+ * Crewed-rover breakdown check on traverse rows read with SQL (`[{drive, seq, sol, lat, lon,
+ * elev_m, km}]` in drive/seq order, from the rover_traverse parquet). Same calculation as
+ * `roverWalkback`; only where the path comes from differs.
+ */
+export function roverWalkbackFrom(world: string, name: string, lat: number, lon: number, params: string, max_slope_deg: number, rows: string): string;
+
+/**
  * Bilinear elevations for `[[lat, lon], …]` from a stored grid (null outside or in holes).
  */
 export function sampleGrid(name: string, latlons: string): string;
@@ -71,6 +89,13 @@ export function scanCellAt(lat: number, lon: number): number;
  * Grid index (`row * cols + col`) of every land cell, in cell order.
  */
 export function scanCells(): Uint32Array;
+
+/**
+ * Every land cell as columns (for the duckdb `cells` table in web/src/db.ts): terrain, MODIS
+ * shares as fractions (null = no data), height-corrected NASA POWER climate and the land-cover
+ * screen reason (null = open ground). Same units as `scanCell`.
+ */
+export function scanColumns(): string;
 
 /**
  * What Hokkaido cannot reproduce, for a scan cell instead of a known site.
@@ -107,12 +132,23 @@ export function setScan(json_str: string): string;
  */
 export function setTraverse(traverse_json: string): string;
 
+/**
+ * #11 A: lay a walk recorded on Earth onto Mars from `base` (same east/north metres).
+ */
+export function transplantWalk(points: string, base_lat: number, base_lon: number): string;
+
+/**
+ * #11 A: summary of a recorded walk (`[{lat, lon, elev, t}]`, elevation from a DEM) on Earth.
+ */
+export function walkSummary(points: string): string;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly bootstrap: () => [number, number];
     readonly distanceKm: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+    readonly easyPath: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => [number, number, number, number];
     readonly evaLongerShare: (a: number) => number;
     readonly evaluateRoute: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly gaps: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
@@ -121,10 +157,13 @@ export interface InitOutput {
     readonly reach: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
     readonly rehearse: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
     readonly roverCheck: (a: number, b: number, c: number) => [number, number, number, number];
+    readonly roverWalkback: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
+    readonly roverWalkbackFrom: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => [number, number, number, number];
     readonly sampleGrid: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly scanCell: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
     readonly scanCellAt: (a: number, b: number) => [number, number, number];
     readonly scanCells: () => [number, number, number, number];
+    readonly scanColumns: () => [number, number, number, number];
     readonly scanGaps: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
     readonly scanScores: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly scanTop: (a: number, b: number, c: number, d: number) => [number, number, number, number];
@@ -132,6 +171,8 @@ export interface InitOutput {
     readonly setGrid: (a: number, b: number, c: number, d: number) => [number, number];
     readonly setScan: (a: number, b: number) => [number, number, number, number];
     readonly setTraverse: (a: number, b: number) => [number, number, number, number];
+    readonly transplantWalk: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly walkSummary: (a: number, b: number) => [number, number, number, number];
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;

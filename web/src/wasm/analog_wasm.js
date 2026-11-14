@@ -41,6 +41,56 @@ export function distanceKm(world, lat1, lon1, lat2, lon2) {
 }
 
 /**
+ * Least-effort walking path between two points on a stored grid: `[[lat, lon], …]` or `null`.
+ * @param {string} world
+ * @param {string} name
+ * @param {number} lat1
+ * @param {number} lon1
+ * @param {number} lat2
+ * @param {number} lon2
+ * @param {string} params
+ * @param {number} max_slope_deg
+ * @returns {string}
+ */
+export function easyPath(world, name, lat1, lon1, lat2, lon2, params, max_slope_deg) {
+    let deferred10_0;
+    let deferred10_1;
+    try {
+        const val4 = +lat1;
+        const val5 = +lon1;
+        const val6 = +lat2;
+        const val7 = +lon2;
+        const val8 = +max_slope_deg;
+        let ptr0, len0, ptr1, len1, ptr2, len2;
+        try {
+            ptr0 = passStringToWasm0(world, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passStringToWasm0(params, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len2 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 1, 1); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+            throw e;
+        }
+        const ret = wasm.easyPath(ptr0, len0, ptr1, len1, val4, val5, val6, val7, ptr2, len2, val8);
+        var ptr9 = ret[0];
+        var len9 = ret[1];
+        if (ret[3]) {
+            ptr9 = 0; len9 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred10_0 = ptr9;
+        deferred10_1 = len9;
+        return getStringFromWasm0(ptr9, len9);
+    } finally {
+        wasm.__wbindgen_free(deferred10_0, deferred10_1, 1);
+    }
+}
+
+/**
  * Share (0–1) of real EVAs longer than `hours`; -1 if the CSV is not loaded.
  * @param {number} hours
  * @returns {number}
@@ -302,6 +352,105 @@ export function roverCheck(points, near_m) {
 }
 
 /**
+ * Crewed-rover breakdown check along the stored traverse: from each point, could the crew walk
+ * back to the base (grid `name`, same EvaParams as the walk-home area)?
+ * @param {string} world
+ * @param {string} name
+ * @param {number} lat
+ * @param {number} lon
+ * @param {string} params
+ * @param {number} max_slope_deg
+ * @returns {string}
+ */
+export function roverWalkback(world, name, lat, lon, params, max_slope_deg) {
+    let deferred8_0;
+    let deferred8_1;
+    try {
+        const val4 = +lat;
+        const val5 = +lon;
+        const val6 = +max_slope_deg;
+        let ptr0, len0, ptr1, len1, ptr2, len2;
+        try {
+            ptr0 = passStringToWasm0(world, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passStringToWasm0(params, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len2 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 1, 1); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+            throw e;
+        }
+        const ret = wasm.roverWalkback(ptr0, len0, ptr1, len1, val4, val5, ptr2, len2, val6);
+        var ptr7 = ret[0];
+        var len7 = ret[1];
+        if (ret[3]) {
+            ptr7 = 0; len7 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred8_0 = ptr7;
+        deferred8_1 = len7;
+        return getStringFromWasm0(ptr7, len7);
+    } finally {
+        wasm.__wbindgen_free(deferred8_0, deferred8_1, 1);
+    }
+}
+
+/**
+ * Crewed-rover breakdown check on traverse rows read with SQL (`[{drive, seq, sol, lat, lon,
+ * elev_m, km}]` in drive/seq order, from the rover_traverse parquet). Same calculation as
+ * `roverWalkback`; only where the path comes from differs.
+ * @param {string} world
+ * @param {string} name
+ * @param {number} lat
+ * @param {number} lon
+ * @param {string} params
+ * @param {number} max_slope_deg
+ * @param {string} rows
+ * @returns {string}
+ */
+export function roverWalkbackFrom(world, name, lat, lon, params, max_slope_deg, rows) {
+    let deferred9_0;
+    let deferred9_1;
+    try {
+        const val5 = +lat;
+        const val6 = +lon;
+        const val7 = +max_slope_deg;
+        let ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3;
+        try {
+            ptr0 = passStringToWasm0(world, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passStringToWasm0(params, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len2 = WASM_VECTOR_LEN;
+            ptr3 = passStringToWasm0(rows, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len3 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr3) { wasm.__wbindgen_free(ptr3, len3 * 1, 1); }
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 1, 1); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+            throw e;
+        }
+        const ret = wasm.roverWalkbackFrom(ptr0, len0, ptr1, len1, val5, val6, ptr2, len2, val7, ptr3, len3);
+        var ptr8 = ret[0];
+        var len8 = ret[1];
+        if (ret[3]) {
+            ptr8 = 0; len8 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred9_0 = ptr8;
+        deferred9_1 = len8;
+        return getStringFromWasm0(ptr8, len8);
+    } finally {
+        wasm.__wbindgen_free(deferred9_0, deferred9_1, 1);
+    }
+}
+
+/**
  * Bilinear elevations for `[[lat, lon], …]` from a stored grid (null outside or in holes).
  * @param {string} name
  * @param {string} latlons
@@ -401,6 +550,31 @@ export function scanCells() {
     var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
     return v1;
+}
+
+/**
+ * Every land cell as columns (for the duckdb `cells` table in web/src/db.ts): terrain, MODIS
+ * shares as fractions (null = no data), height-corrected NASA POWER climate and the land-cover
+ * screen reason (null = open ground). Same units as `scanCell`.
+ * @returns {string}
+ */
+export function scanColumns() {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ret = wasm.scanColumns();
+        var ptr1 = ret[0];
+        var len1 = ret[1];
+        if (ret[3]) {
+            ptr1 = 0; len1 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred2_0 = ptr1;
+        deferred2_1 = len1;
+        return getStringFromWasm0(ptr1, len1);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
 }
 
 /**
@@ -579,6 +753,62 @@ export function setTraverse(traverse_json) {
         const ptr0 = passStringToWasm0(traverse_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.setTraverse(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * #11 A: lay a walk recorded on Earth onto Mars from `base` (same east/north metres).
+ * @param {string} points
+ * @param {number} base_lat
+ * @param {number} base_lon
+ * @returns {string}
+ */
+export function transplantWalk(points, base_lat, base_lon) {
+    let deferred5_0;
+    let deferred5_1;
+    try {
+        const val2 = +base_lat;
+        const val3 = +base_lon;
+        const ptr0 = passStringToWasm0(points, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.transplantWalk(ptr0, len0, val2, val3);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
+        if (ret[3]) {
+            ptr4 = 0; len4 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
+    } finally {
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
+}
+
+/**
+ * #11 A: summary of a recorded walk (`[{lat, lon, elev, t}]`, elevation from a DEM) on Earth.
+ * @param {string} points
+ * @returns {string}
+ */
+export function walkSummary(points) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(points, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.walkSummary(ptr0, len0);
         var ptr2 = ret[0];
         var len2 = ret[1];
         if (ret[3]) {
