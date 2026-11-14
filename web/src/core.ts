@@ -12,7 +12,7 @@ export interface WorldInfo {
 export interface EarthSite {
   id: string; name: string; en?: string; lat: number; lon: number;
   elev_m?: number | null; slope_mean_deg: number; relief_m?: number | null;
-  landcover_center?: string | null; lithology_ja?: string | null; age_ja?: string | null;
+  landcover_center?: string | null; lithology_ja?: string | null; lithology_en?: string | null; age_ja?: string | null;
 }
 export interface Body {
   id: string; world: World; name: string; ja: string; lat: number; lon: number;
@@ -21,10 +21,15 @@ export interface Body {
 }
 export interface Landing { name: string; year: number; agency: string; lat: number; lon: number }
 export interface Preset { id: string; name: string; lat: number; lon: number; z: number }
-export interface Profile { id: string; label: string; w: Record<string, number> }
-export interface DimScore { key: string; label: string; s: number; why: string; formula: string }
+export interface Profile { id: string; label: string; en: string; test: boolean; season: string; season_en: string; w: Record<string, number> }
+export interface DimScore { key: string; label: string; label_en: string; s: number; why: string; why_en: string; formula: string }
 export interface PairScore { body_id: string; total: number; raw: number; excluded: string | null; dims: DimScore[] }
 export interface SiteRanking { earth_id: string; ranks: PairScore[] }
+export interface SiteScore extends PairScore { earth_id: string }
+export interface Gap {
+  key: 'gravity' | 'vacuum' | 'cold' | 'hot' | 'sun' | 'radiation';
+  label: string; label_en: string; value: string; detail: string; detail_en: string; critical: boolean;
+}
 export interface Waypoint { lat: number; lon: number; elev?: number | null }
 export interface EvaParams {
   speed_kmh: number; o2_h: number; reserve: number;
@@ -54,6 +59,30 @@ export interface RehearsalMatch {
   climb_mars_m: number; climb_earth_m: number;
 }
 
+export interface ScanMeta {
+  cell_km: number; lat0: number; lon0: number; dlat: number; dlon: number; rows: number; cols: number; n: number;
+  src: { dem?: string; climate?: string; built?: string };
+}
+export interface ScanCandidate {
+  k: number; lat: number; lon: number; score: number; elev_m: number; slope_deg: number; shadow: number;
+  near: [string, number] | null;
+}
+export interface ScanSiteCheck { earth_id: string; k: number | null; score: number | null; rank: number | null; percentile: number | null }
+export interface ScanCell {
+  k: number; lat: number; lon: number; elev_m: number; relief_m: number; slope_deg: number; slope_p90_deg: number;
+  shadow: number; land: number; climate: { tmin: number[]; tmax: number[]; precip: number } | null; score: PairScore;
+}
+export interface Scan {
+  meta: ScanMeta;
+  /** Grid index (row * cols + col) of each land cell. */
+  cells: Uint32Array;
+  scores: (bodyId: string, profileId: string) => Float32Array;
+  top: (scores: Float32Array, n: number, minKm: number) => { top: ScanCandidate[]; sites: ScanSiteCheck[] };
+  cell: (k: number, bodyId: string, profileId: string) => ScanCell;
+  cellAt: (lat: number, lon: number) => number | null;
+  gaps: (k: number, bodyId: string, test: string) => Gap[];
+}
+
 export interface Boot {
   worlds: WorldInfo[];
   earthSites: EarthSite[];
@@ -66,6 +95,10 @@ export interface Boot {
 export interface Core extends Boot {
   world: (w: World) => WorldInfo;
   rankAll: (profileId: string) => SiteRanking[];
+  rankSites: (bodyId: string, profileId: string) => SiteScore[];
+  gaps: (earthId: string, bodyId: string, test: string) => Gap[];
+  /** Load the whole-Hokkaido scan grid (once). */
+  loadScan: (cellKm?: number) => Promise<Scan>;
   evaluateRoute: (world: World, pts: Waypoint[], p: EvaParams) => RouteEval;
   distanceKm: (world: World, a: { lat: number; lng: number }, b: { lat: number; lng: number }) => number;
   setGrid: (name: string, g: Grid | string) => void;
@@ -79,6 +112,32 @@ export interface Core extends Boot {
 }
 
 let corePromise: Promise<Core> | null = null;
+// The WASM side holds one scan grid at a time, so only the last requested size is kept.
+let scanPromise: { km: number; p: Promise<Scan> } | null = null;
+
+function loadScan(cellKm = 1): Promise<Scan> {
+  let p = scanPromise?.km === cellKm ? scanPromise.p : undefined;
+  if (!p) {
+    p = fetch(`data/scan/hokkaido-${cellKm}km.json`)
+      .then((r) => { if (!r.ok) throw new Error(`scan data: HTTP ${r.status}`); return r.text(); })
+      .then((text) => {
+        const meta = JSON.parse(wasm.setScan(text)) as ScanMeta;
+        return {
+          meta,
+          cells: wasm.scanCells(),
+          scores: (b, prof) => wasm.scanScores(b, prof),
+          top: (s, n, km) => JSON.parse(wasm.scanTop(s, n, km)),
+          cell: (k, b, prof) => JSON.parse(wasm.scanCell(k, b, prof)),
+          cellAt: (lat, lon) => { const k = wasm.scanCellAt(lat, lon); return k < 0 ? null : k; },
+          gaps: (k, b, t) => JSON.parse(wasm.scanGaps(k, b, t)),
+        } satisfies Scan;
+      });
+    const mine = p;
+    p.catch(() => { if (scanPromise?.p === mine) scanPromise = null; });
+    scanPromise = { km: cellKm, p };
+  }
+  return p;
+}
 
 export function loadCore(): Promise<Core> {
   corePromise ??= init().then(() => {
@@ -88,6 +147,9 @@ export function loadCore(): Promise<Core> {
       ...boot,
       world: (w) => worlds[w],
       rankAll: (id) => JSON.parse(wasm.rankAll(id)),
+      rankSites: (b, p) => JSON.parse(wasm.rankSites(b, p)),
+      gaps: (e, b, t) => JSON.parse(wasm.gaps(e, b, t)),
+      loadScan,
       evaluateRoute: (world, pts, p) => JSON.parse(wasm.evaluateRoute(world, JSON.stringify(pts), JSON.stringify(p))),
       distanceKm: (world, a, b) => wasm.distanceKm(world, a.lat, a.lng, b.lat, b.lng),
       setGrid: (name, g) => wasm.setGrid(name, typeof g === 'string' ? g : JSON.stringify(g)),

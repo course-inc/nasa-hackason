@@ -207,3 +207,103 @@ pub fn rehearse(
         ))
     })
 }
+
+/// Every Hokkaido site ranked for one Moon/Mars target and rehearsal test (profile id).
+#[wasm_bindgen(js_name = rankSites)]
+pub fn rank_sites(body_id: &str, profile_id: &str) -> String {
+    json(&analog_core::target::rank_sites(body_id, profile_id))
+}
+
+/// What Hokkaido cannot reproduce for this target, with numbers; critical-for-test first.
+#[wasm_bindgen(js_name = gaps)]
+pub fn gaps(earth_id: &str, body_id: &str, test: &str) -> String {
+    json(&analog_core::target::gaps_by_id(earth_id, body_id, test))
+}
+
+// ---- #10 whole-Hokkaido scan ----
+
+thread_local! {
+    static SCAN: RefCell<Option<analog_core::scan::Scan>> = const { RefCell::new(None) };
+}
+
+fn find_body(id: &str) -> Result<&'static data::Body, JsError> {
+    data::bodies()
+        .iter()
+        .find(|b| b.id == id)
+        .ok_or_else(|| JsError::new(&format!("unknown target {id}")))
+}
+
+fn with_scan<T>(f: impl FnOnce(&analog_core::scan::Scan) -> T) -> Result<T, JsError> {
+    SCAN.with(|s| {
+        s.borrow()
+            .as_ref()
+            .map(f)
+            .ok_or_else(|| JsError::new("scan not loaded"))
+    })
+}
+
+/// Load the scan grid (web/public/data/scan/hokkaido-*.json). Returns its meta JSON.
+#[wasm_bindgen(js_name = setScan)]
+pub fn set_scan(json_str: &str) -> Result<String, JsError> {
+    let s = analog_core::scan::Scan::from_json(json_str).map_err(err)?;
+    let meta = json(&s.meta());
+    SCAN.with(|x| *x.borrow_mut() = Some(s));
+    Ok(meta)
+}
+
+/// Grid index (`row * cols + col`) of every land cell, in cell order.
+#[wasm_bindgen(js_name = scanCells)]
+pub fn scan_cells() -> Result<Vec<u32>, JsError> {
+    with_scan(|s| s.cells.i.clone())
+}
+
+/// Match (0–1) of every land cell for a target and test, in cell order.
+#[wasm_bindgen(js_name = scanScores)]
+pub fn scan_scores(body_id: &str, profile_id: &str) -> Result<Vec<f32>, JsError> {
+    let b = find_body(body_id)?;
+    with_scan(|s| analog_core::scan::scores(s, b, profile_id))
+}
+
+/// Best cells at least `min_km` apart, plus how each known site's cell ranks.
+#[wasm_bindgen(js_name = scanTop)]
+pub fn scan_top(scores: &[f32], n: usize, min_km: f64) -> Result<String, JsError> {
+    with_scan(|s| {
+        if scores.len() != s.len() {
+            return Err(JsError::new("scores do not match the loaded scan"));
+        }
+        #[derive(Serialize)]
+        struct Out {
+            top: Vec<analog_core::scan::Candidate>,
+            sites: Vec<analog_core::scan::SiteCheck>,
+        }
+        Ok(json(&Out {
+            top: analog_core::scan::top(s, scores, n, min_km),
+            sites: analog_core::scan::site_checks(s, scores),
+        }))
+    })?
+}
+
+/// One cell in full: terrain, height-corrected climate and the 5-axis score.
+#[wasm_bindgen(js_name = scanCell)]
+pub fn scan_cell(k: usize, body_id: &str, profile_id: &str) -> Result<String, JsError> {
+    let b = find_body(body_id)?;
+    with_scan(|s| json(&analog_core::scan::detail(s, k, b, profile_id)))
+}
+
+/// Land cell index at a point, or -1.
+#[wasm_bindgen(js_name = scanCellAt)]
+pub fn scan_cell_at(lat: f64, lon: f64) -> Result<i32, JsError> {
+    with_scan(|s| s.cell_at(lat, lon).map_or(-1, |k| k as i32))
+}
+
+/// What Hokkaido cannot reproduce, for a scan cell instead of a known site.
+#[wasm_bindgen(js_name = scanGaps)]
+pub fn scan_gaps(k: usize, body_id: &str, test: &str) -> Result<String, JsError> {
+    let b = find_body(body_id)?;
+    with_scan(|s| {
+        if k >= s.len() {
+            return json(&Vec::<analog_core::target::Gap>::new());
+        }
+        json(&analog_core::target::gaps(&s.site(k), b, test))
+    })
+}

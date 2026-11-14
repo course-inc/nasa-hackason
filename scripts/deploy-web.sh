@@ -41,4 +41,17 @@ fi
 git log --oneline origin/deploy..HEAD
 if $DRY; then echo "(dry run: not pushed)"; exit 0; fi
 git push -q origin HEAD:deploy
-echo "✓ pushed deploy ($(git rev-parse --short HEAD)); tachyon will build it"
+echo "✓ pushed deploy ($(git rev-parse --short HEAD))"
+
+# tachyon starts a "Tachyon Build" check run within seconds of a push, but has once missed one.
+# If none shows up, push an empty commit to retrigger it.
+command -v gh >/dev/null || { echo "(gh not found: check the build on platform.txcloud.app)"; exit 0; }
+checks() { gh api "repos/course-inc/nasa-hackason/commits/$(git rev-parse HEAD)/check-runs" --jq '.total_count' 2>/dev/null || echo 0; }
+for attempt in 1 2; do
+  for _ in 1 2 3 4 5 6; do [[ "$(checks)" != "0" ]] && break 2; sleep 10; done
+  echo "⚠ no tachyon build started: pushing an empty commit to retrigger"
+  git commit -q --allow-empty -m "deploy: retrigger tachyon build"
+  git push -q origin HEAD:deploy
+done
+[[ "$(checks)" != "0" ]] && echo "✓ tachyon build started: https://github.com/course-inc/nasa-hackason/commits/deploy" \
+  || echo "⚠ tachyon still hasn't started a build: check platform.txcloud.app"
