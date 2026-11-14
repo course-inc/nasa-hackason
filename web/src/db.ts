@@ -1,6 +1,7 @@
 // DuckDB-WASM over the whole-Hokkaido scan, for data exploration and agent tools.
 // The engine files are bundled from node_modules (Vite `?url`), so this works offline in Tauri
-// and on the static web build. Every number in these tables comes from the Rust core: cell
+// and on the static web build. Only the "eh" build ships (wasm exceptions: Chrome 95+, Safari
+// 15.2+, Firefox 100+, all Tauri webviews), which keeps the 39 MB "mvp" build out of the bundle. Every number in these tables comes from the Rust core: cell
 // values from `scanColumns()`, match scores from `scan.scores()` (the same formula as the map).
 //   cells   (k, lat, lon, elev_m, relief_m, slope_deg, slope_p90_deg, shadow, ndvi, urban, crop,
 //            forest, water, barren, tmin_jan_c, tmax_aug_c, precip_mm, screened)
@@ -10,8 +11,6 @@
 //   score_<body>_<test> (k, score, excluded)                  created by ensureScores
 //   scan    view: cells ⨝ the score table of the last ensureScores pair
 import * as duckdb from '@duckdb/duckdb-wasm';
-import mvpWasm from '@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url';
-import mvpWorker from '@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?url';
 import ehWasm from '@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url';
 import ehWorker from '@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url';
 import type { Core, Scan } from './core';
@@ -57,16 +56,10 @@ export function openDb(core: Core): Promise<Db> {
 }
 
 async function open(core: Core): Promise<Db> {
-  const [scan, bundle] = await Promise.all([
-    core.loadScan(1),
-    duckdb.selectBundle({
-      mvp: { mainModule: mvpWasm, mainWorker: mvpWorker },
-      eh: { mainModule: ehWasm, mainWorker: ehWorker },
-    }),
-  ]);
-  const worker = new Worker(bundle.mainWorker!);
+  const scan = await core.loadScan(1);
+  const worker = new Worker(ehWorker);
   const db = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), worker);
-  await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+  await db.instantiate(ehWasm);
   const conn = await db.connect();
 
   const query = async (sql: string): Promise<Row[]> => {

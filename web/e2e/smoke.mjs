@@ -67,9 +67,15 @@ console.log('default target', defBody); if (defBody !== 'jezero') fail('default 
 const ex = await p.evaluate(async () => {
   for (let i = 0; i < 100 && !window.analogScan; i++) await new Promise((r) => setTimeout(r, 100));
   const r = await window.analogScan.explore({ target: 'jezero', test: 'walk', n: 5, where: 'elev_m >= 500' });
-  return { n: r.data.length, top: r.data[0], sql: r.sql, text: r.text, sources: r.sources.length };
+  const bare = await window.analogScan.explore({ target: 'jezero', test: 'walk', n: 5, bare_only: true });
+  const km = (a, b) => Math.hypot((a.lat - b.lat) * 111.32, (a.lon - b.lon) * 111.32 * Math.cos((a.lat + b.lat) / 2 * Math.PI / 180));
+  const minKm = Math.min(...r.data.flatMap((a, i) => r.data.slice(i + 1).map((b) => km(a, b))));
+  return { n: r.data.length, top: r.data[0], sql: r.sql, text: r.text, sources: r.sources.length, minKm,
+    bareN: bare.data.length, bareOk: bare.data.every((x) => x.ndvi !== null && x.ndvi < 0.4) };
 }).catch((e) => ({ error: String(e) }));
 console.log('explore_hokkaido:', ex.text ?? ex.error);
+console.log('explore spacing', ex.minKm?.toFixed(1), 'km | bare_only rows', ex.bareN);
+if (!(ex.minKm >= 15) || !(ex.bareN >= 1) || !ex.bareOk) fail('explore spacing / bare_only');
 if (!(ex.n >= 1) || !/FROM cells c JOIN score_jezero_walk/.test(ex.sql ?? '') || !(ex.top?.elev_m >= 500)) fail('explore_hokkaido');
 const bad = await p.evaluate(() => window.analogScan.explore({ where: 'elev_m > 0; DROP TABLE cells' }).then(() => 'ran', (e) => String(e)));
 if (!/where:/.test(bad)) fail('explore where validation');
