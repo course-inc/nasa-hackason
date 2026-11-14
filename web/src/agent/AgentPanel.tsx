@@ -5,6 +5,8 @@ import { getAgent, getTools, listAgents, onRegistryChange } from './port';
 import { NoModelError, lastModel } from './pirs';
 import type { AgentEvent, ToolResult } from './types';
 import { useLang, useT } from '../i18n';
+import { publishAnswer } from './lastAnswer';
+import { startVoice, voiceStatus, type Recording, type VoiceStatus } from './voice';
 
 export const EXAMPLES = [
   '基地から3km先まで歩いて帰れる？',
@@ -82,6 +84,30 @@ export function AgentPanel() {
   const [items, setItems] = useState<Item[]>([]);
   const [busy, setBusy] = useState(false);
   const abort = useRef<AbortController | null>(null);
+  // Voice: whisper.cpp in the desktop app, the browser's speech recognition on the web.
+  const [voice, setVoice] = useState<VoiceStatus>({ mode: 'none' });
+  const [listening, setListening] = useState(false);
+  const [voiceErr, setVoiceErr] = useState<string | null>(null);
+  const rec = useRef<Recording | null>(null);
+  useEffect(() => { voiceStatus().then(setVoice).catch(() => undefined); }, []);
+  const toggleVoice = async () => {
+    setVoiceErr(null);
+    if (!rec.current) {
+      try { rec.current = await startVoice(lang); setListening(true); }
+      catch (e) { setVoiceErr(t('マイクを使えませんでした。マイクの使用を許可してから、もう一度押してください。', 'Could not use the microphone. Allow microphone access and press again.')); console.warn(e); }
+      return;
+    }
+    const r = rec.current; rec.current = null; setListening(false);
+    try {
+      const text = await r.stop();
+      if (!text) { setVoiceErr(t('声が聞き取れませんでした。もう少し大きな声で、もう一度どうぞ。', 'Nothing was heard. Speak a little louder and try again.')); return; }
+      setQ(text);
+      ask(text);
+    } catch (e) {
+      setVoiceErr(t('文字起こしに失敗しました。文字で質問するか、もう一度押してください。', 'Transcription failed. Type the question or press again.'));
+      console.warn(e);
+    }
+  };
   const logRef = useRef<HTMLDivElement>(null);
   useEffect(() => { logRef.current?.scrollTo({ top: logRef.current.scrollHeight }); }, [items]);
   const used = items.length > 0 || busy;
@@ -128,7 +154,10 @@ export function AgentPanel() {
     } catch (e) {
       onEvent({ type: 'error', message: e instanceof Error ? e.message : String(e) });
     } finally {
-      patchLast((it) => ({ ...it, done: true }));
+      patchLast((it) => {
+        if (it.text) publishAnswer({ q: prompt, a: it.text, at: Date.now() });
+        return { ...it, done: true };
+      });
       setBusy(false);
       abort.current = null;
     }
@@ -167,8 +196,16 @@ export function AgentPanel() {
       <div className="agent-examples">
         {(lang === 'ja' ? EXAMPLES : EXAMPLES_EN).map((x) => <button key={x} disabled={busy} onClick={() => ask(x)}>{x}</button>)}
       </div>
+      {(listening || voiceErr) && <p className={listening ? 'voice-live' : 'warn voice-err'}>{listening ? t('聞き取り中… 話し終えたら ■ を押してください', 'Listening… press ■ when you finish') : voiceErr}</p>}
       <form className="agent-input" onSubmit={(e) => { e.preventDefault(); ask(q); }}>
         <input id="agent-q" aria-label={t('質問', 'Question')} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('例: 酸素6時間で基地から3km先まで帰れる？', 'e.g. With 6 hours of oxygen, can I walk back from 3 km out?')} />
+        {voice.mode !== 'none' && (
+          <button type="button" className={`mic${listening ? ' on' : ''}`} onClick={toggleVoice} disabled={busy}
+            aria-pressed={listening} aria-label={listening ? t('話し終えたら押す', 'Press when you finish speaking') : t('声で質問する', 'Ask by voice')}
+            title={voice.mode === 'whisper' ? t('声で質問（端末内で文字起こし、通信なし）', 'Ask by voice (transcribed on this device, offline)') : t('声で質問', 'Ask by voice')}>
+            {listening ? '■' : '🎤'}
+          </button>
+        )}
         {busy
           ? <button type="button" onClick={() => abort.current?.abort()}>{t('止める', 'Stop')}</button>
           : <button type="submit" className="primary" disabled={!q.trim()}>{t('聞く', 'Ask')}</button>}
