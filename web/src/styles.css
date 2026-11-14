@@ -121,7 +121,7 @@ button:disabled { opacity: .5; cursor: default; }
 .floating { position: absolute; right: 16px; top: 16px; z-index: 1000; background: var(--panel); padding: 8px 12px; border-radius: 6px; }
 
 /* helmet HUD */
-.hud { position: absolute; inset: 0; z-index: 900; pointer-events: none; font-variant-numeric: tabular-nums; }
+.hud { position: absolute; inset: 0; z-index: 1200; pointer-events: none; font-variant-numeric: tabular-nums; }
 .hud-visor { position: absolute; inset: 0; border-radius: 48% / 40%; box-shadow: inset 0 0 0 9999px rgba(0,0,0,0), inset 0 0 120px 40px rgba(0,10,25,.75);
   outline: 2px solid rgba(64,169,255,.25); outline-offset: -30px; }
 .hud-top { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); display: flex; gap: 22px;
@@ -158,3 +158,21 @@ button:disabled { opacity: .5; cursor: default; }
 .lg-earth::before { background: #40a9ff; }
 
 .mapwrap > .mapwrap { position: absolute; inset: 0; }
+
+/* 3D terrain */
+.terrain-over { position: absolute; inset: 0; z-index: 1100; }
+.terrain3d { position: absolute; inset: 0; background: #1d1210; }
+.terrain3d-canvas { position: absolute; inset: 0; }
+.terrain3d-canvas canvas { display: block; }
+.terrain3d-ctl { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 4px; align-items: center; background: rgba(15, 20, 30, 0.8); color: #dfe6ef; padding: 4px 8px; border-radius: 6px; font-size: 12px; }
+.terrain3d-ctl button, .view-toggle button { background: transparent; color: inherit; border: 1px solid rgba(255,255,255,0.25); border-radius: 4px; padding: 2px 8px; cursor: pointer; font: inherit; }
+.terrain3d-ctl button.on, .view-toggle button.on { background: #ff7a45; border-color: #ff7a45; color: #fff; }
+.terrain3d-help { position: absolute; right: 12px; bottom: 12px; color: rgba(223,230,239,0.75); font-size: 11px; background: rgba(15,20,30,0.6); padding: 3px 8px; border-radius: 4px; }
+.view-toggle { position: absolute; top: 12px; right: 64px; z-index: 1300; display: flex; gap: 4px; background: rgba(15, 20, 30, 0.85); color: #dfe6ef; padding: 4px; border-radius: 6px; font-size: 13px; font-weight: 700; }
+.terrain3d .maplabel { z-index: 2; }
+/* keep labels clear of the 2D/3D toggle (right: 64px + ~70px wide) */
+.terrain3d .maplabel, .rehearsal > .maplabel { max-width: calc(100% - 200px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.terrain3d-help { max-width: calc(100% - 200px); text-align: right; }
+/* rehearsal: course name and comparison card stay above the 3D overlay; height control moves up out of the card's way */
+.rehearsal > .maplabel, .rehearsal > .rehearsal-card { z-index: 1200; }
+.rehearsal .terrain3d-ctl { bottom: auto; top: 56px; }

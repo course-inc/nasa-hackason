@@ -8,8 +8,13 @@ export const LANDING: Waypoint = { lat: 18.4446, lon: 77.4509 };
 
 export interface HokkaidoSite { id: string; name: string; lat: number; lon: number; rows: number; cols: number; nulls: number }
 
+/** Elevation grid as stored in web/public/data (north-up, cell centres, metres or null). */
+export interface GridData { lat0: number; lon0: number; dlat: number; dlon: number; rows: number; cols: number; z: (number | null)[]; src?: string }
+
 export interface WalkData {
   dem: { lat0: number; lon0: number; dlat: number; dlon: number; rows: number; cols: number; src?: string } | null;
+  /** The same Jezero grid with elevations, for the 3D view. */
+  demGrid: GridData | null;
   rover: RoverStats | null;
   /** Rover path as [lat, lon] polylines for the map. */
   traverse: [number, number][][];
@@ -30,12 +35,14 @@ let cache: Promise<WalkData> | null = null;
 
 export function loadWalkData(core: Core): Promise<WalkData> {
   cache ??= (async () => {
-    const d: WalkData = { dem: null, rover: null, traverse: [], traverseRaw: [], eva: null, hokkaido: [], errors: [] };
+    const d: WalkData = { dem: null, demGrid: null, rover: null, traverse: [], traverseRaw: [], eva: null, hokkaido: [], errors: [] };
     await Promise.all([
       get('./data/jezero_dem.json').then((t) => {
         core.setGrid(JEZERO, t);
-        const { z: _z, ...meta } = JSON.parse(t);
+        const g = JSON.parse(t) as GridData;
+        const { z: _z, ...meta } = g;
         d.dem = meta;
+        d.demGrid = g;
       }).catch((e) => d.errors.push(`地形: ${e.message}`)),
       get('./data/m20_traverse.json').then((t) => {
         d.rover = core.setTraverse(t);
@@ -53,11 +60,11 @@ export function loadWalkData(core: Core): Promise<WalkData> {
   return cache;
 }
 
-const loadedHk = new Map<string, Promise<void>>();
-export function loadHokkaidoGrid(core: Core, id: string): Promise<void> {
+const loadedHk = new Map<string, Promise<GridData>>();
+export function loadHokkaidoGrid(core: Core, id: string): Promise<GridData> {
   let p = loadedHk.get(id);
   if (!p) {
-    p = get(`./data/hokkaido/${id}.json`).then((t) => core.setGrid(`hk:${id}`, t));
+    p = get(`./data/hokkaido/${id}.json`).then((t) => { core.setGrid(`hk:${id}`, t); return JSON.parse(t) as GridData; });
     loadedHk.set(id, p);
   }
   return p;
