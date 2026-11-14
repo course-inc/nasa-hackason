@@ -17,7 +17,11 @@ const Gauge = ({ label, v, warn }: { label: string; v: number; warn: boolean }) 
   </div>
 );
 
-export function Hud({ s, limiting, onStop, children }: { s: HudState; limiting: 'o2' | 'water'; onStop: () => void; children?: React.ReactNode }) {
+export function Hud({ s, limiting, onStop, children, rad }: {
+  s: HudState; limiting: 'o2' | 'water'; onStop: () => void; children?: React.ReactNode;
+  /** Radiation dose so far (Rust radiation.rs: Curiosity RAD rate, NASA career limit). */
+  rad?: (hours: number) => { dose_msv: number; career_share: number } | null;
+}) {
   const t = useT();
   const qa = useLastAnswer();
   const msg =
@@ -43,6 +47,10 @@ export function Hud({ s, limiting, onStop, children }: { s: HudState; limiting: 
       <div className="hud-left">
         <Gauge label="O₂" v={s.o2} warn={limiting === 'o2' && s.o2 < 0.35} />
         <Gauge label={t('冷却水', 'Water')} v={s.water} warn={limiting === 'water' && s.water < 0.35} />
+        {(() => {
+          const r = rad?.(s.t_h);
+          return r ? <div className="hud-rad">☢ {t('放射線', 'Radiation')} <b>{r.dose_msv.toFixed(3)} mSv</b> <small>{t(`生涯上限の ${(r.career_share * 100).toFixed(3)}%`, `${(r.career_share * 100).toFixed(3)}% of career limit`)}</small></div> : null;
+        })()}
       </div>
       {msg && <div className={`hud-msg${s.phase === 'turn' || s.margin_h < 0.5 ? ' alert' : ''}`}>{msg}</div>}
       {qa && (

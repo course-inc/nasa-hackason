@@ -7,12 +7,14 @@ import { AgentPanel } from './agent/AgentPanel';
 import { registerAgent } from './agent/port';
 import { rulesAgent } from './agent/rules';
 import { pirsAgent } from './agent/pirs';
+import { claudeAgent } from './agent/claude';
 import { registerAgentTools } from './agent/tools';
 import './styles.css';
 
 // #11 question panel: agents and tools (window.__walkback lets an outside harness add its own agent).
 registerAgent(rulesAgent);
 registerAgent(pirsAgent);
+registerAgent(claudeAgent);
 loadCore().then(registerAgentTools, () => undefined);
 
 createRoot(document.getElementById('root')!).render(<StrictMode><App /><AgentPanel /></StrictMode>);

@@ -99,6 +99,8 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   // The same route on firm ground, to show how much time the footing adds.
   const evFirm = useMemo(() => (footOn && data?.footing ? evaluate(core, dense, { ...p, footing: false }) : null), [core, dense, p, footOn, data]);
   const footModel = useMemo(() => { try { return core.footingModel(); } catch { return null; } }, [core]);
+  const radModel = useMemo(() => { try { return core.radiationModel(); } catch { return null; } }, [core]);
+  const rad = useMemo(() => { try { return core.radiationExposure(ev.total_h); } catch { return null; } }, [core, ev.total_h]);
   const footImg = useMemo(() => {
     if (!showFoot || !data?.dem || !data.footing) return null;
     ensureFooting(core, true);
@@ -451,6 +453,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           <>
             <div className="kv"><span>{t('行き / 帰り（まっすぐ）', 'Out / back (straight)')}</span><b>{ev.out_km.toFixed(1)} km / {ev.back_km.toFixed(1)} km</b></div>
             <div className="kv"><span>{t('かかる時間', 'Time')}</span><b>{fmtH(ev.total_h)}</b></div>
+            {rad && <div className="kv" id="rad-dose"><span>{t('放射線（この船外活動）', 'Radiation (this EVA)')}</span><b>{rad.dose_msv.toFixed(2)} mSv <small className="muted">{t(`生涯上限の ${(rad.career_share * 100).toFixed(2)}%`, `${(rad.career_share * 100).toFixed(2)}% of career limit`)}</small></b></div>}
             {evFirm && ev.total_h - evFirm.total_h >= 1 / 60 && <div className="kv sub" id="foot-extra"><span>{t('うち足場で増えた時間', 'of which footing adds')}</span><b>+{fmtH(ev.total_h - evFirm.total_h)}</b></div>}
             <div className="kv"><span>{t('体力の消費 / 使える分', 'Effort used / usable')}</span><b>{ev.total_effort_h.toFixed(1)} / {ev.usable_h.toFixed(1)} h</b></div>
             <div className="kv"><span>{t('先に尽きるもの', 'Runs out first')}</span><b className={ev.limiting === 'water' ? 'water' : ''}>{ev.limiting === 'water' ? t('冷却水', 'Cooling water') : t('酸素', 'Oxygen')}</b></div>
@@ -480,6 +483,11 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
             <p className="muted" id="ev-footing">{t(
               `足場: Mars Odyssey THEMIS の熱慣性（100 m）と MGS TES のダスト被覆指数から、歩く時間（＝酸素・冷却水）を何倍にするかを決めています。熱慣性 ${footModel.ti_loose} 以下は細かい砂・ちり（Presley & Christensen 1997）で ×${footModel.eta_loose}（砂の上を歩くと平らな硬い地面の 1.6〜2.5 倍のエネルギー、Lejeune ほか 1998 の下限）、${footModel.ti_firm} 以上は岩・固まった地面（Putzig & Mellon 2007）で ×${footModel.eta_firm}（未舗装路の地形係数、Soule & Goldman 1972）。その間は熱慣性の対数で直線的に補間（目安）。ダスト被覆指数 ${footModel.dci_dusty} 未満のちりに覆われた所は ×${footModel.dust_extra}（目安）。岩の多さは熱慣性に含まれます（1 km より細かい岩の量の地図はないため）。`,
               `Footing: from Mars Odyssey THEMIS thermal inertia (100 m) and the MGS TES dust cover index, a factor on walking time (and so O₂ and water). Thermal inertia ≤ ${footModel.ti_loose}: fine sand and dust (Presley & Christensen 1997), ×${footModel.eta_loose} (walking on sand costs 1.6–2.5× the energy of firm ground, Lejeune et al. 1998, low end); ≥ ${footModel.ti_firm}: rock or cemented ground (Putzig & Mellon 2007), ×${footModel.eta_firm} (dirt-road terrain coefficient, Soule & Goldman 1972). In between: linear in log thermal inertia (estimate). Dust cover index < ${footModel.dci_dusty}: ×${footModel.dust_extra} (estimate). Rock abundance is part of thermal inertia (no rock map finer than 1 km exists).`)}</p>
+          )}
+          {radModel && (
+            <p className="muted" id="ev-radiation">{t(
+              `放射線: Curiosity の RAD が火星の地表で測った線量当量 ${radModel.dose_eq_msv_per_day} ± ${radModel.dose_eq_sigma} mSv/日（吸収線量 ${radModel.absorbed_mgy_per_day} mGy/日、Hassler ほか 2014 Science）で、歩く時間 × この値。上限は NASA-STD-3001 の生涯 ${radModel.career_limit_msv} mSv（太陽フレア 1 回あたり ${radModel.spe_limit_msv} mSv）。この値では 1 回の船外活動で放射線が先に尽きることはありません（酸素・冷却水が先）。Gale は Jezero より約 2 km 低いので、Jezero の値は目安。太陽フレア（SPE）は数時間で桁違いに増えるので、そのときはすぐ基地へ戻る、が対策です。`,
+              `Radiation: Curiosity RAD measured ${radModel.dose_eq_msv_per_day} ± ${radModel.dose_eq_sigma} mSv/day dose equivalent on the surface (${radModel.absorbed_mgy_per_day} mGy/day absorbed; Hassler et al. 2014, Science); walking time × this rate. Limits from NASA-STD-3001: ${radModel.career_limit_msv} mSv per career (${radModel.spe_limit_msv} mSv per solar particle event). At this rate radiation never runs out first on one EVA (O₂ or water does). Gale is ~2 km lower than Jezero, so the value is an estimate there. A solar particle event can raise it by orders of magnitude for hours: the answer is to head back at once.`)}</p>
           )}
           <p className="muted">{t('急いで歩くと冷却水は酸素の約1.15倍の速さで減ります（NASA の歩行帰還試験、Gernhardt 2010）。帰着時に30分・2割を残すのは Apollo 以来の慣例です。', 'Walking hard uses cooling water about 1.15× as fast as oxygen (NASA walkback tests, Gernhardt 2010). Arriving with 30 min / 20% left is Apollo-era practice.')}</p>
         </details>
@@ -568,7 +576,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
               <button className={!globeOn && view3d ? 'on' : ''} onClick={() => { setGlobeOn(false); setView3d(true); }}>3D</button>
             </div>
           )}
-          {hud && <Hud s={hud} limiting={ev.limiting} onStop={stop} />}
+          {hud && <Hud s={hud} limiting={ev.limiting} onStop={stop} rad={(h) => { try { return core.radiationExposure(h); } catch { return null; } }} />}
           {!hud && <Guide />}
           <RouteEditor host={mapHost} route={route} drawing={mode === 'route' && !hud && !globeOn} onChange={setRoute}
             preview={routePreview} connect={easy ? (a, b) => easyLeg(core, data, a, b, p) : undefined} onFinish={() => setMode('pan')} t={t} />

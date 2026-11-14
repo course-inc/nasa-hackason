@@ -117,6 +117,8 @@ export interface Core extends Boot {
   setFooting: (grid: string, json: string) => void;
   sampleFooting: (grid: string, latlons: [number, number][]) => (number | null)[];
   footingModel: () => FootingModel;
+  radiationExposure: (hours: number) => { dose_msv: number; career_share: number; hours_to_career_limit: number };
+  radiationModel: () => { dose_eq_msv_per_day: number; dose_eq_sigma: number; absorbed_mgy_per_day: number; career_limit_msv: number; spe_limit_msv: number };
   /** Per cell 0 (firm) … 255 (loose), for the map layer; empty without footing. */
   footingBadness: (grid: string) => Uint8Array;
   distanceKm: (world: World, a: { lat: number; lng: number }, b: { lat: number; lng: number }) => number;
@@ -181,6 +183,8 @@ export function loadCore(): Promise<Core> {
       setFooting: (grid, json) => wasm.setFooting(grid, json),
       sampleFooting: (grid, latlons) => JSON.parse(wasm.sampleFooting(grid, JSON.stringify(latlons))),
       footingModel: () => JSON.parse(wasm.footingModel()),
+      radiationExposure: (h) => JSON.parse(wasm.radiationExposure(h)),
+      radiationModel: () => JSON.parse(wasm.radiationModel()),
       footingBadness: (grid) => wasm.footingBadness(grid),
       distanceKm: (world, a, b) => wasm.distanceKm(world, a.lat, a.lng, b.lat, b.lng),
       setGrid: (name, g) => wasm.setGrid(name, typeof g === 'string' ? g : JSON.stringify(g)),

@@ -17,6 +17,7 @@ pub mod data;
 pub mod eva;
 pub mod footing;
 pub mod grid;
+pub mod radiation;
 pub mod rehearsal;
 pub mod route;
 pub mod scan;

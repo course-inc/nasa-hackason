@@ -2,7 +2,7 @@
 //! TypeScript side (web/src/core.ts) owns the types and no extra glue crates are needed.
 
 use analog_core::{
-    conditions, data, eva, footing, grid, rehearsal, route, scoring, traverse, world,
+    conditions, data, eva, footing, grid, radiation, rehearsal, route, scoring, traverse, world,
 };
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
@@ -168,6 +168,23 @@ pub fn footing_badness(name: &str) -> Result<Vec<u8>, JsError> {
             })
             .collect()
     })
+}
+
+/// Radiation dose for `hours` on the surface (Curiosity RAD rate, NASA limits): {dose_msv,
+/// career_share, hours_to_career_limit}.
+#[wasm_bindgen(js_name = radiationExposure)]
+pub fn radiation_exposure(hours: f64) -> String {
+    json(&radiation::exposure(hours))
+}
+
+/// Radiation constants for the evidence card and the helmet display.
+#[wasm_bindgen(js_name = radiationModel)]
+pub fn radiation_model() -> String {
+    json(&serde_json::json!({
+        "dose_eq_msv_per_day": radiation::DOSE_EQ_MSV_PER_DAY, "dose_eq_sigma": radiation::DOSE_EQ_SIGMA,
+        "absorbed_mgy_per_day": radiation::ABSORBED_MGY_PER_DAY,
+        "career_limit_msv": radiation::CAREER_LIMIT_MSV, "spe_limit_msv": radiation::SPE_LIMIT_MSV,
+    }))
 }
 
 /// Footing constants and their sources, for the evidence card (all numbers from footing.rs).

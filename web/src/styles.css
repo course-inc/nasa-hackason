@@ -448,3 +448,24 @@ h1 small { font-size: 12px; margin-left: 6px; }
 .foot-legend i { height: 8px; border-radius: 4px; background: linear-gradient(90deg, rgba(255,200,40,0), rgba(255,120,40,.6), rgba(255,40,40,.86)); }
 .foot-legend span:last-child { text-align: right; }
 .kv.sub span { padding-left: 1em; font-size: 12px; }
+
+.hud-rad { font-size: 12px; color: #cfe8ff; margin-top: 4px; }
+.hud-rad b { color: #b7eb8f; } .hud-rad small { color: #8fa3bf; margin-left: 4px; }
+
+/* Start-up splash */
+.splash { position: fixed; inset: 0; z-index: 10000; background: #07080c; color: #e8e2d8; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 14px; cursor: pointer; transition: opacity .35s ease; }
+.splash.leaving { opacity: 0; pointer-events: none; }
+.splash-mars { width: min(42vw, 240px); aspect-ratio: 1; border-radius: 50%; margin-bottom: 10px;
+  background: 0 50% / 200% 100% repeat-x #5a2e1c;
+  box-shadow: inset -28px -18px 46px rgba(0,0,0,.85), inset 8px 6px 18px rgba(255,220,190,.10), 0 0 40px rgba(200,110,60,.12);
+  animation: splash-turn 60s linear infinite; }
+@keyframes splash-turn { from { background-position-x: 0; } to { background-position-x: -200%; } }
+.splash h1 { margin: 0; font-size: clamp(30px, 6vw, 46px); letter-spacing: .32em; font-weight: 700; padding-left: .32em; }
+.splash-line { margin: 0; font-size: 15px; color: #b9b1a5; }
+.splash-progress { width: min(70vw, 260px); display: grid; gap: 6px; margin-top: 18px; text-align: center; font-size: 11.5px; color: #8b857b; }
+.splash-bar { height: 3px; background: #22252d; border-radius: 2px; overflow: hidden; }
+.splash-bar div { height: 100%; background: #c8703e; transition: width .3s ease; }
+.splash-src { position: absolute; bottom: 34px; margin: 0; font-size: 11px; color: #6c675f; text-align: center; padding: 0 16px; }
+.splash-skip { position: absolute; bottom: 12px; margin: 0; font-size: 10.5px; color: #4d4943; }
+@media (prefers-reduced-motion: reduce) { .splash-mars { animation: none; } .splash { transition: none; } }
