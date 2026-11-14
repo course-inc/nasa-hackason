@@ -33,6 +33,15 @@ export function AnalogsView({ core }: { core: Core }) {
     selectBody(r.ranks[0].body_id);
   };
 
+  // The Moon/Mars tab switches the whole comparison, not just the map: pick this site's best
+  // match on that world, so the table and scores always describe what the map shows.
+  const switchWorld = (w: World) => {
+    setBodyWorld(w);
+    const r = earthId ? rankings.find((x) => x.earth_id === earthId) : undefined;
+    const best = r?.ranks.find((x) => body(x.body_id).world === w);
+    if (best) selectBody(best.body_id);
+    else if (bodyId && body(bodyId).world !== w) setBodyId(null);
+  };
   const cur = earthId ? rankings.find((r) => r.earth_id === earthId) : undefined;
   const curE = earthId ? site(earthId) : undefined;
   const curB = bodyId ? body(bodyId) : undefined;
@@ -114,7 +123,7 @@ export function AnalogsView({ core }: { core: Core }) {
             kind: 'point', lat: b.lat, lon: b.lon, radius: b.id === bodyId ? 9 : 7, tooltip: b.ja,
             color: '#40a9ff', onClick: () => selectBody(b.id),
           }))}>
-          <WorldTabs core={core} worlds={['mars', 'moon']} value={bodyWorld} onChange={setBodyWorld} className="maplabel tabs" />
+          <WorldTabs core={core} worlds={['mars', 'moon']} value={bodyWorld} onChange={switchWorld} className="maplabel tabs" />
         </PlanetMap>
       </div>
     </section>

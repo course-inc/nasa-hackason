@@ -61,8 +61,8 @@
     balanced: { label: 'バランス', w: { topography: .2, geology: .2, temperature: .2, lighting: .2, regolith: .2 } },
     ice:      { label: '氷・ISRU', w: { topography: .15, geology: .15, temperature: .40, lighting: .15, regolith: .15 } },
     landing:  { label: '着陸・走行', w: { topography: .50, geology: .125, temperature: .125, lighting: .125, regolith: .125 } },
-    geology:  { label: '地質（仮）', w: { topography: .15, geology: .50, temperature: .10, lighting: .05, regolith: .20 } },
-    caves:    { label: '洞窟（仮）', w: { topography: .35, geology: .15, temperature: .35, lighting: .05, regolith: .10 } },
+    geology:  { label: '地質重視', w: { topography: .15, geology: .50, temperature: .10, lighting: .05, regolith: .20 } },
+    caves:    { label: '洞窟・溶岩洞', w: { topography: .35, geology: .15, temperature: .35, lighting: .05, regolith: .10 } },
   };
 
   // Screening before scoring: an analog must be a natural surface (MODIS IGBP class at the site).

@@ -141,7 +141,7 @@ button:disabled { opacity: .5; cursor: default; }
 .hud-msg.alert { color: #fff; background: rgba(200,40,40,.85); border-color: #ff7875; animation: hudblink 1s steps(2) infinite; }
 @keyframes hudblink { 50% { opacity: .55; } }
 @media (prefers-reduced-motion: reduce) { .hud-msg.alert { animation: none; } }
-.hud-stop { position: absolute; right: 20px; bottom: 60px; pointer-events: auto; }
+.hud-stop { position: absolute; left: 50%; transform: translateX(-50%); bottom: 28px; pointer-events: auto; z-index: 2; }
 
 /* rehearsal */
 .rehearsal-card { position: absolute; z-index: 1000; left: 12px; right: 12px; bottom: 28px; max-width: 360px;
@@ -289,8 +289,6 @@ h1 small { font-size: 12px; margin-left: 6px; }
 .guide ol { margin: 0 0 8px; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 .guide ol b { display: block; color: var(--accent); }
 .guide button { margin-top: 8px; }
-
-}
 
 .walk-title small { display: block; margin-top: 2px; line-height: 1.4; }
 /* Latest question and answer inside the helmet (local-axis HUD). */

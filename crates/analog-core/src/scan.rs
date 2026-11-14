@@ -271,6 +271,15 @@ pub fn scan_weights(profile_id: &str) -> Weights {
 
 /// Share of forest (MODIS IGBP classes 1–5) above which a cell is screened out, in %.
 pub const FOREST_SCREEN_PCT: f64 = 50.0;
+/// Land share of the cell (NASADEM land/sea) below which it is screened out, in %: a coastal cell
+/// is mostly sea, and its low NDVI is the water, not bare ground.
+pub const LAND_MIN_PCT: f64 = 80.0;
+/// Water share (MODIS IGBP class 17: lakes, reservoirs, rivers) from which a cell is screened out,
+/// in %. A lake surface also reads as "low vegetation" (Lake Shumarinai came out on top before).
+pub const WATER_SCREEN_PCT: f64 = 15.0;
+/// Cropland share (MODIS IGBP 12 and 14) from which a cell is screened out, in %: fields are open
+/// and flat but are neither bare ground nor a place a rehearsal could use.
+pub const CROP_SCREEN_PCT: f64 = 40.0;
 
 /// Scan-only screen on top of [`crate::scoring::screen_out`]: a cell that is mostly forest is
 /// excluded. The 14 known sites were picked by hand on open ground, but a 1 km cell under trees
@@ -280,9 +289,21 @@ fn screen_scan(scan: &Scan, s: &mut PairScore, k: usize) {
     if s.excluded.is_some() {
         return;
     }
-    if Cells::opt(&scan.cells.forest, k).is_some_and(|x| x > FOREST_SCREEN_PCT) {
+    let c = &scan.cells;
+    let reason = if c.land[k] < LAND_MIN_PCT {
+        Some("海にかかるマスのため除外（NASADEM の陸の割合）")
+    } else if Cells::opt(&c.water, k).is_some_and(|x| x >= WATER_SCREEN_PCT) {
+        Some("湖や川にかかるマスのため除外（MODIS 土地被覆の水）")
+    } else if Cells::opt(&c.forest, k).is_some_and(|x| x > FOREST_SCREEN_PCT) {
+        Some("森林が大部分のため除外（MODIS 土地被覆）")
+    } else if Cells::opt(&c.crop, k).is_some_and(|x| x >= CROP_SCREEN_PCT) {
+        Some("畑が多いマスのため除外（MODIS 土地被覆の耕作地）")
+    } else {
+        None
+    };
+    if let Some(r) = reason {
         s.total = 0.0;
-        s.excluded = Some("森林が大部分のため除外（MODIS 土地被覆）".into());
+        s.excluded = Some(r.into());
     }
 }
 
