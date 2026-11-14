@@ -17,7 +17,7 @@ spec:
       build:
         # web/src/wasm is committed on this branch (built by `mise run wasm` on main), so no Rust
         # toolchain is needed here. Offline map tiles are downloaded at build time.
-        installCommand: npm install -g pnpm@9 && pnpm --dir web install --frozen-lockfile
+        installCommand: npm install -g pnpm@12.16.1 && pnpm --dir web install --frozen-lockfile
         command: node scripts/fetch-walk-tiles.mjs && pnpm --dir web build
         outputDirectory: web/dist
         nodeVersion: "22"
