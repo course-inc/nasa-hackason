@@ -158,6 +158,18 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
   if (o2 !== '6') fail(`O2 slider moved to 6 (${o2})`);
 }
 
+// query_nasa: a counting question answered with read-only SQL over the parquet tables; the SQL and
+// its source come back with the rows.
+{
+  const { text, chips } = await ask('8時間を超えた船外活動は何回？');
+  if (!chips.includes('query_nasa:ok')) fail('query_nasa called');
+  if (!/evas=\d+/.test(text)) fail(`query_nasa rows in the answer (${text})`);
+  const last = p.locator('.msg.agent').last();
+  await last.locator('.tool-chip-head').first().click();
+  const body = await last.locator('.tool-chip-body').first().innerText();
+  if (!/FROM eva WHERE hours > 8/.test(body) || !/data\.nasa\.gov/.test(body)) fail('query_nasa shows its SQL and source');
+}
+
 // Globe: the whole-Mars globe opens, shows the landing sites, and flying down opens the Jezero map.
 {
   const { chips } = await ask('火星の全球を見せて');
