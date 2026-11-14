@@ -25,4 +25,5 @@ pub mod scoring;
 pub mod target;
 pub mod traverse;
 pub mod walk;
+pub mod weather;
 pub mod world;

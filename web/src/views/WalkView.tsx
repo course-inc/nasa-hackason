@@ -7,7 +7,7 @@ import { getElevation } from '../elevation';
 import { PlanetMap, missionOverlay, type Feature, type FlyTarget } from '../map/PlanetMap';
 import { JEZERO, LANDING, ensureFooting, exampleRoute, loadWalkData, type WalkData } from '../walk/data';
 import { fmtH, footingImage, reachImage, slopeColor } from '../walk/geo';
-import { WALKBACK_COLOR, WATER_PER_O2, WORLD, denseRoute, easyLeg, evaParams, evaluate, reachFrom, rehearsalPoints, roverCheck, roverWalkbackSql, turnIndex, turnWaypoint, walkbackState } from '../walk/plan';
+import { DEFAULT_START, WALKBACK_COLOR, WATER_PER_O2, WORLD, waterFactor, denseRoute, easyLeg, evaParams, evaluate, reachFrom, rehearsalPoints, roverCheck, roverWalkbackSql, turnIndex, turnWaypoint, walkbackState } from '../walk/plan';
 import { setWalkController, type EvidenceTopic } from '../walk/controller';
 import { useLang, useT } from '../i18n';
 import { GpxError, SAMPLE_GPX, atDistance, importWalk, type WalkImport } from '../walk/gpx';
@@ -70,6 +70,8 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const [showRover, setShowRover] = useState(true);
   // Footing (THEMIS thermal inertia, TES dust): counted in every walk number; layer off by default.
   const [footOn, setFootOn] = useState(true);
+  // Departure, local solar hour at Jezero: MEDA air temperature over the walk sets the cooling water.
+  const [start, setStart] = useState(DEFAULT_START);
   const [showFoot, setShowFoot] = useState(false);
   const [view3d, setView3d] = useState(false);
   const [globeOn, setGlobeOn] = useState(false);
@@ -93,12 +95,17 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   }, [params.lat, params.lon, params.z]);
 
   // Same functions as the agent tools (walk/plan.ts), so both always show the same numbers.
-  const p = useMemo(() => evaParams({ speed, o2, water, reserve, footing: footOn }), [speed, o2, water, reserve, footOn]);
+  const p = useMemo(() => evaParams({ speed, o2, water, reserve, footing: footOn, start }), [speed, o2, water, reserve, footOn, start]);
   const dense = useMemo(() => denseRoute(core, data, route), [core, data, route]);
   const ev = useMemo(() => evaluate(core, dense, p), [core, dense, p]);
   // The same route on firm ground, to show how much time the footing adds.
   const evFirm = useMemo(() => (footOn && data?.footing ? evaluate(core, dense, { ...p, footing: false }) : null), [core, dense, p, footOn, data]);
   const footModel = useMemo(() => { try { return core.footingModel(); } catch { return null; } }, [core]);
+  const wx = useMemo(() => {
+    if (!data?.weather) return null;
+    try { return { ...core.weatherWalk(start, o2), f: waterFactor(core, p) }; } catch { return null; }
+  }, [core, data, start, o2, p]);
+  const wxModel = useMemo(() => { try { return core.weatherModel(); } catch { return null; } }, [core]);
   const radModel = useMemo(() => { try { return core.radiationModel(); } catch { return null; } }, [core]);
   const rad = useMemo(() => { try { return core.radiationExposure(ev.total_h); } catch { return null; } }, [core, ev.total_h]);
   const footImg = useMemo(() => {
@@ -284,20 +291,21 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const [camera, setCamera] = useState<Camera3D | null>(null);
   const [exag, setExag] = useState<number | undefined>(undefined);
   const [flash, setFlash] = useState<EvidenceTopic | null>(null);
-  const live$ = useRef({ route, speed, o2, water, reserve, footOn, play, stop, startRehearsalWith: reh.run, found: reh.found, loadWalk, loadSample, walkRec });
-  live$.current = { route, speed, o2, water, reserve, footOn, play, stop, startRehearsalWith: reh.run, found: reh.found, loadWalk, loadSample, walkRec };
+  const live$ = useRef({ route, speed, o2, water, reserve, footOn, start, play, stop, startRehearsalWith: reh.run, found: reh.found, loadWalk, loadSample, walkRec });
+  live$.current = { route, speed, o2, water, reserve, footOn, start, play, stop, startRehearsalWith: reh.run, found: reh.found, loadWalk, loadSample, walkRec };
   useEffect(() => {
     setWalkController({
       core,
       data: () => loadWalkData(core),
       route: () => live$.current.route,
-      params: () => ({ speed: live$.current.speed, o2: live$.current.o2, water: live$.current.water, reserve: live$.current.reserve, footing: live$.current.footOn }),
+      params: () => ({ speed: live$.current.speed, o2: live$.current.o2, water: live$.current.water, reserve: live$.current.reserve, footing: live$.current.footOn, start: live$.current.start }),
       setRoute: (r) => { live$.current.route = r; setRoute(r); },
       setParams: (q) => {
         if (q.speed != null) { setSpeed(q.speed); live$.current.speed = q.speed; }
         if (q.o2 != null) { setO2(q.o2); live$.current.o2 = q.o2; }
         if (q.water != null) { setWater(q.water); live$.current.water = q.water; }
         if (q.reserve != null) { setReserve(q.reserve); live$.current.reserve = q.reserve; }
+        if (q.start != null) { setStart(q.start); live$.current.start = q.start; }
       },
       runRehearsal: (pts) => { setRehOpen(true); setRehSel(0); return live$.current.startRehearsalWith(pts); },
       selectRehearsal: (i) => { setRehOpen(true); setRehSel(i); },
@@ -478,11 +486,22 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
             <input id="water" type="range" min={2} max={12} step={0.5} value={water} onChange={(e) => setWater(+e.target.value)} /></label>
           <label>{t('残しておく余裕', 'Reserve at arrival')} <b>{reserve}</b>%{t('（最低30分）', ' (at least 30 min)')}
             <input id="reserve" type="range" min={0} max={50} step={5} value={reserve} onChange={(e) => setReserve(+e.target.value)} /></label>
+          <label>{t('出発時刻（火星の地方時）', 'Departure (Mars local time)')} <b>{String(Math.floor(start)).padStart(2, '0')}:{start % 1 ? '30' : '00'}</b>
+            <input id="start" type="range" min={5} max={19} step={0.5} value={start} onChange={(e) => setStart(+e.target.value)} /></label>
+          {wx && wx.temp_k != null && (
+            <div className="kv sub" id="wx-line"><span>{t('出発時の気温・気圧（MEDA）', 'Air at departure (MEDA)')}</span><b>{(wx.temp_k - 273.15).toFixed(0)} °C · {wx.pressure_pa != null ? `${(wx.pressure_pa / 100).toFixed(2)} hPa` : '—'}</b></div>
+          )}
+          {wx && <div className="kv sub" id="wx-water"><span>{t('冷却水の減り方（気温による・目安）', 'Cooling water use (air temperature, estimate)')}</span><b>×{wx.f.toFixed(2)}</b></div>}
           <label className="check" id="foot-toggle"><input type="checkbox" checked={footOn} onChange={(e) => setFootOn(e.target.checked)} /> {t('足場（地面のやわらかさ）を計算に入れる', 'Count the footing (how loose the ground is)')}</label>
           {footModel && (
             <p className="muted" id="ev-footing">{t(
               `足場: Mars Odyssey THEMIS の熱慣性（100 m）と MGS TES のダスト被覆指数から、歩く時間（＝酸素・冷却水）を何倍にするかを決めています。熱慣性 ${footModel.ti_loose} 以下は細かい砂・ちり（Presley & Christensen 1997）で ×${footModel.eta_loose}（砂の上を歩くと平らな硬い地面の 1.6〜2.5 倍のエネルギー、Lejeune ほか 1998 の下限）、${footModel.ti_firm} 以上は岩・固まった地面（Putzig & Mellon 2007）で ×${footModel.eta_firm}（未舗装路の地形係数、Soule & Goldman 1972）。その間は熱慣性の対数で直線的に補間（目安）。ダスト被覆指数 ${footModel.dci_dusty} 未満のちりに覆われた所は ×${footModel.dust_extra}（目安）。岩の多さは熱慣性に含まれます（1 km より細かい岩の量の地図はないため）。`,
               `Footing: from Mars Odyssey THEMIS thermal inertia (100 m) and the MGS TES dust cover index, a factor on walking time (and so O₂ and water). Thermal inertia ≤ ${footModel.ti_loose}: fine sand and dust (Presley & Christensen 1997), ×${footModel.eta_loose} (walking on sand costs 1.6–2.5× the energy of firm ground, Lejeune et al. 1998, low end); ≥ ${footModel.ti_firm}: rock or cemented ground (Putzig & Mellon 2007), ×${footModel.eta_firm} (dirt-road terrain coefficient, Soule & Goldman 1972). In between: linear in log thermal inertia (estimate). Dust cover index < ${footModel.dci_dusty}: ×${footModel.dust_extra} (estimate). Rock abundance is part of thermal inertia (no rock map finer than 1 km exists).`)}</p>
+          )}
+          {wxModel && data?.weather && (
+            <p className="muted" id="ev-weather">{t(
+              `気温: Perseverance の MEDA が Jezero で測った気温と気圧（NASA PDS、1 火星年に散らばる ${data.weather.sols.length} sol を地方時ごとに平均、表 mars_weather）。冷却水は「体が出す熱 − 宇宙服から外へ逃げる熱」を捨てるのに使うので、寒いほど少なくて済みます。体の熱 ${wxModel.metabolic_w} W（火星船外活動の平均代謝、NASA NTRS 20110010198）、逃げる熱 ${wxModel.leak_w_per_k} W/K ×（皮膚 ${wxModel.t_skin_k} K − 気温）、基準は試験室の ${wxModel.t_ref_k} K（この3つは目安）。出発から酸素の時間分の気温の平均で冷却水の時間を補正します。気圧は表示のみ。`,
+              `Air: temperature and pressure Perseverance MEDA measured at Jezero (NASA PDS; ${data.weather.sols.length} sols over one Mars year averaged by local time; table mars_weather). Cooling water carries away body heat minus what leaks out through the suit, so colder air needs less. Body heat ${wxModel.metabolic_w} W (average Mars EVA metabolic rate, NASA NTRS 20110010198), leak ${wxModel.leak_w_per_k} W/K × (skin ${wxModel.t_skin_k} K − air), reference ${wxModel.t_ref_k} K lab (these three are estimates). The water time is corrected by the mean over the oxygen time from departure. Pressure is shown only.`)}</p>
           )}
           {radModel && (
             <p className="muted" id="ev-radiation">{t(

@@ -3,7 +3,7 @@
 import type { Core, Waypoint } from '../core';
 import { LANDING, exampleRoute, loadHokkaidoGrid, type WalkData } from '../walk/data';
 import { fmtH } from '../walk/geo';
-import { computePlan, evaParams, evaluate, rehearsalPoints, roverWalkbackSql, turnIndex, turnWaypoint, WATER_PER_O2, type PlanParams } from '../walk/plan';
+import { DEFAULT_START, computePlan, evaParams, evaluate, rehearsalPoints, roverWalkbackSql, turnIndex, turnWaypoint, WATER_PER_O2, type PlanParams } from '../walk/plan';
 import { nextFrame, walkController, type EvidenceTopic } from '../walk/controller';
 import { registerTool, setToolsReady } from './port';
 import { getLang } from '../i18n';
@@ -125,6 +125,12 @@ const walkbackCheck: ToolDef = {
     if (reach) lines.push(t(l, `基地から歩いて帰れる範囲: ${reach.area_km2.toFixed(0)} km²（最遠 ${r1(reach.max_km)} km）。`,
       `Walk-home area from the base: ${reach.area_km2.toFixed(0)} km² (farthest ${r1(reach.max_km)} km).`));
     if (ev.unknown_segments > 0) lines.push(t(l, `地形が分からない区間 ${ev.unknown_segments} か所は急な登り（約17°）として計算。`, `${ev.unknown_segments} segments without terrain data are counted as a steep climb (~17°).`));
+    // Air temperature (Perseverance MEDA) over the walk: how it changes the cooling water (Rust).
+    try {
+      const st = params.start ?? DEFAULT_START, w = c.core.weatherWalk(st, params.o2);
+      if (w.temp_k != null) lines.push(t(l, `気温: 出発 ${st} 時（火星の地方時）の Jezero は ${(w.temp_k - 273.15).toFixed(0)} °C（Perseverance MEDA）。冷却水の減り方 ×${w.water_factor.toFixed(2)}（目安）。`,
+        `Air: ${(w.temp_k - 273.15).toFixed(0)} °C at Jezero at the ${st}:00 local-time departure (Perseverance MEDA); cooling water use ×${w.water_factor.toFixed(2)} (estimate).`));
+    } catch { /* core without weather */ }
     // Radiation: the third budget (Curiosity RAD rate × hours, NASA career limit), from Rust.
     try {
       const rx = c.core.radiationExposure(ev.total_h);
