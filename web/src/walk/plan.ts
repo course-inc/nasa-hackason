@@ -155,7 +155,10 @@ export function planRoute(core: Core, data: WalkData | null, base: Waypoint, goa
 }
 
 /** Numbers to compare planned routes by (all from the Rust core: evaluation and footing). */
-export interface RouteMetrics { km: number; total_h: number; o2_left: number; max_slope: number; poor_footing: number; ok: boolean }
+export interface RouteMetrics { km: number; total_h: number; o2_left: number; max_slope: number; poor_footing: number; ok: boolean;
+  /** Cost breakdown: hours of the round trip on flat firm ground, extra hours from slopes, extra
+   * hours from footing, and the cooling-water factor from the air temperature (all from Rust). */
+  flat_h: number; slope_h: number; footing_h: number; water_factor: number }
 export function routeMetrics(core: Core, data: WalkData | null, route: Waypoint[], p: EvaParams): RouteMetrics | null {
   if (!data?.dem || route.length < 2) return null;
   const dense = denseRoute(core, data, route);
@@ -168,5 +171,8 @@ export function routeMetrics(core: Core, data: WalkData | null, route: Waypoint[
     const known = f.filter((x): x is number => x != null);
     poor = known.length ? known.filter((x) => x >= cut).length / known.length : 0;
   } catch { /* no footing */ }
-  return { km: ev.out_km, total_h: ev.total_h, o2_left: ev.usable_o2_h > 0 ? 1 - ev.total_effort_h / ev.usable_o2_h : 0, max_slope: ev.max_slope_deg, poor_footing: poor, ok: ev.ok };
+  const firm = evaluate(core, dense, { ...p, footing: false });
+  const flat = (ev.out_km + ev.back_km) / p.speed_kmh;
+  return { km: ev.out_km, total_h: ev.total_h, o2_left: ev.usable_o2_h > 0 ? 1 - ev.total_effort_h / ev.usable_o2_h : 0, max_slope: ev.max_slope_deg, poor_footing: poor, ok: ev.ok,
+    flat_h: flat, slope_h: Math.max(0, firm.total_h - flat), footing_h: Math.max(0, ev.total_h - firm.total_h), water_factor: waterFactor(core, p) };
 }

@@ -14,7 +14,6 @@ import { GpxError, SAMPLE_GPX, atDistance, importWalk, type WalkImport } from '.
 import { EarthWalkPanel, WalkImportCard } from '../walk/WalkRecord';
 import { Guide } from '../walk/Guide';
 import { SearchViz, type Trace } from '../walk/SearchViz';
-import type { RouteWeights } from '../core';
 import { RouteEditor, type Preview } from '../walk/RouteEditor';
 import { Hud, type HudState } from '../walk/Hud';
 import { EvaCard, RoverCard } from '../walk/Evidence';
@@ -174,7 +173,9 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const [vizTrace, setVizTrace] = useState<Trace | null>(null);
   const vizRoute = useRef<Waypoint[] | null>(null);
   // Stage 2: the planner's weights (sliders) and a comparison with the fastest route.
-  const [weights, setWeights] = useState<Required<RouteWeights>>({ time: 1, slope: 1, footing: 1, margin: 1 });
+  // The three safety axes (slope, footing, air temperature via the departure time) and one overall
+  // "speed first ⇄ safety first" dial that scales the penalties.
+  const [weights, setWeights] = useState({ slope: 1, footing: 1, safety: 1 });
   const [compare, setCompare] = useState<{ fast: Waypoint[] | null; safe: Waypoint[] } | null>(null);
   const cmp = useMemo(() => {
     if (!compare) return null;
@@ -184,8 +185,8 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
     const base = route[0] ?? LANDING;
     const goal = { lat, lon, elev: undefined };
     // Fastest first, then the weighted one, so the animation replays the weighted search.
-    const fast = planRoute(core, data, base, goal, p, { time: 1 });
-    const r = planRoute(core, data, base, goal, p, weights);
+    const fast = planRoute(core, data, base, goal, p, { distance: true });
+    const r = planRoute(core, data, base, goal, p, { time: 1, slope: weights.slope * weights.safety, footing: weights.footing * weights.safety, margin: weights.safety });
     setCompare(r.route ? { fast: fast.route, safe: r.route } : null);
     if (r.route && data?.dem) {
       const { order, cost } = core.planTrace();
@@ -403,7 +404,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const turnIdx = turnIndex(ev);
   const features = useMemo<Feature[]>(() => {
     const f: Feature[] = [];
-    if (compare?.fast && !vizTrace) f.push({ kind: 'line', pts: compare.fast.map((w) => [w.lat, w.lon] as [number, number]), color: '#69c0ff', weight: 4, dash: '8 6', opacity: 0.95, tooltip: t('速さ優先の経路', 'Fastest route') });
+    if (compare?.fast && !vizTrace) f.push({ kind: 'line', pts: compare.fast.map((w) => [w.lat, w.lon] as [number, number]), color: '#69c0ff', weight: 4, dash: '8 6', opacity: 0.95, tooltip: t('最短距離の経路', 'Shortest route') });
     if (footImg) f.push({ kind: 'image', url: footImg.url, bounds: footImg.bounds, opacity: 0.7 });
     if (reachImg && showReach) f.push({ kind: 'image', url: reachImg.url, bounds: reachImg.bounds, opacity: 0.55 });
     f.push(...roverFeatures);
@@ -512,13 +513,17 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           <div className="card route-plan" id="route-plan">
             <h4>{t('🎯 目的地までの経路探索', '🎯 Route to a destination')}</h4>
             <p className="muted">{t('地図をクリックすると、基地から帰れる範囲だけを通る経路を Dijkstra で探します。重みを変えてからもう一度クリック。', 'Click the map: Dijkstra searches a route from the base through the walk-home area only. Change the weights and click again.')}</p>
-            {([['time', t('速さ（時間・酸素）', 'Speed (time, O₂)')], ['slope', t('坂の急さを避ける', 'Avoid steep slopes')], ['footing', t('足場の悪さを避ける', 'Avoid poor footing')], ['margin', t('帰り道の余裕', 'Margin for the way home')]] as [keyof RouteWeights, string][]).map(([k, label]) => (
+            {([['slope', t('坂を避ける', 'Avoid steep slopes')], ['footing', t('足場の悪さを避ける', 'Avoid poor footing')]] as ['slope' | 'footing', string][]).map(([k, label]) => (
               <label key={k} className="wt">{label} <b>{weights[k]}</b>
-                <input id={`w-${k}`} type="range" min={k === 'time' ? 0.5 : 0} max={3} step={0.5} value={weights[k]} onChange={(e) => setWeights((w) => ({ ...w, [k]: +e.target.value }))} /></label>
+                <input id={`w-${k}`} type="range" min={0} max={3} step={0.5} value={weights[k]} onChange={(e) => setWeights((w) => ({ ...w, [k]: +e.target.value }))} /></label>
             ))}
+            <label className="wt">{t('気温（出発時刻、火星の地方時）', 'Air temperature (departure, Mars local time)')} <b>{String(Math.floor(start)).padStart(2, '0')}:{start % 1 ? '30' : '00'}</b>
+              <input id="w-start" type="range" min={5} max={19} step={0.5} value={start} onChange={(e) => setStart(+e.target.value)} /></label>
+            <label className="wt">{t('速さ優先 ⇄ 安全優先', 'Speed first ⇄ safety first')} <b>{weights.safety}</b>
+              <input id="w-safety" type="range" min={0} max={3} step={0.5} value={weights.safety} onChange={(e) => setWeights((w) => ({ ...w, safety: +e.target.value }))} /></label>
             {cmp && (
               <table className="cmp" id="route-compare">
-                <thead><tr><th /><th><span className="sw fast" />{t('速さ優先', 'Fastest')}</th><th><span className="sw safe" />{t('重み付き（安全重視）', 'Weighted (safer)')}</th></tr></thead>
+                <thead><tr><th /><th><span className="sw fast" />{t('最短距離', 'Shortest')}</th><th><span className="sw safe" />{t('安全重視', 'Safer')}</th></tr></thead>
                 <tbody>
                   {([
                     [t('行きの距離', 'Out'), (m: RouteMetrics) => `${m.km.toFixed(2)} km`],
@@ -533,13 +538,31 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
                 </tbody>
               </table>
             )}
-            {compare && (
-              <div className="row">
-                {compare.fast && <button onClick={() => setRoute(compare.fast!)}>{t('速さ優先を使う', 'Use the fastest')}</button>}
-                <button onClick={() => setRoute(compare.safe)}>{t('重み付きを使う', 'Use the weighted')}</button>
+            {cmp && (
+              <div className="breakdown" id="route-breakdown">
+                <h5>{t('往復の時間の内訳（どの要素でどれだけ増えたか）', 'Round-trip time breakdown (what adds how much)')}</h5>
+                {([[t('最短距離', 'Shortest'), cmp.fast], [t('安全重視', 'Safer'), cmp.safe]] as [string, RouteMetrics | null][]).map(([name, m]) => m && (
+                  <div key={name} className="bd-row">
+                    <span className="bd-name">{name}</span>
+                    <div className="bd-bar" title={fmtH(m.total_h)}>
+                      {[['flat', m.flat_h], ['slope', m.slope_h], ['foot', m.footing_h]].map(([k, h]) => (
+                        <i key={k as string} className={`bd-${k}`} style={{ width: `${(100 * (h as number)) / Math.max(cmp.fast?.total_h ?? 0, cmp.safe?.total_h ?? 0, 1e-6)}%` }} />
+                      ))}
+                    </div>
+                    <span className="bd-nums">{t(`平地 ${fmtH(m.flat_h)}・坂 +${Math.round(m.slope_h * 60)} 分・足場 +${Math.round(m.footing_h * 60)} 分・冷却水 ×${m.water_factor.toFixed(2)}`, `flat ${fmtH(m.flat_h)} · slope +${Math.round(m.slope_h * 60)} min · footing +${Math.round(m.footing_h * 60)} min · water ×${m.water_factor.toFixed(2)}`)}</span>
+                  </div>
+                ))}
+                <div className="bd-legend"><i className="bd-flat" />{t('平地を歩く時間', 'flat walking')}<i className="bd-slope" />{t('坂（Jezero の地形 HiRISE/MOLA）', 'slopes (Jezero terrain)')}<i className="bd-foot" />{t('足場（THEMIS 熱慣性・TES ダスト）', 'footing (THEMIS, TES)')}</div>
+                <p className="muted">{t('冷却水の倍率は出発時刻の気温（Perseverance MEDA）で決まり、時間ではなく冷却水の予算に効きます。', 'The water factor comes from the air temperature at the departure time (Perseverance MEDA); it changes the cooling-water budget, not the time.')}</p>
               </div>
             )}
-            <p className="muted" id="ev-weights">{t('重みの中身（各歩のコスト ＝ 歩く時間 ×（速さ ＋ 坂 ×（坂/10°）² ＋ 足場 ×（η−1）/0.5 ＋ 余裕 × そのマスまで行って戻るのに使う割合））。歩く時間は判定と同じ計算（坂・足場・出発時刻の冷却水）。「足場の悪い区間」は η が かたい地面と砂の中間（1.35）以上の区間の割合。重みは好みの指定で、物理の係数ではありません。', 'Weights: the cost of each step = walking time × (speed + slope × (slope/10°)² + footing × (η−1)/0.5 + margin × the share of the budget used going there and back). Walking time is the verdict\'s own calculation (slope, footing, departure-time water). "Poor footing" = share of the route with η at or above the midpoint of firm and loose (1.35). Weights are preferences, not physical coefficients.')}</p>
+            {compare && (
+              <div className="row">
+                {compare.fast && <button onClick={() => setRoute(compare.fast!)}>{t('最短距離を使う', 'Use the shortest')}</button>}
+                <button onClick={() => setRoute(compare.safe)}>{t('安全重視を使う', 'Use the safer')}</button>
+              </div>
+            )}
+            <p className="muted" id="ev-weights">{t('「最短距離」は距離だけで探した経路（帰れる範囲・歩ける坂の中で）。「安全重視」の各歩のコスト ＝ 歩く時間 ×（1 ＋ 安全優先 ×（坂 ×（坂/10°）² ＋ 足場 ×（η−1）/0.5 ＋ そのマスまで行って戻るのに使う割合））。歩く時間は判定と同じ計算（坂・足場・出発時刻の冷却水）。「足場の悪い区間」は η が かたい地面と砂の中間（1.35）以上の区間の割合。重みは好みの指定で、物理の係数ではありません。', 'Weights: the cost of each step = walking time × (speed + slope × (slope/10°)² + footing × (η−1)/0.5 + margin × the share of the budget used going there and back). Walking time is the verdict\'s own calculation (slope, footing, departure-time water). "Poor footing" = share of the route with η at or above the midpoint of firm and loose (1.35). Weights are preferences, not physical coefficients.')}</p>
           </div>
         )}
         <div className="btns">

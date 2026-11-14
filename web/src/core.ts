@@ -40,7 +40,7 @@ export interface EvaParams {
   start_h?: number;
 }
 /** Route-planner weights (grid.rs RouteWeights): penalties added to the walking time of a step. */
-export interface RouteWeights { time?: number; slope?: number; footing?: number; margin?: number }
+export interface RouteWeights { time?: number; slope?: number; footing?: number; margin?: number; distance?: boolean }
 export interface PlannedRoute { path: [number, number][]; status: 'ok' | 'outside_grid' | 'outside_reach' | 'no_path'; goal_ratio: number | null }
 export interface FootingModel { ti_loose: number; ti_firm: number; eta_loose: number; eta_firm: number; dci_dusty: number; dust_extra: number }
 export interface Leg { km: number; slope_deg: number; hours: number; effort_h: number; known: boolean }
