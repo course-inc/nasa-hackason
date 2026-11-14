@@ -49,6 +49,17 @@ export function footingModel(): string;
 export function gaps(earth_id: string, body_id: string, test: string): string;
 
 /**
+ * Radiation dose for `hours` on the surface (Curiosity RAD rate, NASA limits): {dose_msv,
+ * career_share, hours_to_career_limit}.
+ */
+export function radiationExposure(hours: number): string;
+
+/**
+ * Radiation constants for the evidence card and the helmet display.
+ */
+export function radiationModel(): string;
+
+/**
  * Ranking of every Earth site for a profile id (or a weights JSON object).
  */
 export function rankAll(profile_or_weights: string): string;
@@ -183,6 +194,8 @@ export interface InitOutput {
     readonly footingBadness: (a: number, b: number) => [number, number, number, number];
     readonly footingModel: () => [number, number];
     readonly gaps: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+    readonly radiationExposure: (a: number) => [number, number];
+    readonly radiationModel: () => [number, number];
     readonly rankAll: (a: number, b: number) => [number, number, number, number];
     readonly rankSites: (a: number, b: number, c: number, d: number) => [number, number];
     readonly reach: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];

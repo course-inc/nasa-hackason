@@ -10,6 +10,8 @@ export const evaluateRouteOn: (a: number, b: number, c: number, d: number, e: nu
 export const footingBadness: (a: number, b: number) => [number, number, number, number];
 export const footingModel: () => [number, number];
 export const gaps: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+export const radiationExposure: (a: number) => [number, number];
+export const radiationModel: () => [number, number];
 export const rankAll: (a: number, b: number) => [number, number, number, number];
 export const rankSites: (a: number, b: number, c: number, d: number) => [number, number];
 export const reach: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];

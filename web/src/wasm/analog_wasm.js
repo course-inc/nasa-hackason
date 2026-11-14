@@ -255,6 +255,42 @@ export function gaps(earth_id, body_id, test) {
 }
 
 /**
+ * Radiation dose for `hours` on the surface (Curiosity RAD rate, NASA limits): {dose_msv,
+ * career_share, hours_to_career_limit}.
+ * @param {number} hours
+ * @returns {string}
+ */
+export function radiationExposure(hours) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.radiationExposure(hours);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
+ * Radiation constants for the evidence card and the helmet display.
+ * @returns {string}
+ */
+export function radiationModel() {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.radiationModel();
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
  * Ranking of every Earth site for a profile id (or a weights JSON object).
  * @param {string} profile_or_weights
  * @returns {string}
