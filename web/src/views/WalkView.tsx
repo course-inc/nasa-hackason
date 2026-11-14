@@ -13,6 +13,7 @@ import { useLang, useT } from '../i18n';
 import { GpxError, SAMPLE_GPX, atDistance, importWalk, type WalkImport } from '../walk/gpx';
 import { EarthWalkPanel, WalkImportCard } from '../walk/WalkRecord';
 import { Guide } from '../walk/Guide';
+import { SearchViz, type Trace } from '../walk/SearchViz';
 import { RouteEditor, type Preview } from '../walk/RouteEditor';
 import { Hud, type HudState } from '../walk/Hud';
 import { EvaCard, RoverCard } from '../walk/Evidence';
@@ -168,11 +169,17 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   // Destination mode: plan the walk from the base to the clicked point (Rust Dijkstra over the
   // walk-home area); the result becomes the route (verdict, HUD, 3D, undo all follow).
   const [planMsg, setPlanMsg] = useState<string | null>(null);
+  // Search animation: the trace of the last search; the route is applied when it finishes.
+  const [vizTrace, setVizTrace] = useState<Trace | null>(null);
+  const vizRoute = useRef<Waypoint[] | null>(null);
   const planTo = (lat: number, lon: number) => {
     const base = route[0] ?? LANDING;
     const r = planRoute(core, data, base, { lat, lon, elev: undefined }, p);
-    if (r.route) {
-      setRoute(r.route);
+    if (r.route && data?.dem) {
+      const { order, cost } = core.planTrace();
+      const d = data.dem, north = d.lat0 + d.dlat / 2, west = d.lon0 - d.dlon / 2;
+      vizRoute.current = r.route;
+      setVizTrace({ order, cost, rows: d.rows, cols: d.cols, bounds: [[north - d.rows * d.dlat, west], [north, west + d.cols * d.dlon]], ratio: reachRaw?.ratio ?? null, path: r.route.map((w) => [w.lat, w.lon]) });
       setPlanMsg(t(`目的地まで自動で経路を引きました（帰れる範囲だけを通る、探索 ${Math.round(r.ms)} ms）`, `Route planned to the destination (inside the walk-home area only; search ${Math.round(r.ms)} ms)`));
     } else {
       const s = r.plan?.status;
@@ -615,6 +622,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           )}
           {hud && <Hud s={hud} limiting={ev.limiting} onStop={stop} rad={(h) => { try { return core.radiationExposure(h); } catch { return null; } }} />}
           {!hud && <Guide />}
+          <SearchViz host={mapHost} trace={vizTrace} t={t} onDone={() => { if (vizRoute.current) setRoute(vizRoute.current); vizRoute.current = null; setVizTrace(null); }} />
           <RouteEditor host={mapHost} route={route} drawing={mode === 'route' && !hud && !globeOn} onChange={setRoute}
             preview={routePreview} connect={easy ? (a, b) => easyLeg(core, data, a, b, p) : undefined} onFinish={() => setMode('pan')} t={t} />
           {!globeOn && !view3d && !hud && (hist.current.past.length > 0 || hist.current.future.length > 0) && (

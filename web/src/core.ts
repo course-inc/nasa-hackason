@@ -123,6 +123,8 @@ export interface Core extends Boot {
   sampleFooting: (grid: string, latlons: [number, number][]) => (number | null)[];
   footingModel: () => FootingModel;
   setWeather: (json: string) => void;
+  /** The last planRoute search: settled cells in order and their costs (search animation). */
+  planTrace: () => { order: Uint32Array; cost: Float32Array };
   /** Route from the base to a destination inside the walk-home area (Rust grid.rs plan_route). */
   planRoute: (world: World, grid: string, from: [number, number], to: [number, number], p: EvaParams, maxSlopeDeg: number, w?: RouteWeights) => PlannedRoute;
   /** Cooling-water factor for a walk from local solar hour `startH` lasting `hours` (Rust weather.rs). */
@@ -196,6 +198,7 @@ export function loadCore(): Promise<Core> {
       footingModel: () => JSON.parse(wasm.footingModel()),
       radiationExposure: (h) => JSON.parse(wasm.radiationExposure(h)),
       setWeather: (j) => wasm.setWeather(j),
+      planTrace: () => ({ order: wasm.planTraceOrder(), cost: wasm.planTraceCost() }),
       planRoute: (world, grid, a, b, p, max, w) => JSON.parse(wasm.planRoute(world, grid, a[0], a[1], b[0], b[1], JSON.stringify(p), max, w ? JSON.stringify(w) : '')),
       weatherWalk: (a, h) => JSON.parse(wasm.weatherWalk(a, h)),
       weatherModel: () => JSON.parse(wasm.weatherModel()),
