@@ -3,7 +3,8 @@
 //   node scripts/build-scan-data.mjs [--cell-km 1] [--offline]
 // Writes web/public/data/scan/hokkaido-<cell>km.json. All input values are NASA data. Downloads
 // are cached under data/raw/ so a rerun (or a finer cell size) needs no network:
-// NASADEM tiles in data/raw/nasadem/<id>.tif, NASA POWER climatology in data/raw/power/<lat>_<lon>.json.
+// NASADEM tiles in data/raw/nasadem/<id>.tif, NASA POWER climatology in data/raw/power/<lat>_<lon>.json,
+// NASA GIBS land-cover tiles in data/raw/gibs-landcover/<date>/<z>/<y>/<x>.png.
 //
 // Per cell (from NASADEM, 1 arc-second ≈ 30 m pixels):
 //   elev     mean elevation [m]               relief  max − min [m]
@@ -12,11 +13,13 @@
 //            (north-facing tilt steeper than the solstice noon sun, ≈ 23° at 43.5°N)
 //   land     share of the cell that is land [%]
 //   ndvi     mean summer-maximum NDVI [×1000]  bare   share of pixels whose summer max NDVI < 0.2 [‰]
-//   urban / crop / barren   share of MODIS land-cover pixels that are built-up / cropland / barren [%]
+//   urban / crop / barren / forest / water   share of MODIS land-cover pixels (NASA GIBS) that are
+//            built-up (13) / cropland (12, 14) / barren (16) / forest (1–5) / water (17) [%]
 // On the NASA POWER grid (0.5° × 0.625°, the app interpolates to cells and corrects for height):
 //   elev, monthly mean daily min / max air temperature (T2M_MIN / T2M_MAX) [°C], precipitation [mm/yr]
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { fromArrayBuffer } from 'geotiff';
 
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
@@ -194,10 +197,9 @@ if (!used) throw new Error('NASADEM: no tiles (network?)');
 
 
 // ---- 1b. NASA MODIS → vegetation and land cover per cell ----
-// MOD13A1 v061 NDVI (500 m, 16-day composite at the height of summer) and MCD12Q1 v061 land cover
-// (500 m, IGBP classes), read from the Planetary Computer COG mirror. MCD12Q1 is not on Planetary
-// Computer (yet); the land-cover pass then finds no items and those columns stay -1. Both are on the MODIS
-// sinusoidal grid; each pixel centre is mapped back to latitude/longitude.
+// MOD13A1 v061 NDVI (500 m, 16-day composites over the summer).
+// NDVI is read from the Planetary Computer COG mirror (MODIS sinusoidal grid; each pixel centre is
+// mapped back to latitude/longitude). Land cover comes from NASA GIBS (1c).
 const R_SIN = 6371007.181;
 const ndviSum = new Float64Array(N), ndviN = new Uint32Array(N), bareN = new Uint32Array(N);
 const lcN = new Uint32Array(N), urbanN = new Uint32Array(N), cropN = new Uint32Array(N), barrenN = new Uint32Array(N);
@@ -264,23 +266,111 @@ for (const { r, max } of tiles.values()) {
     if (ndvi < 0.2) bareN[k]++;
   });
 }
-const lcItems = (await stacItems('modis-12Q1-061', { datetime: '2023-01-01/2023-12-31' }));
-console.log(`MODIS land cover: ${lcItems.length} tiles`);
-for (const it of lcItems) {
-  const r = await modisRaster('modis-12Q1-061', it, 'LC_Type1');
-  if (!r) continue;
-  forEachCell(r, (k, v) => {
-    if (v === 255 || v === 17) return; // fill / water
-    lcN[k]++;
-    if (v === 13) urbanN[k]++;
-    if (v === 12 || v === 14) cropN[k]++;
-    if (v === 16) barrenN[k]++;
-  });
+// ---- 1c. NASA GIBS → MODIS land cover per cell ----
+// MCD12Q1 is not on Planetary Computer, and LP DAAC wants an Earthdata login. NASA GIBS serves the
+// same product (MCD12Q1 IGBP, Aqua+Terra, 500 m) as colour-mapped PNG tiles on the EPSG:4326 grid
+// without a login: read the layer's tile matrix set, finest level, latest year and colormap from
+// the WMTS GetCapabilities, decode each pixel's colour back to its IGBP class (exact RGB match;
+// transparent or unknown colours are no data) and count classes per 1 km cell.
+const GIBS = 'https://gibs.earthdata.nasa.gov/wmts/epsg4326/best';
+const LC_LAYER = 'MODIS_Combined_L3_IGBP_Land_Cover_Type_Annual';
+const FOREST = new Set([1, 2, 3, 4, 5]); // IGBP evergreen/deciduous needleleaf/broadleaf, mixed forests
+const lcForestN = new Uint32Array(N), lcWaterN = new Uint32Array(N);
+function decodePalettePng(buf) { // 8-bit indexed colour (what GIBS serves), non-interlaced
+  let pos = 8, w = 0, h = 0, plte = null, trns = null;
+  const idat = [];
+  while (pos < buf.length) {
+    const len = buf.readUInt32BE(pos), type = buf.toString('ascii', pos + 4, pos + 8);
+    const data = buf.subarray(pos + 8, pos + 8 + len);
+    if (type === 'IHDR') {
+      w = data.readUInt32BE(0); h = data.readUInt32BE(4);
+      if (data[8] !== 8 || data[9] !== 3 || data[12] !== 0) throw new Error(`png: depth ${data[8]} colour type ${data[9]} interlace ${data[12]} not supported`);
+    }
+    if (type === 'PLTE') plte = data;
+    if (type === 'tRNS') trns = data;
+    if (type === 'IDAT') idat.push(data);
+    pos += 12 + len;
+  }
+  const inf = zlib.inflateSync(Buffer.concat(idat));
+  const idx = Buffer.alloc(w * h);
+  for (let y = 0; y < h; y++) {
+    const f = inf[y * (w + 1)], src = inf.subarray(y * (w + 1) + 1, (y + 1) * (w + 1));
+    for (let x = 0; x < w; x++) {
+      const a = x ? idx[y * w + x - 1] : 0, b = y ? idx[(y - 1) * w + x] : 0, c = x && y ? idx[(y - 1) * w + x - 1] : 0;
+      let v = src[x];
+      if (f === 1) v += a; else if (f === 2) v += b; else if (f === 3) v += (a + b) >> 1;
+      else if (f === 4) { const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c); v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c; }
+      idx[y * w + x] = v & 255;
+    }
+  }
+  return { w, h, idx, plte, trns };
 }
+async function gibsLandCover() {
+  const capsBuf = await cached(rawDir('gibs-landcover/capabilities.xml'), `${GIBS}/wmts.cgi?SERVICE=WMTS&REQUEST=GetCapabilities`);
+  if (!capsBuf) return null;
+  const caps = capsBuf.toString('utf8');
+  const at = caps.indexOf(`<ows:Identifier>${LC_LAYER}</ows:Identifier>`);
+  if (at < 0) { console.warn(`GIBS: no layer ${LC_LAYER}`); return null; }
+  const layer = caps.slice(caps.lastIndexOf('<Layer>', at), caps.indexOf('</Layer>', at));
+  const tms = layer.match(/<TileMatrixSet>([^<]+)<\/TileMatrixSet>/)[1];
+  const date = layer.match(/<Value>[^<]*?\/([0-9-]+)\/P1Y<\/Value>/)?.[1] ?? layer.match(/<Default>([^<]+)<\/Default>/)[1];
+  const cmapUrl = layer.match(/xlink:href='([^']+\/colormaps\/v1\.3\/[^']+\.xml)'/)[1]; // attribute order varies
+  const setXml = caps.match(new RegExp(`<TileMatrixSet><ows:Identifier>${tms}</ows:Identifier>[\\s\\S]*?</TileMatrixSet>`))[0];
+  const levels = [...setXml.matchAll(/<TileMatrix><ows:Identifier>(\d+)<\/ows:Identifier>[\s\S]*?<TopLeftCorner>([-\d.]+) ([-\d.]+)<\/TopLeftCorner><TileWidth>(\d+)<\/TileWidth><TileHeight>(\d+)<\/TileHeight><MatrixWidth>(\d+)<\/MatrixWidth><MatrixHeight>(\d+)<\/MatrixHeight>/g)]
+    .map((m) => ({ z: +m[1], left: +m[2], top: +m[3], tw: +m[4], th: +m[5], mw: +m[6], mh: +m[7] }));
+  const L = levels.reduce((a, b) => (b.z > a.z ? b : a));
+  // Matrix width × tile width pixels span 360°; the matrix is padded past 90°S on the bottom.
+  const pxDeg = 360 / (L.mw * L.tw);
+  const cmapBuf = await cached(rawDir('gibs-landcover', path.basename(cmapUrl)), cmapUrl);
+  const rgbClass = new Map();
+  for (const m of cmapBuf.toString('utf8').matchAll(/<ColorMapEntry rgb="(\d+),(\d+),(\d+)" transparent="false" sourceValue="([\d,]+)"/g)) {
+    const vals = m[4].split(',').map(Number);
+    rgbClass.set((+m[1] << 16) | (+m[2] << 8) | +m[3], vals.includes(17) ? 17 : vals[0]); // "0,17" = water
+  }
+  const tileDeg = pxDeg * L.tw;
+  const r0 = Math.floor((L.top - BOX.north) / tileDeg), r1 = Math.floor((L.top - BOX.south) / tileDeg);
+  const c0 = Math.floor((BOX.west - L.left) / tileDeg), c1 = Math.floor((BOX.east - L.left) / tileDeg);
+  console.log(`GIBS ${LC_LAYER} ${date}: matrix set ${tms}, level ${L.z} (${(pxDeg * 3600).toFixed(1)}″ pixels), tiles rows ${r0}–${r1} cols ${c0}–${c1}`);
+  let nTiles = 0;
+  for (let tr = r0; tr <= r1; tr++) for (let tc = c0; tc <= c1; tc++) {
+    const buf = await cached(rawDir('gibs-landcover', date, String(L.z), String(tr), `${tc}.png`),
+      `${GIBS}/${LC_LAYER}/default/${date}/${tms}/${L.z}/${tr}/${tc}.png`);
+    if (!buf) continue;
+    nTiles++;
+    const png = decodePalettePng(buf);
+    const cls = new Int16Array(256).fill(-1); // palette index → IGBP class, -1 = no data
+    for (let i = 0; i < png.plte.length / 3; i++) {
+      if (png.trns && i < png.trns.length && png.trns[i] === 0) continue;
+      cls[i] = rgbClass.get((png.plte[3 * i] << 16) | (png.plte[3 * i + 1] << 8) | png.plte[3 * i + 2]) ?? -1;
+    }
+    for (let y = 0; y < png.h; y++) {
+      const lat = L.top - (tr * L.th + y + 0.5) * pxDeg;
+      const row = Math.floor((BOX.north - lat) / dlat);
+      if (row < 0 || row >= rows) continue;
+      for (let x = 0; x < png.w; x++) {
+        const lon = L.left + (tc * L.tw + x + 0.5) * pxDeg;
+        const c = Math.floor((lon - BOX.west) / dlon);
+        if (c < 0 || c >= cols) continue;
+        const v = cls[png.idx[y * png.w + x]];
+        if (v < 0 || v === 255) continue; // no data / unclassified
+        const k = row * cols + c;
+        lcN[k]++;
+        if (v === 13) urbanN[k]++;
+        if (v === 12 || v === 14) cropN[k]++;
+        if (v === 16) barrenN[k]++;
+        if (FOREST.has(v)) lcForestN[k]++;
+        if (v === 17) lcWaterN[k]++;
+      }
+    }
+  }
+  console.log(`GIBS land cover: ${nTiles} tiles`);
+  return nTiles ? `NASA MODIS MCD12Q1 land cover (IGBP, 500 m), ${date} — NASA GIBS layer ${LC_LAYER}` : null;
+}
+const lcSource = await gibsLandCover();
 const haveNdvi = ndviN.some((x) => x > 0), haveLc = lcN.some((x) => x > 0);
 console.log(`MODIS: NDVI ${haveNdvi ? 'ok' : 'missing'}, land cover ${haveLc ? 'ok' : 'missing'}`);
 
-const cells = { i: [], elev: [], relief: [], slope: [], p90: [], shadow: [], land: [], ndvi: [], bare: [], urban: [], crop: [], barren: [] };
+const cells = { i: [], elev: [], relief: [], slope: [], p90: [], shadow: [], land: [], ndvi: [], bare: [], urban: [], crop: [], barren: [], forest: [], water: [] };
 for (let k = 0; k < N; k++) {
   if (!cnt[k] || land[k] / cnt[k] < 0.5) continue;
   let nS = 0;
@@ -301,6 +391,8 @@ for (let k = 0; k < N; k++) {
   cells.urban.push(lcN[k] ? Math.round((urbanN[k] / lcN[k]) * 100) : -1);
   cells.crop.push(lcN[k] ? Math.round((cropN[k] / lcN[k]) * 100) : -1);
   cells.barren.push(lcN[k] ? Math.round((barrenN[k] / lcN[k]) * 100) : -1);
+  cells.forest.push(lcN[k] ? Math.round((lcForestN[k] / lcN[k]) * 100) : -1);
+  cells.water.push(lcN[k] ? Math.round((lcWaterN[k] / lcN[k]) * 100) : -1);
 }
 console.log(`land cells: ${cells.i.length}`);
 
@@ -339,7 +431,7 @@ const out = {
   src: {
     dem: 'NASA NASADEM_HGT v001, 1 arc-second (via Microsoft Planetary Computer)',
     vegetation: `NASA MODIS MOD13A1 v061 NDVI 500 m, per-pixel maximum of the 16-day composites starting ${NDVI_FROM}…${NDVI_TO} (via Microsoft Planetary Computer)`,
-    landcover: haveLc ? 'NASA MODIS MCD12Q1 v061 land cover (IGBP), 2023 (via Microsoft Planetary Computer)' : null,
+    landcover: haveLc ? lcSource : null,
     climate: 'NASA POWER climatology T2M_MIN / T2M_MAX / PRECTOTCORR, MERRA-2 (https://power.larc.nasa.gov)',
     built: new Date().toISOString().slice(0, 10),
   },

@@ -21,7 +21,8 @@ const T = {
     top10: 'top', outside: 'outside grid',
     cell: 'Selected cell', elev: 'Elevation', relief: 'Relief', slope: 'Mean slope', p90: '90% slope',
     shadow: 'Winter noon shadow', temp: 'Air temperature', jan: 'Jan night', aug: 'Aug day', precip: 'Precipitation',
-    ndvi: 'Summer NDVI (MODIS)', cover: 'Built-up / cropland / barren (MODIS)', excluded: 'Screened out: mostly built-up land or cropland',
+    ndvi: 'Summer NDVI (MODIS)', cover: 'Built-up / cropland / forest / barren (MODIS)',
+    excluded: { forest: 'Screened out: mostly forest — no room to land, walk or build', water: 'Screened out: mostly water', other: 'Screened out: mostly built-up land or cropland' },
     note: 'Rock type is not in the grid yet, so geology is left out of this score. Air temperature is NASA POWER corrected for height; vegetation and land cover are NASA MODIS.',
     gaps: 'What Hokkaido cannot reproduce here', match: 'Match',
   },
@@ -37,7 +38,8 @@ const T = {
     top10: '上位', outside: '範囲外',
     cell: '選んだマス', elev: '標高', relief: '起伏', slope: '平均傾斜', p90: '傾斜（90%）',
     shadow: '冬の正午に影になる割合', temp: '気温', jan: '1月の夜', aug: '8月の昼', precip: '年降水量',
-    ndvi: '夏の植生指数 NDVI（MODIS）', cover: '市街地 / 農地 / 裸地（MODIS）', excluded: '除外：大部分が市街地か農地',
+    ndvi: '夏の植生指数 NDVI（MODIS）', cover: '市街地 / 農地 / 森林 / 裸地（MODIS）',
+    excluded: { forest: '除外：大部分が森林で、着陸・歩行・建設の練習ができない', water: '除外：大部分が水面', other: '除外：大部分が市街地か農地' },
     note: '岩石の種類はまだマスに入っていないので、地質はこの点数から外しています。気温は NASA POWER を標高で補正した値、植生と土地被覆は NASA MODIS。',
     gaps: 'このマスで再現できないこと', match: '一致度',
   },
@@ -123,8 +125,8 @@ export function useScanSection({ core, enabled, bodyId, testId, lang, siteName, 
           <div className="kv"><span>{t.slope} / {t.p90}</span><b>{fmt1(cell.slope_deg)}° / {fmt1(cell.slope_p90_deg)}°</b></div>
           <div className="kv"><span>{t.shadow}</span><b>{Math.round(cell.shadow * 100)}%</b></div>
           {cell.ndvi !== null && <div className="kv"><span>{t.ndvi}</span><b>{cell.ndvi.toFixed(2)}</b></div>}
-          {cell.urban !== null && <div className="kv"><span>{t.cover}</span><b>{Math.round(cell.urban * 100)}% / {Math.round((cell.crop ?? 0) * 100)}% / {Math.round((cell.barren ?? 0) * 100)}%</b></div>}
-          {cell.score.excluded && <p className="warn">⛔ {t.excluded}</p>}
+          {cell.urban !== null && <div className="kv"><span>{t.cover}</span><b>{[cell.urban, cell.crop, cell.forest, cell.barren].map((x) => `${Math.round((x ?? 0) * 100)}%`).join(' / ')}</b></div>}
+          {cell.score.excluded && <p className="warn">⛔ {cell.score.excluded.includes('森林') ? t.excluded.forest : cell.score.excluded.includes('Water Bodies') ? t.excluded.water : t.excluded.other}</p>}
           {cell.climate && (
             <>
               <div className="kv"><span>{t.temp} ({t.jan} / {t.aug})</span><b>{fmt1(cell.climate.tmin[0])} / {fmt1(cell.climate.tmax[7])} °C</b></div>
