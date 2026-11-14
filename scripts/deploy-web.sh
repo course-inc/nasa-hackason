@@ -24,8 +24,9 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 if [[ "$BRANCH" == both ]]; then
-  extra=(); $DRY && extra=(--dry)
-  "$0" --target preview "${extra[@]}" && "$0" --target deploy "${extra[@]}"
+  extra=""; $DRY && extra="--dry"
+  # shellcheck disable=SC2086  # $extra is empty or one word
+  "$0" --target preview $extra && "$0" --target deploy $extra
   exit $?
 fi
 [[ "$BRANCH" == deploy || "$BRANCH" == preview ]] || { echo "--target must be deploy, preview or both"; exit 2; }

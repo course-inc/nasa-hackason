@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAgent, getTools, listAgents, onRegistryChange, toolsReady } from './port';
 import { NoModelError, lastModel } from './pirs';
+import { claudeModel } from './claude';
 import type { AgentEvent, ToolResult } from './types';
 import { useLang, useT } from '../i18n';
 import { publishAnswer } from './lastAnswer';
@@ -79,7 +80,8 @@ export function AgentPanel() {
     return () => { live = false; };
   }, [agents.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const [agentId, setAgentId] = useState<string | null>(null);
-  const chosen = agentId ?? (avail['pi-rs'] ? 'pi-rs' : 'rules');
+  // Desktop: pi-rs. Web: Claude through our relay when the deployment has a key. Otherwise rules.
+  const chosen = agentId ?? (avail['pi-rs'] ? 'pi-rs' : avail['claude'] ? 'claude' : 'rules');
 
   // Open by default on WALKBACK; elsewhere a small button, so it never covers the other tabs.
   const isWalk = () => /^#(walk|mars)/.test(location.hash) || location.hash.replace('#', '') === '';
@@ -166,9 +168,12 @@ export function AgentPanel() {
         if (!(e instanceof NoModelError) || agent.id === 'rules') throw e;
         // No model reachable: say so and answer with the rules version.
         agent = getAgent('rules')!;
-        patchLast((it) => ({ ...it, agent: 'rules', note: t(`AI モデルに接続できないため、規則版（AIなし）で答えます。デスクトップ版で ANTHROPIC_API_KEY を設定するか、Ollama を起動してください（${e.message}）`, `No AI model is reachable, so the rules version (no AI) answers. In the desktop app, set ANTHROPIC_API_KEY or start Ollama (${e.message})`) }));
+        patchLast((it) => ({ ...it, agent: 'rules', note: agent.id === 'claude'
+          ? t(`AI に接続できないため、規則版（AIなし）で答えます（${e.message}）`, `The AI is not reachable, so the rules version (no AI) answers (${e.message})`)
+          : t(`AI モデルに接続できないため、規則版（AIなし）で答えます。デスクトップ版で ANTHROPIC_API_KEY を設定するか、Ollama を起動してください（${e.message}）`, `No AI model is reachable, so the rules version (no AI) answers. In the desktop app, set ANTHROPIC_API_KEY or start Ollama (${e.message})`) }));
         await agent.ask(prompt, getTools(), onEvent, ctl.signal);
       }
+      if (agent.id === 'claude' && claudeModel) patchLast((it) => ({ ...it, note: it.note ?? claudeModel! }));
       if (agent.id === 'pi-rs' && lastModel) patchLast((it) => ({ ...it, note: it.note ?? `${lastModel!.provider} / ${lastModel!.model}` }));
     } catch (e) {
       onEvent({ type: 'error', message: e instanceof Error ? e.message : String(e) });
@@ -191,7 +196,7 @@ export function AgentPanel() {
         <select aria-label={t('エージェント', 'Agent')} value={chosen} onChange={(e) => setAgentId(e.target.value)}>
           {agents.map((a) => (
             <option key={a.id} value={a.id} disabled={avail[a.id] === false}>
-              {a.label}{avail[a.id] === false ? t('（デスクトップ版のみ）', ' (desktop app only)') : ''}
+              {a.label}{avail[a.id] === false ? (a.id === 'claude' ? t('（未設定）', ' (not set up)') : t('（デスクトップ版のみ）', ' (desktop app only)')) : ''}
             </option>
           ))}
         </select>
