@@ -1,7 +1,7 @@
 // One plan → all its numbers. The WALKBACK screen and the agent tools both call this, so what a
 // tool reports is exactly what the screen shows. Every number comes from the Rust core.
 import type { Core, EvaParams, Reach, RouteCheck, RouteEval, RoverWalkback, Waypoint, World } from '../core';
-import { JEZERO, LANDING, type WalkData } from './data';
+import { JEZERO, LANDING, ensureFooting, type WalkData } from './data';
 import { densify, type Dense } from './geo';
 
 export const WORLD: World = 'mars';
@@ -11,18 +11,20 @@ export const WATER_PER_O2 = 3.1 / 2.7;
 export const MAX_SLOPE = 25;
 
 /** The sliders on the screen. reserve is in percent. */
-export interface PlanParams { speed: number; o2: number; water: number; reserve: number }
+export interface PlanParams { speed: number; o2: number; water: number; reserve: number; footing?: boolean }
 export const DEFAULT_PARAMS: PlanParams = { speed: 2, o2: 8, water: 8, reserve: 20 };
 
 export const evaParams = (q: PlanParams): EvaParams =>
-  ({ speed_kmh: q.speed, o2_h: q.o2, water_h: q.water, reserve: q.reserve / 100, min_reserve_h: 0.5 });
+  ({ speed_kmh: q.speed, o2_h: q.o2, water_h: q.water, reserve: q.reserve / 100, min_reserve_h: 0.5, footing: q.footing ?? true });
+/** Put the footing switch into the Rust core's grid before a computation that reads it. */
+const foot = (core: Core, p: EvaParams) => { ensureFooting(core, p.footing ?? true); return p; };
 
 export function denseRoute(core: Core, data: WalkData | null, route: Waypoint[]): Dense {
   return data ? densify(core, WORLD, route, 40) : { pts: route, wp: route.map((_, i) => i) };
 }
 
 export function evaluate(core: Core, dense: Dense, p: EvaParams): RouteEval {
-  return core.evaluateRoute(WORLD, dense.pts, p);
+  return core.evaluateRouteOn(WORLD, JEZERO, dense.pts, foot(core, p));
 }
 
 export function roverCheck(core: Core, data: WalkData | null, dense: Dense): RouteCheck | null {
@@ -32,7 +34,7 @@ export function roverCheck(core: Core, data: WalkData | null, dense: Dense): Rou
 
 export function reachFrom(core: Core, data: WalkData | null, base: Waypoint | undefined, p: EvaParams): Reach | null {
   if (!data?.dem || !base) return null;
-  try { return core.reach(WORLD, JEZERO, base.lat, base.lon, p, MAX_SLOPE); } catch { return null; }
+  try { return core.reach(WORLD, JEZERO, base.lat, base.lon, foot(core, p), MAX_SLOPE); } catch { return null; }
 }
 
 /** The Mars route resampled for the Hokkaido rehearsal search (points with known elevation). */
@@ -74,7 +76,7 @@ export const TIGHT = 0.85;
  */
 export function roverWalkback(core: Core, data: WalkData | null, p: EvaParams): RoverWalkback | null {
   if (!data?.dem || !data.rover) return null;
-  try { return core.roverWalkback(WORLD, JEZERO, LANDING.lat, LANDING.lon, p, MAX_SLOPE); } catch { return null; }
+  try { return core.roverWalkback(WORLD, JEZERO, LANDING.lat, LANDING.lon, foot(core, p), MAX_SLOPE); } catch { return null; }
 }
 
 export type WalkbackState = 'ok' | 'tight' | 'no' | 'out';
@@ -90,7 +92,7 @@ export async function roverWalkbackSql(core: Core, data: WalkData | null, p: Eva
   if (!data?.dem) return null;
   const { marsQuery, ROVER_PATH_SQL } = await import('../agent/marsDb');
   const rows = await marsQuery(core, ROVER_PATH_SQL, ['rover_traverse']);
-  return { r: core.roverWalkbackFrom(WORLD, JEZERO, LANDING.lat, LANDING.lon, p, MAX_SLOPE, rows), sql: ROVER_PATH_SQL };
+  return { r: core.roverWalkbackFrom(WORLD, JEZERO, LANDING.lat, LANDING.lon, foot(core, p), MAX_SLOPE, rows), sql: ROVER_PATH_SQL };
 }
 
 /** Drop points that lie within `tol` degrees of the line between their neighbours (Douglas–Peucker). */
@@ -115,7 +117,7 @@ function simplify(pts: [number, number][], tol: number): [number, number][] {
 export function easyLeg(core: Core, data: WalkData | null, a: Waypoint, b: Waypoint, p: EvaParams): Waypoint[] | null {
   if (!data?.dem) return null;
   try {
-    const path = core.easyPath(WORLD, JEZERO, [a.lat, a.lon], [b.lat, b.lon], p, MAX_SLOPE);
+    const path = core.easyPath(WORLD, JEZERO, [a.lat, a.lon], [b.lat, b.lon], foot(core, p), MAX_SLOPE);
     if (!path || path.length < 2) return null;
     return simplify(path, data.dem.dlat * 1.5).slice(1).map(([lat, lon]) => ({ lat, lon, elev: undefined }));
   } catch { return null; }

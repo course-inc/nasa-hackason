@@ -34,7 +34,10 @@ export interface Waypoint { lat: number; lon: number; elev?: number | null }
 export interface EvaParams {
   speed_kmh: number; o2_h: number; reserve: number;
   water_h?: number; min_reserve_h?: number; unknown_slope?: number;
+  /** Count the footing (THEMIS thermal inertia, TES dust) where the grid has it; default on. */
+  footing?: boolean;
 }
+export interface FootingModel { ti_loose: number; ti_firm: number; eta_loose: number; eta_firm: number; dci_dusty: number; dust_extra: number }
 export interface Leg { km: number; slope_deg: number; hours: number; effort_h: number; known: boolean }
 export interface Tick { idx: number; t_h: number; km: number; o2_left: number; water_left: number; home_h: number; margin_h: number }
 export interface RouteEval {
@@ -108,6 +111,14 @@ export interface Core extends Boot {
   /** Load the whole-Hokkaido scan grid (once). */
   loadScan: (cellKm?: number) => Promise<Scan>;
   evaluateRoute: (world: World, pts: Waypoint[], p: EvaParams) => RouteEval;
+  /** evaluateRoute with the surface conditions stored on a grid (footing). */
+  evaluateRouteOn: (world: World, grid: string, pts: Waypoint[], p: EvaParams) => RouteEval;
+  /** Footing data (jezero_footing.json text) for a grid, or '' to stop counting it. */
+  setFooting: (grid: string, json: string) => void;
+  sampleFooting: (grid: string, latlons: [number, number][]) => (number | null)[];
+  footingModel: () => FootingModel;
+  /** Per cell 0 (firm) … 255 (loose), for the map layer; empty without footing. */
+  footingBadness: (grid: string) => Uint8Array;
   distanceKm: (world: World, a: { lat: number; lng: number }, b: { lat: number; lng: number }) => number;
   setGrid: (name: string, g: Grid | string) => void;
   sampleGrid: (name: string, latlons: [number, number][]) => (number | null)[];
@@ -166,6 +177,11 @@ export function loadCore(): Promise<Core> {
       gaps: (e, b, t) => JSON.parse(wasm.gaps(e, b, t)),
       loadScan,
       evaluateRoute: (world, pts, p) => JSON.parse(wasm.evaluateRoute(world, JSON.stringify(pts), JSON.stringify(p))),
+      evaluateRouteOn: (world, grid, pts, p) => JSON.parse(wasm.evaluateRouteOn(world, grid, JSON.stringify(pts), JSON.stringify(p))),
+      setFooting: (grid, json) => wasm.setFooting(grid, json),
+      sampleFooting: (grid, latlons) => JSON.parse(wasm.sampleFooting(grid, JSON.stringify(latlons))),
+      footingModel: () => JSON.parse(wasm.footingModel()),
+      footingBadness: (grid) => wasm.footingBadness(grid),
       distanceKm: (world, a, b) => wasm.distanceKm(world, a.lat, a.lng, b.lat, b.lng),
       setGrid: (name, g) => wasm.setGrid(name, typeof g === 'string' ? g : JSON.stringify(g)),
       sampleGrid: (name, ll) => JSON.parse(wasm.sampleGrid(name, JSON.stringify(ll))),

@@ -65,3 +65,18 @@ export const fmtH = (h: number) => {
   const m = Math.round(Math.max(0, h) * 60);
   return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
 };
+
+/** Footing layer as a PNG data URL: firm ground clear, loose ground orange → red (0–255 per cell). */
+export function footingImage(bad: Uint8Array, g: { lat0: number; lon0: number; dlat: number; dlon: number; rows: number; cols: number }) {
+  const c = document.createElement('canvas');
+  c.width = g.cols; c.height = g.rows;
+  const ctx = c.getContext('2d')!;
+  const img = ctx.createImageData(g.cols, g.rows);
+  for (let i = 0; i < bad.length; i++) {
+    const v = bad[i] / 255, o = i * 4;
+    img.data[o] = 255; img.data[o + 1] = Math.round(200 - 160 * v); img.data[o + 2] = 40; img.data[o + 3] = Math.round(220 * v);
+  }
+  ctx.putImageData(img, 0, 0);
+  const north = g.lat0 + g.dlat / 2, west = g.lon0 - g.dlon / 2;
+  return { url: c.toDataURL(), bounds: [[north - g.rows * g.dlat, west], [north, west + g.cols * g.dlon]] as [[number, number], [number, number]] };
+}

@@ -12,8 +12,10 @@
 //! - [`world`]: body constants and geodesy
 //! - [`data`]: bundled datasets from `data/*.json`
 
+pub mod conditions;
 pub mod data;
 pub mod eva;
+pub mod footing;
 pub mod grid;
 pub mod rehearsal;
 pub mod route;

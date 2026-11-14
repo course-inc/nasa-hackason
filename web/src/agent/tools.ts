@@ -3,7 +3,7 @@
 import type { Core, Waypoint } from '../core';
 import { LANDING, exampleRoute, loadHokkaidoGrid, type WalkData } from '../walk/data';
 import { fmtH } from '../walk/geo';
-import { computePlan, evaParams, rehearsalPoints, roverWalkbackSql, turnIndex, turnWaypoint, WATER_PER_O2, type PlanParams } from '../walk/plan';
+import { computePlan, evaParams, evaluate, rehearsalPoints, roverWalkbackSql, turnIndex, turnWaypoint, WATER_PER_O2, type PlanParams } from '../walk/plan';
 import { nextFrame, walkController, type EvidenceTopic } from '../walk/controller';
 import { registerTool, setToolsReady } from './port';
 import { getLang } from '../i18n';
@@ -125,8 +125,15 @@ const walkbackCheck: ToolDef = {
     if (reach) lines.push(t(l, `基地から歩いて帰れる範囲: ${reach.area_km2.toFixed(0)} km²（最遠 ${r1(reach.max_km)} km）。`,
       `Walk-home area from the base: ${reach.area_km2.toFixed(0)} km² (farthest ${r1(reach.max_km)} km).`));
     if (ev.unknown_segments > 0) lines.push(t(l, `地形が分からない区間 ${ev.unknown_segments} か所は急な登り（約17°）として計算。`, `${ev.unknown_segments} segments without terrain data are counted as a steep climb (~17°).`));
-    lines.push(t(l, `条件: 速さ ${params.speed} km/h、酸素 ${params.o2} 時間、冷却水 ${params.water} 時間、余裕 ${params.reserve}%。`,
-      `Settings: speed ${params.speed} km/h, O₂ ${params.o2} h, water ${params.water} h, reserve ${params.reserve}%.`));
+    // Footing: how much of the time the loose ground adds (same route on firm ground, Rust).
+    if (params.footing !== false && data?.footing) {
+      const firm = evaluate(c.core, dense, { ...evaParams(params), footing: false });
+      const extra = ev.total_h - firm.total_h;
+      if (extra >= 1 / 60) lines.push(t(l, `足場（THEMIS 熱慣性・TES ダスト）で時間が +${fmtH(extra)}（かたい地面なら ${fmtH(firm.total_h)}）。足場の係数は目安。`,
+        `Footing (THEMIS thermal inertia, TES dust) adds ${fmtH(extra)} (on firm ground ${fmtH(firm.total_h)}). The footing factors are estimates.`));
+    }
+    lines.push(t(l, `条件: 速さ ${params.speed} km/h、酸素 ${params.o2} 時間、冷却水 ${params.water} 時間、余裕 ${params.reserve}%${params.footing === false ? '、足場は計算に入れない' : ''}。`,
+      `Settings: speed ${params.speed} km/h, O₂ ${params.o2} h, water ${params.water} h, reserve ${params.reserve}%${params.footing === false ? ', footing not counted' : ''}.`));
 
     let rehearsal: { site: string; score: number; slope_diff_deg: number; climb_mars_m: number; climb_earth_m: number }[] | undefined;
     if (a.with_rehearsal === true || a.with_rehearsal === 'true') {
