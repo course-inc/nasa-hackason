@@ -18,7 +18,7 @@ function parseHash(): { view: View; params: WalkParams; target: TargetParams } {
     const num = (s?: string) => (s && Number.isFinite(+s) ? +s : undefined);
     return { view: 'walk', params: { world: w, lat: num(lat), lon: num(lon), z: num(z) }, target: {} };
   }
-  return { view: 'target', params: {}, target: name === 'target' ? { body: world, test: lat, site: lon } : {} };
+  return { view: 'target', params: {}, target: name === 'target' ? { body: world, test: lat, ...(lon === 'scan' ? { mode: 'scan' } : { site: lon }) } : {} };
 }
 
 export function App() {

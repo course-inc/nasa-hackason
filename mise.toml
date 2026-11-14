@@ -25,6 +25,10 @@ run = "node scripts/sync-data.mjs"
 description = "WALKBACK: build web/public/data from data/raw (Jezero DEM, rover traverse, EVA) + Hokkaido grids from GSI"
 run = "node scripts/build-walk-data.mjs"
 
+[tasks.scan-data]
+description = "#10: build web/public/data/scan from NASA data (NASADEM terrain + NASA POWER climate), cached in data/raw"
+run = "node scripts/build-scan-data.mjs"
+
 [tasks.walk-tiles]
 description = "WALKBACK: download map tiles into web/public/tiles for offline use (skips existing)"
 run = "node scripts/fetch-walk-tiles.mjs"

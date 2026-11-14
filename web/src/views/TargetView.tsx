@@ -1,11 +1,12 @@
 // #10 Earth Analogs, target-first: pick a Moon/Mars target and a rehearsal test, and every
 // Hokkaido site is ranked for it (Rust/WASM), with the gaps Hokkaido cannot reproduce in numbers.
 // State lives in the hash (#target/<body>/<test>/<site>) so a view can be shared as a link.
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Core, Gap, SiteScore } from '../core';
-import { PlanetMap, missionOverlay, type FlyTarget } from '../map/PlanetMap';
+import { PlanetMap, missionOverlay, type Feature, type FlyTarget } from '../map/PlanetMap';
+import { useScanSection } from './ScanSection';
 
-export interface TargetParams { body?: string; test?: string; site?: string }
+export interface TargetParams { body?: string; test?: string; site?: string; mode?: string }
 type Lang = 'en' | 'ja';
 
 const CONTROL_ID = 'sapporo';
@@ -26,6 +27,7 @@ const T = {
     walk: '🥾 Practice walk here', plan: 'Plan the route there',
     src: 'Target values', approx: ' (representative values)',
     moon: 'Moon', mars: 'Mars', earthLabel: 'Earth · Hokkaido', control: 'control',
+    modeSites: '14 known sites', modeScan: 'Scan all of Hokkaido (1 km)',
   },
   ja: {
     title: '北海道で月の予行演習',
@@ -41,6 +43,7 @@ const T = {
     walk: '🥾 ここで歩く練習', plan: '現地のルートを計画',
     src: '天体側の値', approx: '（代表値）',
     moon: '月', mars: '火星', earthLabel: '地球 北海道', control: '対照',
+    modeSites: '人が選んだ14地点', modeScan: '北海道全体をスキャン（1km）',
   },
 } as const;
 
@@ -71,6 +74,7 @@ export function TargetView({ core, params }: { core: Core; params: TargetParams 
   const [testId, setTestId] = useState(params.test && tests.some((t) => t.id === params.test) ? params.test : tests[0].id);
   const [siteId, setSiteId] = useState<string | null>(params.site ?? null);
   const [earthFly, setEarthFly] = useState<FlyTarget | null>(null);
+  const [mode, setMode] = useState<'sites' | 'scan'>(params.mode === 'scan' ? 'scan' : 'sites');
   const t = T[lang];
 
   const body = core.bodies.find((b) => b.id === bodyId)!;
@@ -98,11 +102,18 @@ export function TargetView({ core, params }: { core: Core; params: TargetParams 
   const gaps = useMemo(() => core.gaps(cur.earth_id, bodyId, testId), [core, cur.earth_id, bodyId, testId]);
   const bodyFly = useMemo<FlyTarget>(() => ({ lat: body.lat, lon: body.lon, z: body.world === 'moon' ? 5 : 6, seq: Date.now() }), [body]);
 
+  const fly = useCallback((lat: number, lon: number, z: number) => setEarthFly({ lat, lon, z, seq: Date.now() }), []);
+  const scanView = useScanSection({ core, enabled: mode === 'scan', bodyId, testId, lang, siteName, onFly: fly });
+
   useEffect(() => { try { localStorage.setItem(LANG_KEY, lang); } catch { /* private mode */ } }, [lang]);
   useEffect(() => {
-    const h = `#target/${bodyId}/${testId}${siteId ? `/${siteId}` : ''}`;
+    const h = `#target/${bodyId}/${testId}/${mode === 'scan' ? 'scan' : siteId ?? ''}`.replace(/\/$/, '');
     if (location.hash.startsWith('#target') && location.hash !== h) history.replaceState(null, '', h);
-  }, [bodyId, testId, siteId]);
+  }, [bodyId, testId, siteId, mode]);
+  const pickMode = (m: 'sites' | 'scan') => {
+    setMode(m);
+    if (m === 'scan') fly(43.4, 142.8, 7);
+  };
 
   const pickSite = (id: string) => {
     const e = site(id);
@@ -128,6 +139,14 @@ export function TargetView({ core, params }: { core: Core; params: TargetParams 
     color: b.id === bodyId ? '#ff7a45' : '#40a9ff', tooltip: lang === 'en' ? b.name : b.ja,
     openTooltip: b.id === bodyId, onClick: () => pickBody(b.id),
   })), [core, body.world, bodyId, lang]);
+
+  const scanFeatures = useMemo<Feature[]>(() => [
+    ...scanView.features,
+    ...core.earthSites.filter((e) => e.id !== CONTROL_ID).map((e) => ({
+      kind: 'point' as const, lat: e.lat, lon: e.lon, radius: 3, color: '#ffffff',
+      tooltip: lang === 'en' ? e.en ?? e.name : e.name,
+    })),
+  ], [scanView.features, core, lang]);
 
   const sorted = [...cur.dims].sort((a, b) => b.s - a.s);
   const dimLabel = (d: { label: string; label_en: string }) => (lang === 'en' ? d.label_en : d.label);
@@ -161,6 +180,13 @@ export function TargetView({ core, params }: { core: Core; params: TargetParams 
           ))}
         </div>
 
+        <div className="tabs mode" id="mode-tabs">
+          <button data-mode="sites" className={mode === 'sites' ? 'on' : ''} onClick={() => pickMode('sites')}>{t.modeSites}</button>
+          <button data-mode="scan" className={mode === 'scan' ? 'on' : ''} onClick={() => pickMode('scan')}>{t.modeScan}</button>
+        </div>
+
+        {mode === 'scan' ? scanView.panel : (
+          <>
         <details className="overview" open>
           <summary>{t.overview} — {bodyName()}</summary>
           <table id="overview">
@@ -225,6 +251,9 @@ export function TargetView({ core, params }: { core: Core; params: TargetParams 
           <p className="muted">{t.gapsNote}</p>
         </div>
 
+          </>
+        )}
+
         <div className="btns">
           <a className="btn" href={`#walk/earth/${curSite.lat}/${curSite.lon}/14`}>{t.walk}</a>
           <a className="btn" href={`#walk/${body.world}/${body.lat}/${body.lon}/${body.world === 'mars' ? 9 : 10}`}>{core.world(body.world).icon} {t.plan}</a>
@@ -232,7 +261,8 @@ export function TargetView({ core, params }: { core: Core; params: TargetParams 
         <p className="muted">{t.src}: {body.src}{body.approx ? t.approx : ''}</p>
       </aside>
       <div className="maps">
-        <PlanetMap core={core} world="earth" baseKey="s2" fly={earthFly} features={earthFeatures}>
+        <PlanetMap core={core} world="earth" baseKey="s2" fly={earthFly} features={mode === 'scan' ? scanFeatures : earthFeatures}
+          onClick={scanView.onMapClick}>
           <div className="maplabel">{t.earthLabel}</div>
         </PlanetMap>
         <PlanetMap key={body.world} core={core} world={body.world} view={[body.lat, body.lon, body.world === 'moon' ? 5 : 6]}

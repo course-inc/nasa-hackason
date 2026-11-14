@@ -47,6 +47,18 @@ await p.waitForTimeout(300);
 const air = await p.locator('#gaps').innerText();
 if (!/CO₂/.test(air)) fail('mars atmosphere gap');
 await p.screenshot({ path: 'e2e/shot-target.png' });
+// Whole-Hokkaido scan: the grid loads, the heat map and best candidates appear, sites are checked.
+await p.locator('#mode-tabs button[data-mode=scan]').click();
+await p.waitForSelector('#scan-top li', { timeout: 20000 }).catch(() => fail('scan candidates'));
+const nTop = await p.locator('#scan-top li').count();
+console.log('scan top', nTop, '|', await p.locator('#scan .scan-head').innerText());
+if (nTop < 1) fail('scan top');
+if (!(await p.locator('.leaflet-image-layer').count())) fail('scan heat map');
+await p.locator('#scan-top li').first().click();
+await p.waitForSelector('#scan-cell .total b');
+console.log('scan check:', await p.locator('#scan .check-line').innerText());
+await p.screenshot({ path: 'e2e/shot-scan.png' });
+
 
 await p.goto(`${BASE}/#analogs`);
 await p.waitForSelector('#site-list li');
