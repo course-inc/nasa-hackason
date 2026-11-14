@@ -302,6 +302,53 @@ export function roverCheck(points, near_m) {
 }
 
 /**
+ * Crewed-rover breakdown check along the stored traverse: from each point, could the crew walk
+ * back to the base (grid `name`, same EvaParams as the walk-home area)?
+ * @param {string} world
+ * @param {string} name
+ * @param {number} lat
+ * @param {number} lon
+ * @param {string} params
+ * @param {number} max_slope_deg
+ * @returns {string}
+ */
+export function roverWalkback(world, name, lat, lon, params, max_slope_deg) {
+    let deferred8_0;
+    let deferred8_1;
+    try {
+        const val4 = +lat;
+        const val5 = +lon;
+        const val6 = +max_slope_deg;
+        let ptr0, len0, ptr1, len1, ptr2, len2;
+        try {
+            ptr0 = passStringToWasm0(world, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passStringToWasm0(params, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len2 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 1, 1); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+            throw e;
+        }
+        const ret = wasm.roverWalkback(ptr0, len0, ptr1, len1, val4, val5, ptr2, len2, val6);
+        var ptr7 = ret[0];
+        var len7 = ret[1];
+        if (ret[3]) {
+            ptr7 = 0; len7 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred8_0 = ptr7;
+        deferred8_1 = len7;
+        return getStringFromWasm0(ptr7, len7);
+    } finally {
+        wasm.__wbindgen_free(deferred8_0, deferred8_1, 1);
+    }
+}
+
+/**
  * Bilinear elevations for `[[lat, lon], …]` from a stored grid (null outside or in holes).
  * @param {string} name
  * @param {string} latlons
@@ -604,6 +651,62 @@ export function setTraverse(traverse_json) {
         const ptr0 = passStringToWasm0(traverse_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.setTraverse(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * #11 A: lay a walk recorded on Earth onto Mars from `base` (same east/north metres).
+ * @param {string} points
+ * @param {number} base_lat
+ * @param {number} base_lon
+ * @returns {string}
+ */
+export function transplantWalk(points, base_lat, base_lon) {
+    let deferred5_0;
+    let deferred5_1;
+    try {
+        const val2 = +base_lat;
+        const val3 = +base_lon;
+        const ptr0 = passStringToWasm0(points, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.transplantWalk(ptr0, len0, val2, val3);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
+        if (ret[3]) {
+            ptr4 = 0; len4 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
+    } finally {
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
+}
+
+/**
+ * #11 A: summary of a recorded walk (`[{lat, lon, elev, t}]`, elevation from a DEM) on Earth.
+ * @param {string} points
+ * @returns {string}
+ */
+export function walkSummary(points) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(points, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.walkSummary(ptr0, len0);
         var ptr2 = ret[0];
         var len2 = ret[1];
         if (ret[3]) {
