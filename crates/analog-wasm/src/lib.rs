@@ -197,6 +197,29 @@ pub fn rover_walkback(
     })
 }
 
+/// Crewed-rover breakdown check on traverse rows read with SQL (`[{drive, seq, sol, lat, lon,
+/// elev_m, km}]` in drive/seq order, from the rover_traverse parquet). Same calculation as
+/// `roverWalkback`; only where the path comes from differs.
+#[wasm_bindgen(js_name = roverWalkbackFrom)]
+pub fn rover_walkback_from(
+    world: &str,
+    name: &str,
+    lat: f64,
+    lon: f64,
+    params: &str,
+    max_slope_deg: f64,
+    rows: &str,
+) -> Result<String, JsError> {
+    let w = parse_world(world)?;
+    let p: route::EvaParams = serde_json::from_str(params).map_err(err)?;
+    let rows: Vec<traverse::TraversePoint> = serde_json::from_str(rows).map_err(err)?;
+    let t = traverse::from_points(&rows);
+    with_grid(name, |g| {
+        let home = grid::home_ratio(w, g, lat, lon, &p, max_slope_deg);
+        json(&traverse::walkback(&t, g, &home, p.budget()))
+    })
+}
+
 /// Compare densified route points (with elevation) with the stored traverse.
 #[wasm_bindgen(js_name = roverCheck)]
 pub fn rover_check(points: &str, near_m: f64) -> Result<String, JsError> {

@@ -3,7 +3,7 @@
 import type { Core, Waypoint } from '../core';
 import { LANDING, exampleRoute, loadHokkaidoGrid, type WalkData } from '../walk/data';
 import { fmtH } from '../walk/geo';
-import { computePlan, evaParams, rehearsalPoints, roverWalkback, turnIndex, turnWaypoint, WATER_PER_O2, type PlanParams } from '../walk/plan';
+import { computePlan, evaParams, rehearsalPoints, roverWalkbackSql, turnIndex, turnWaypoint, WATER_PER_O2, type PlanParams } from '../walk/plan';
 import { nextFrame, walkController, type EvidenceTopic } from '../walk/controller';
 import { registerTool } from './port';
 import { getLang } from '../i18n';
@@ -169,8 +169,9 @@ const roverWalkbackTool: ToolDef = {
     const params = paramsFrom(a, c.params());
     c.setParams(params);
     c.setRoverMode(true);
-    const r = roverWalkback(c.core, data, evaParams(params));
-    if (!r) throw new Error('rover traverse or Jezero grid not loaded');
+    const res = await roverWalkbackSql(c.core, data, evaParams(params));
+    if (!res) throw new Error('Jezero grid not loaded');
+    const r = res.r;
     const flag = r.first_stranded != null ? r.points[r.first_stranded] : null;
     c.set3d(false);
     if (flag) c.flyTo((flag.lat + LANDING.lat) / 2, (flag.lon + LANDING.lon) / 2, 12);
@@ -187,6 +188,7 @@ const roverWalkbackTool: ToolDef = {
     return {
       text,
       data: { flag: flag && { lat: flag.lat, lon: flag.lon, km: flag.km, sol: flag.sol, ratio: flag.ratio }, ok_share: r.ok_share, inside_km: r.inside_km, total_km: total, budget_h: r.budget_h, params },
+      sql: res.sql,
       sources: [SRC.rover, SRC.hirise, SRC.mola, { label: 'Apollo LRV walkback constraint (concept; numbers are this app\'s calculation)', url: 'https://www.hq.nasa.gov/alsj/lrvhand.html' }, SRC.engine],
     };
   },
@@ -427,8 +429,10 @@ export const WALK_TOOLS: ToolDef[] = [walkbackCheck, roverWalkbackTool, importWa
  * Register the WALKBACK tools and #10's Hokkaido tools.
  */
 export function registerAgentTools(core: Core): () => void {
-  const off = WALK_TOOLS.map(registerTool);
   let live = true;
+  const off = WALK_TOOLS.map(registerTool);
+  // query_nasa: read-only SQL over the NASA tables (loads DuckDB only when called).
+  import('./queryNasa').then((m) => { if (live) off.push(registerTool(m.makeQueryNasa(core))); }).catch(() => undefined);
   // #10's explore.ts (explore_hokkaido, view_scan, …): every exported make…Tool(core). Loaded lazily
   // so duckdb-wasm stays out of the first load.
   import('./explore').then((m) => {

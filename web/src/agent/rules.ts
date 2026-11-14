@@ -58,6 +58,12 @@ export function plan(question: string, available: Set<string>): Step[] {
   const wantCheck = !wantRover && has(q, /帰れ|戻れ|帰って|戻って|歩いて帰|帰還|間に合|return|walk back|get back|make it back|come back/i) || (km != null && !wantExplore);
 
   if (Object.keys(params).length) add('view_set_params', params);
+  // Counting questions on the NASA tables → query_nasa with a fixed, readable SQL.
+  const evaH = q.match(/(?:船外活動|EVA|spacewalk)[^\d]{0,20}(\d+(?:\.\d+)?)\s*(?:時間|h|hours?)\s*(?:を?超え|以上|より長|over|longer|more)/i)
+    ?? q.match(/(\d+(?:\.\d+)?)\s*(?:時間|h|hours?)\s*(?:を?超え|以上|より長|over|longer|more)[^。?？]{0,20}(?:船外活動|EVA|spacewalk)/i);
+  if (evaH) add('query_nasa', { sql: `SELECT count(*) AS evas, max(hours) AS longest_h FROM eva WHERE hours > ${Number(evaH[1])}` });
+  const solQ = q.match(/sol\s*(\d+)\s*(?:まで|の時点)/i) ?? q.match(/(?:by|until|up to)\s*sol\s*(\d+)/i);
+  if (solQ && has(q, /走|距離|km|drive|driven|far/i)) add('query_nasa', { sql: `SELECT max(km) AS km_driven, max(sol) AS last_sol FROM rover_traverse WHERE mission = 'm20' AND sol <= ${Number(solQ[1])}` });
   if (wantWalkRec) {
     add('import_walk', { lang });
     if (wantPlay || has(q, /再生|火星で歩|replay/i)) add('mars_replay', { action: 'play' });

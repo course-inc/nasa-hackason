@@ -358,3 +358,100 @@ mod walkback_tests {
         assert_eq!(p0.sol, 10);
     }
 }
+
+/// One row of the traverse as a table (for DuckDB/parquet export): which drive, its sol, position
+/// and the distance driven so far, measured exactly as `RoverStats::km` and `walkback` do.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TraversePoint {
+    /// Index of the drive in the record (file order).
+    pub drive: usize,
+    /// Index of the point within its drive.
+    pub seq: usize,
+    pub sol: u32,
+    pub lat: f64,
+    pub lon: f64,
+    pub elev_m: f64,
+    pub km: f64,
+}
+
+pub fn points(t: &Traverse) -> Vec<TraversePoint> {
+    let w = World::Mars;
+    let lat0 = t
+        .drives
+        .first()
+        .and_then(|d| d.c.first())
+        .map(|c| c[1])
+        .unwrap_or(0.0);
+    let mut km = 0.0;
+    let mut out = Vec::new();
+    for (di, d) in t.drives.iter().enumerate() {
+        for (i, c) in d.c.iter().enumerate() {
+            if i > 0 {
+                let a = d.c[i - 1];
+                let (ax, ay) = xy(w, lat0, a[0], a[1]);
+                let (bx, by) = xy(w, lat0, c[0], c[1]);
+                km += ((bx - ax).powi(2) + (by - ay).powi(2)).sqrt() / 1000.0;
+            }
+            out.push(TraversePoint {
+                drive: di,
+                seq: i,
+                sol: d.sol,
+                lat: c[1],
+                lon: c[0],
+                elev_m: c[2],
+                km,
+            });
+        }
+    }
+    out
+}
+
+/// Rebuild a traverse from table rows (as read back with SQL), drives in `drive` order.
+pub fn from_points(rows: &[TraversePoint]) -> Traverse {
+    let mut drives: Vec<Drive> = Vec::new();
+    let mut last: Option<usize> = None;
+    for r in rows {
+        if last != Some(r.drive) {
+            drives.push(Drive {
+                sol: r.sol,
+                c: Vec::new(),
+            });
+            last = Some(r.drive);
+        }
+        drives.last_mut().unwrap().c.push([r.lon, r.lat, r.elev_m]);
+    }
+    Traverse { drives }
+}
+
+#[cfg(test)]
+mod points_tests {
+    use super::*;
+
+    #[test]
+    fn table_round_trip_keeps_the_numbers() {
+        let t = Traverse {
+            drives: vec![
+                Drive {
+                    sol: 15,
+                    c: vec![[77.45, 18.44, -2569.0], [77.4505, 18.4402, -2570.0]],
+                },
+                Drive {
+                    sol: 16,
+                    c: vec![
+                        [77.451, 18.441, -2571.0],
+                        [77.452, 18.442, -2572.0],
+                        [77.453, 18.443, -2573.0],
+                    ],
+                },
+            ],
+        };
+        let p = points(&t);
+        assert_eq!(p.len(), 5);
+        assert!((p.last().unwrap().km - stats(&t, 25.0).km).abs() < 1e-12);
+        assert_eq!(from_points(&p).drives.len(), 2);
+        assert_eq!(
+            serde_json::to_string(&from_points(&p)).unwrap(),
+            serde_json::to_string(&t).unwrap()
+        );
+    }
+}

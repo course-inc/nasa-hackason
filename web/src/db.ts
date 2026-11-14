@@ -22,6 +22,12 @@ export interface Db {
   query: (sql: string) => Promise<Row[]>;
   /** Create score_<body>_<test> once and point the `scan` view at it. Returns the table name. */
   ensureScores: (body: string, test: string) => Promise<string>;
+  /**
+   * (#11) A view over bundled parquet files (paths relative to the page). The web build reads
+   * them over HTTP with range requests (only the columns and row groups a query needs); the
+   * desktop app reads the bundled files whole.
+   */
+  attachParquet: (view: string, files: string[]) => Promise<void>;
 }
 
 const CELL_COLS: [string, string][] = [
@@ -127,5 +133,36 @@ async function open(core: Core): Promise<Db> {
     return table;
   };
 
-  return { scan, query, ensureScores };
+  // DuckDB-wasm autoloads its parquet extension from extensions.duckdb.org; serve the bundled copy
+  // (web/public/duckdb-ext/<version>/wasm_eh/) instead, so it also works offline in the desktop app.
+  let parquet: Promise<void> | null = null;
+  const parquetReady = () => (parquet ??= conn.query(`SET custom_extension_repository = '${new URL('./duckdb-ext', location.href).href}'`).then(() => undefined));
+  const attached = new Map<string, Promise<void>>();
+  const attachParquet = (view: string, files: string[]) => {
+    const name = ident(view);
+    if (!attached.has(name)) {
+      attached.set(name, (async () => {
+        await parquetReady();
+        const local = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+        const names: string[] = [];
+        for (const f of files) {
+          const url = new URL(f, location.href).href;
+          const fname = `${name}__${names.length}.parquet`;
+          if (local) {
+            const r = await fetch(url);
+            if (!r.ok) throw new Error(`${f}: HTTP ${r.status}`);
+            await db.registerFileBuffer(fname, new Uint8Array(await r.arrayBuffer()));
+          } else {
+            await db.registerFileURL(fname, url, duckdb.DuckDBDataProtocol.HTTP, false);
+          }
+          names.push(fname);
+        }
+        await conn.query(`CREATE OR REPLACE VIEW ${name} AS SELECT * FROM read_parquet([${names.map((n) => `'${n}'`).join(', ')}])`);
+      })());
+      attached.get(name)!.catch(() => attached.delete(name));
+    }
+    return attached.get(name)!;
+  };
+
+  return { scan, query, ensureScores, attachParquet };
 }

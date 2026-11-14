@@ -7,7 +7,7 @@ import { getElevation } from '../elevation';
 import { PlanetMap, missionOverlay, type Feature, type FlyTarget } from '../map/PlanetMap';
 import { LANDING, exampleRoute, loadWalkData, type WalkData } from '../walk/data';
 import { fmtH, reachImage, slopeColor } from '../walk/geo';
-import { WALKBACK_COLOR, WATER_PER_O2, WORLD, denseRoute, evaParams, evaluate, reachFrom, rehearsalPoints, roverCheck, roverWalkback, turnIndex, turnWaypoint, walkbackState } from '../walk/plan';
+import { WALKBACK_COLOR, WATER_PER_O2, WORLD, denseRoute, evaParams, evaluate, reachFrom, rehearsalPoints, roverCheck, roverWalkbackSql, turnIndex, turnWaypoint, walkbackState } from '../walk/plan';
 import { setWalkController, type EvidenceTopic } from '../walk/controller';
 import { useLang, useT } from '../i18n';
 import { GpxError, SAMPLE_GPX, atDistance, importWalk, type WalkImport } from '../walk/gpx';
@@ -80,10 +80,16 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   // B: crewed rover on Perseverance's path breaks down: can the crew walk home from each point?
   const [roverMode, setRoverMode] = useState(false);
   const [rw, setRw] = useState<RoverWalkback | null>(null);
+  const [rwState, setRwState] = useState<'idle' | 'loading' | 'error'>('idle');
   useEffect(() => {
-    if (!roverMode || !data) { setRw(null); return; }
-    const id = setTimeout(() => setRw(roverWalkback(core, data, p)), 60);
-    return () => clearTimeout(id);
+    if (!roverMode || !data) { setRw(null); setRwState('idle'); return; }
+    let live = true;
+    // The path comes from the rover_traverse table (DuckDB loads on first use, ~1–2 s).
+    setRwState('loading');
+    roverWalkbackSql(core, data, p)
+      .then((x) => { if (live) { setRw(x?.r ?? null); setRwState('idle'); } })
+      .catch((e) => { console.warn('rover walkback', e); if (live) setRwState('error'); });
+    return () => { live = false; };
   }, [core, data, p, roverMode]);
   const flag = rw?.first_stranded != null ? rw.points[rw.first_stranded] : null;
   const rwLines = useMemo(() => {
@@ -383,6 +389,8 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           <h4>{t('有人ローバーが壊れたら、歩いて帰れるか', 'If a crewed rover breaks down, can the crew walk back?')}</h4>
           <p className="muted">{t('Perseverance の実走ルートを人が乗ったローバーで走ったと仮定。着陸地点が基地。どこで壊れたら歩いて帰れなくなるか（上の条件と同じ酸素・冷却水）。', "Suppose a crew drove Perseverance's real path, with the landing site as the base. Where would a breakdown leave them unable to walk home (same oxygen and cooling water as above)?")}</p>
           <button onClick={() => setRoverMode(!roverMode)} disabled={!data?.rover}>{roverMode ? t('探査車の道を元に戻す', 'Show the plain rover path') : t('探査車の道を色分けする', 'Colour the rover path')}</button>
+          {roverMode && rwState === 'loading' && !rw && <p className="muted">{t('探査車の走行記録をデータベース（DuckDB）から読み込み中…', 'Loading the rover record from the database (DuckDB)…')}</p>}
+          {roverMode && rwState === 'error' && <p className="warn">{t('走行記録のデータベースを読み込めませんでした。Web 版はネットから読み込むので、接続を確かめてもう一度押してください。', 'Could not load the rover database. The web version downloads it; check the connection and press again.')}</p>}
           {rw && (
             <>
               <div className="big-line"><b>{Math.round(rw.ok_share * 100)}%</b><span>{t(`の区間から歩いて帰れる（地形データのある走行 ${rw.inside_km.toFixed(1)} km のうち）`, `of the path lets the crew walk home (of ${rw.inside_km.toFixed(1)} km driven with terrain data)`)}</span></div>

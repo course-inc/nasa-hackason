@@ -81,3 +81,14 @@ export type WalkbackState = 'ok' | 'tight' | 'no' | 'out';
 export const walkbackState = (pt: { ratio: number | null; inside: boolean }): WalkbackState =>
   !pt.inside ? 'out' : pt.ratio == null || pt.ratio > 1 ? 'no' : pt.ratio > TIGHT ? 'tight' : 'ok';
 export const WALKBACK_COLOR: Record<WalkbackState, string> = { ok: '#52c41a', tight: '#fadb14', no: '#ff4d4f', out: '#8c8c8c' };
+
+/**
+ * The same check with the path read from the rover_traverse table (DuckDB, parquet) instead of
+ * the bundled JSON: SQL fetches the rows, the Rust core does the walking maths.
+ */
+export async function roverWalkbackSql(core: Core, data: WalkData | null, p: EvaParams): Promise<{ r: RoverWalkback; sql: string } | null> {
+  if (!data?.dem) return null;
+  const { marsQuery, ROVER_PATH_SQL } = await import('../agent/marsDb');
+  const rows = await marsQuery(core, ROVER_PATH_SQL);
+  return { r: core.roverWalkbackFrom(WORLD, JEZERO, LANDING.lat, LANDING.lon, p, MAX_SLOPE, rows), sql: ROVER_PATH_SQL };
+}

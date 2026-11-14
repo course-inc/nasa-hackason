@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { extractKm, extractParams, plan } from './rules';
 
-const ALL = new Set(['view_globe', 'walkback_check', 'rover_walkback', 'import_walk', 'mars_replay', 'open_evidence', 'explore_hokkaido', 'view_scan', 'view_3d', 'view_overlay', 'view_set_params', 'view_walk']);
+const ALL = new Set(['query_nasa', 'view_globe', 'walkback_check', 'rover_walkback', 'import_walk', 'mars_replay', 'open_evidence', 'explore_hokkaido', 'view_scan', 'view_3d', 'view_overlay', 'view_set_params', 'view_walk']);
 const names = (q: string) => plan(q, ALL).map((s) => s.name);
 
 describe('rules agent routing', () => {
@@ -27,6 +27,10 @@ describe('rules agent routing', () => {
   it('recorded walk', () => {
     expect(names('歩いた記録で火星を歩いて見せて')).toEqual(['import_walk', 'mars_replay']);
     expect(names('この散歩、火星なら帰れた？')).toEqual(['import_walk']);
+  });
+  it('counting questions use query_nasa', () => {
+    expect(plan('8時間を超えた船外活動は何回？', ALL)[0]).toEqual({ name: 'query_nasa', args: { sql: 'SELECT count(*) AS evas, max(hours) AS longest_h FROM eva WHERE hours > 8' } });
+    expect(plan('How far had Perseverance driven by sol 1000?', ALL)[0].args.sql).toMatch(/sol <= 1000/);
   });
   it('globe', () => {
     expect(names('火星の全球を見せて')).toEqual(['view_globe']);

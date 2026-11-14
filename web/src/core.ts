@@ -117,6 +117,8 @@ export interface Core extends Boot {
   walkSummary: (pts: TimedPoint[]) => WalkSummary;
   transplantWalk: (pts: TimedPoint[], baseLat: number, baseLon: number) => [number, number][];
   roverWalkback: (world: World, grid: string, lat: number, lon: number, p: EvaParams, maxSlopeDeg: number) => RoverWalkback | null;
+  /** Same check on traverse rows read with SQL ([{drive, seq, sol, lat, lon, elev_m, km}]). */
+  roverWalkbackFrom: (world: World, grid: string, lat: number, lon: number, p: EvaParams, maxSlopeDeg: number, rows: unknown[]) => RoverWalkback;
   setEvaCsv: (csv: string) => EvaStats;
   evaLongerShare: (hours: number) => number;
   rehearse: (from: World, pts: Waypoint[], grid: string, stride: number, rotStepDeg: number, top: number) => RehearsalMatch[];
@@ -171,6 +173,7 @@ export function loadCore(): Promise<Core> {
       walkSummary: (pts) => JSON.parse(wasm.walkSummary(JSON.stringify(pts))),
       transplantWalk: (pts, lat, lon) => JSON.parse(wasm.transplantWalk(JSON.stringify(pts), lat, lon)),
       roverWalkback: (world, grid, lat, lon, p, max) => JSON.parse(wasm.roverWalkback(world, grid, lat, lon, JSON.stringify(p), max)),
+      roverWalkbackFrom: (world, grid, lat, lon, p, max, rows) => JSON.parse(wasm.roverWalkbackFrom(world, grid, lat, lon, JSON.stringify(p), max, JSON.stringify(rows))),
       setEvaCsv: (csv) => JSON.parse(wasm.setEvaCsv(csv)),
       evaLongerShare: (h) => wasm.evaLongerShare(h),
       rehearse: (from, pts, grid, stride, rot, top) => JSON.parse(wasm.rehearse(from, JSON.stringify(pts), grid, stride, rot, top)),

@@ -1,0 +1,46 @@
+{
+ "scale": 1,
+ "tables": {
+  "rover_traverse": {
+   "files": [
+    "rover_traverse/mission=m20/data.parquet"
+   ],
+   "rows": 10456,
+   "bytes": 241883,
+   "columns": [
+    "mission",
+    "drive",
+    "seq",
+    "sol",
+    "lat",
+    "lon",
+    "elev_m",
+    "km"
+   ],
+   "source": {
+    "label": "Mars 2020 Perseverance traverse (NASA/JPL MMGIS)",
+    "url": "https://mars.nasa.gov/mmgis-maps/M20/Layers/json/M20_traverse.json"
+   },
+   "note": "km: distance driven since the start of the record, as computed by analog-core traverse::points"
+  },
+  "eva": {
+   "files": [
+    "eva.parquet"
+   ],
+   "rows": 368,
+   "bytes": 8631,
+   "columns": [
+    "id",
+    "country",
+    "crew",
+    "vehicle",
+    "date",
+    "hours"
+   ],
+   "source": {
+    "label": "data.nasa.gov: Extra-vehicular Activity (EVA) - US and Russia",
+    "url": "https://data.nasa.gov/docs/legacy/Extra-vehicular_Activity_EVA_-_US_and_Russia/Extra-vehicular_Activity_EVA_-_US_and_Russia_rows.csv"
+   }
+  }
+ }
+}
