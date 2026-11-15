@@ -590,6 +590,7 @@ h1 small { font-size: 12px; margin-left: 6px; }
 .route-plan .spots { margin: 6px 0 8px; font-size: 12.5px; }
 .route-plan .spots ul { list-style: none; margin: 4px 0; padding: 0; max-height: 180px; overflow-y: auto; }
 .route-plan .spots li { margin: 2px 0; }
+.route-plan .spots .spot-note { display: block; margin: 1px 0 3px 4px; font-size: 11px; }
 .route-plan .spots button.spot { background: none; border: 1px solid #eb2f96; color: inherit; border-radius: 10px; padding: 1px 8px; cursor: pointer; font-size: 12px; }
 .route-plan .spots button.spot:hover { background: rgba(235, 47, 150, 0.18); }
 .settings-row input { padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 13px; }
@@ -598,7 +599,7 @@ h1 small { font-size: 12px; margin-left: 6px; }
    with the map / 3D showing through. Empty space lets clicks reach the map. */
 .agent-panel { background: transparent; border: 0; box-shadow: none; backdrop-filter: none; pointer-events: none; }
 .agent-panel > * { pointer-events: auto; }
-.agent-panel .agent-log { pointer-events: none; padding: 4px 2px; mask-image: linear-gradient(to bottom, transparent 0, #000 28px); }
+.agent-panel .agent-log { pointer-events: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 4px 2px; mask-image: linear-gradient(to bottom, transparent 0, #000 28px); }
 .agent-panel .agent-log > * { pointer-events: auto; }
 .agent-head { border: 0; padding: 0 2px 6px; justify-content: flex-end; }
 .agent-head b { display: none; }
@@ -624,3 +625,8 @@ h1 small { font-size: 12px; margin-left: 6px; }
 .agent-input button { border-radius: 999px; }
 .agent-panel .voice-live, .agent-panel .voice-err { align-self: flex-start; background: rgba(16,21,34,.6); border-radius: 12px; padding: 4px 10px;
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+
+/* Close the right half of a split screen */
+.split-close { position: absolute; z-index: 1300; right: 12px; top: 60px; font-size: 13px; padding: 6px 12px; border-radius: 18px;
+  background: rgba(14, 18, 28, 0.92); border: 1px solid #3a4560; color: #e8edf5; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+.split-close:hover { border-color: var(--accent); color: var(--accent); }

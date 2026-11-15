@@ -101,6 +101,11 @@ await step('5. 北海道で練習コースを探す', async () => {
   if (!/片道 [\d.]+ km/.test(ch) || !/目安タイム/.test(ch)) fail('same-slope challenge card with distance and target time');
   await tiles('rehearsal');
   if (SHOTS) await p.screenshot({ path: 'e2e/demo-4-rehearsal.png' });
+  // The split screen closes back to the Mars map alone (button, and Esc).
+  await p.locator('#split-close').click().catch(() => fail('split screen has a close button'));
+  await p.waitForSelector('.walk .maps.single', { timeout: 3000 }).catch(() => fail('closing the split leaves the Mars map alone'));
+  const w = await p.locator('.walk .maps .map').first().evaluate((e) => e.getBoundingClientRect().width);
+  if (w < 900) fail(`map takes the full width again (${Math.round(w)} px)`);
 });
 console.log('errors', errs);
 if (errs.length) fail('page errors');

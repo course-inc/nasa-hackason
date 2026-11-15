@@ -5,8 +5,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Core, Waypoint, World } from '../core';
 import { getElevation } from '../elevation';
 import { PlanetMap, missionOverlay, type Feature, type FlyTarget } from '../map/PlanetMap';
-import { JEZERO, LANDING, ensureFooting, exampleRoute, loadWalkData, setSurfaceOn, type WalkData } from '../walk/data';
-import { fmtH, footingImage, reachImage, slopeColor } from '../walk/geo';
+import { JEZERO, LANDING, ensureFooting, exampleRoute, loadWalkData, setSurfaceOn, surface, type WalkData } from '../walk/data';
+import { fmtH, footingImage, reachImage, slopeColor, surfaceImage } from '../walk/geo';
 import { DEFAULT_START, WALKBACK_COLOR, WATER_PER_O2, WORLD, waterFactor, denseRoute, easyLeg, steepLeg, MAX_SLOPE, evaluateRouteMaterial, evaParams, planRoute, routeMetrics, type RouteMetrics, evaluate, reachFrom, rehearsalPoints, roverCheck, roverWalkbackSql, turnIndex, turnWaypoint, walkbackState } from '../walk/plan';
 import { setWalkController, type EvidenceTopic } from '../walk/controller';
 import { useLang, useT } from '../i18n';
@@ -22,7 +22,7 @@ import { RehearsalPanel, useRehearsal } from '../walk/Rehearsal';
 import { Terrain3D, type Camera3D, type Line3D, type Point3D } from '../map/Terrain3D';
 import { Globe, type GlobeCamera, type GlobeMark } from '../map/Globe';
 import type { Reach, RoverWalkback } from '../core';
-import { loadSpotSources, pickSpots, type Spot, type SpotSources } from '../walk/spots';
+import { loadSpotSources, pickSpots, spotNote, type Spot, type SpotSources } from '../walk/spots';
 
 type Mode = 'pan' | 'route' | 'base' | 'goal';
 export interface WalkParams { world?: World; lat?: number; lon?: number; z?: number }
@@ -131,6 +131,8 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
     ensureFooting(core, footOn);
     return img;
   }, [core, data, showFoot, surfOn]); // eslint-disable-line react-hooks/exhaustive-deps
+  // HiRISE ripples / rocks over the 2D map: only while searching a route, with the checkbox on.
+  const surfImg = useMemo(() => (surface && data?.dem ? surfaceImage(surface, data.dem) : null), [data]);
   const check = useMemo(() => roverCheck(core, data, dense), [core, data, dense]);
   const longer = useMemo(() => (data?.eva ? core.evaLongerShare(ev.total_h) : 0), [core, data, ev.total_h]);
 
@@ -219,7 +221,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   // Destination ideas from NASA data (named places, Perseverance's stops) inside the walk-home area.
   const [spotSrc, setSpotSrc] = useState<SpotSources | null>(null);
   useEffect(() => { if (mode === 'goal' && !spotSrc) loadSpotSources().then(setSpotSrc).catch(() => undefined); }, [mode, spotSrc]);
-  const spots = useMemo<Spot[]>(() => (mode === 'goal' && spotSrc && reachRaw && data?.dem && base ? pickSpots(spotSrc, reachRaw, data.dem, base) : []),
+  const spots = useMemo<Spot[]>(() => (mode === 'goal' && spotSrc && reachRaw && data?.dem && base ? pickSpots(spotSrc, reachRaw, data.demGrid ?? data.dem, base) : []),
     [mode, spotSrc, reachRaw, data, base?.lat, base?.lon]); // eslint-disable-line react-hooks/exhaustive-deps
   const addPoint = (lat: number, lon: number) => {
     if (mode === 'goal') { planTo(lat, lon); return; }
@@ -324,6 +326,22 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
     if (!r.ok) { setWalkErr(t('例の GPX を読み込めませんでした。', 'Could not load the sample GPX.')); throw new Error('sample'); }
     return loadWalk(await r.text(), SAMPLE_GPX.split('/').pop()!);
   };
+  // Close the right half of a split screen (Hokkaido practice course or recorded walk) and give the
+  // map its full width back (Leaflet re-measures on the window resize event).
+  const closeSplit = () => {
+    setWalkRec(null); setRehOpen(false);
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
+  };
+  const splitOpen = !!walkRec || (rehOpen && reh.found.length > 0);
+  useEffect(() => {
+    if (!splitOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (e.key === 'Escape' && !(el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) closeSplit();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [splitOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   const clearWalk = () => { stop(); setWalkRec(null); setWalkErr(null); setRoute([route[0] ?? LANDING]); setSpeed(2); };
   const onDropFile = (f: File) => { f.text().then((t) => loadWalk(t, f.name)).catch(() => undefined); };
   const earthWalker = useMemo<[number, number] | null>(() => {
@@ -435,10 +453,11 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
     if (profHi != null && dense.pts[profHi]) f.push({ kind: 'point', lat: dense.pts[profHi].lat, lon: dense.pts[profHi].lon, color: '#ffffff', radius: 7, tooltip: t('断面グラフの位置', 'Profile position'), openTooltip: false });
     if (steep != null && dense.pts[steep + 1]) f.push({ kind: 'pin', lat: dense.pts[steep + 1].lat, lon: dense.pts[steep + 1].lon, tooltip: t(`通れない坂 ${Math.abs(ev.legs[steep].slope_deg).toFixed(0)}°（上限 ${MAX_SLOPE}°、火星の砂の安息角）`, `Impassable ${Math.abs(ev.legs[steep].slope_deg).toFixed(0)}° slope (limit ${MAX_SLOPE}°, Mars sand angle of repose)`) });
     if (footImg) f.push({ kind: 'image', url: footImg.url, bounds: footImg.bounds, opacity: 0.7 });
+    if (surfImg && surfOn && (mode === 'goal' || compare)) f.push({ kind: 'image', url: surfImg.url, bounds: surfImg.bounds, opacity: 0.6 });
     if (reachImg && showReach) f.push({ kind: 'image', url: reachImg.url, bounds: reachImg.bounds, opacity: 0.55 });
     f.push(...roverFeatures);
     for (const s of spots) f.push({ kind: 'point', lat: s.lat, lon: s.lon, color: '#eb2f96', radius: 6, onClick: () => planTo(s.lat, s.lon),
-      tooltip: `${s.name[lang]}<br>${t('基地から', 'from base')} ${s.km.toFixed(1)} km · ${t('往復で使う分', 'budget used')} ${Math.round(s.ratio * 100)}%` });
+      tooltip: `${s.name[lang]}<br>${t('基地から', 'from base')} ${s.km.toFixed(1)} km<br>${spotNote(s, lang)}` });
     // Route coloured by slope, in runs of the same colour.
     const pts = dense.pts;
     let run: [number, number][] = [], col = '';
@@ -469,7 +488,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
       f.push({ kind: 'point', lat: pts[turnIdx].lat, lon: pts[turnIdx].lon, radius: 9, color: '#faad14', tooltip: t('🚩 引き返し地点', '🚩 Turn-back point'), openTooltip: true });
     }
     return f;
-  }, [reachImg, showReach, footImg, compare, vizTrace, mode, profHi, steep, roverFeatures, dense, ev, route, turnIdx, lang, spots, weights, start]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [reachImg, showReach, footImg, surfImg, surfOn, compare, vizTrace, mode, profHi, steep, roverFeatures, dense, ev, route, turnIdx, lang, spots, weights, start]); // eslint-disable-line react-hooks/exhaustive-deps
   // The same layers for the 3D view.
   const lines3d = useMemo<Line3D[]>(() => {
     const l: Line3D[] = [];
@@ -551,7 +570,8 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
                 <b>{t('行き先の候補（NASAデータにある地点、帰れる範囲だけ）', 'Destination ideas (places in NASA data, inside the walk-home area)')}</b>
                 <ul>{spots.map((s) => (
                   <li key={s.id}><button className="spot" onClick={() => planTo(s.lat, s.lon)} title={s.src}>{s.name[lang]}</button>
-                    <small className="muted"> {s.km.toFixed(1)} km · {t('往復で使う分', 'budget')} {Math.round(s.ratio * 100)}%</small></li>
+                    <small className="muted"> {s.km.toFixed(1)} km</small>
+                    <small className="muted spot-note">{spotNote(s, lang)}</small></li>
                 ))}</ul>
                 <small className="muted">{t('出典: IAU 火星地名（USGS/NASA）、Perseverance 走行記録（NASA/JPL）', 'Sources: IAU Mars names (USGS/NASA), Perseverance traverse (NASA/JPL)')}</small>
               </div>
@@ -561,6 +581,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
                 <input id={`w-${k}`} type="range" min={0} max={3} step={0.5} value={weights[k]} onChange={(e) => setWeights((w) => ({ ...w, [k]: +e.target.value }))} /></label>
             ))}
             <label className="check" id="surface-toggle"><input type="checkbox" checked={surfOn} onChange={(e) => setSurfOn(e.target.checked)} /> {t('砂の波紋・岩（HiRISE写真から判定）を避ける', 'Avoid sand ripples and rocks (judged from HiRISE images)')} <a href="#hirise">{t('レポート', 'Report')}</a></label>
+            {surfOn && <p className="report-key" id="surface-legend"><i className="k-rip" />{t('砂の波紋', 'sand ripples')}<i className="k-rock" />{t('岩・凹凸', 'rocky ground')}</p>}
             <label className="wt">{t('気温（出発時刻、火星の地方時）', 'Air temperature (departure, Mars local time)')} <b>{String(Math.floor(start)).padStart(2, '0')}:{start % 1 ? '30' : '00'}</b>
               <input id="w-start" type="range" min={5} max={19} step={0.5} value={start} onChange={(e) => setStart(+e.target.value)} /></label>
             <label className="wt">{t('速さ優先 ⇄ 安全優先', 'Speed first ⇄ safety first')} <b>{weights.safety}</b>
@@ -772,6 +793,9 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           )}
         </div>
         {walkRec && <EarthWalkPanel core={core} rec={walkRec} walker={earthWalker} />}
+        {(walkRec || (rehOpen && reh.found.length > 0)) && (
+          <button className="split-close" id="split-close" onClick={closeSplit} title={t('右の画面を閉じる（Esc）', 'Close the right view (Esc)')}>✕ {t('閉じる', 'Close')}</button>
+        )}
         {!walkRec && rehOpen && reh.found.length > 0 && (
           <RehearsalPanel core={core} mars={marsForReh} found={reh.found} selected={Math.min(rehSel, reh.found.length - 1)} onSelect={setRehSel}
             params={p} onImportFile={onDropFile} />

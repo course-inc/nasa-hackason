@@ -80,3 +80,23 @@ export function footingImage(bad: Uint8Array, g: { lat0: number; lon0: number; d
   const north = g.lat0 + g.dlat / 2, west = g.lon0 - g.dlon / 2;
   return { url: c.toDataURL(), bounds: [[north - g.rows * g.dlat, west], [north, west + g.cols * g.dlon]] as [[number, number], [number, number]] };
 }
+
+/**
+ * Sand ripples (blue) and rocky ground (orange) judged from HiRISE images, as an image over the
+ * judged window of the Jezero grid (walk/data.ts Surface; shares in percent per cell).
+ */
+export function surfaceImage(s: { r0: number; c0: number; h: number; w: number; ripple: number[]; rocky: number[] },
+  g: { lat0: number; lon0: number; dlat: number; dlon: number }) {
+  const c = document.createElement('canvas');
+  c.width = s.w; c.height = s.h;
+  const ctx = c.getContext('2d')!;
+  const img = ctx.createImageData(s.w, s.h);
+  for (let i = 0; i < s.w * s.h; i++) {
+    const rp = s.ripple[i] / 100, rk = s.rocky[i] / 100, o = i * 4;
+    if (rp >= rk && rp > 0.05) { img.data[o] = 60; img.data[o + 1] = 170; img.data[o + 2] = 255; img.data[o + 3] = Math.round(60 + 170 * rp); }
+    else if (rk > 0.05) { img.data[o] = 255; img.data[o + 1] = 90; img.data[o + 2] = 40; img.data[o + 3] = Math.round(60 + 170 * rk); }
+  }
+  ctx.putImageData(img, 0, 0);
+  const north = g.lat0 + g.dlat / 2 - s.r0 * g.dlat, west = g.lon0 - g.dlon / 2 + s.c0 * g.dlon;
+  return { url: c.toDataURL(), bounds: [[north - s.h * g.dlat, west], [north, west + s.w * g.dlon]] as [[number, number], [number, number]] };
+}
