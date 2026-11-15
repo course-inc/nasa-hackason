@@ -81,7 +81,7 @@ export function App() {
           <button className={lang === 'en' ? 'on' : ''} aria-pressed={lang === 'en'} onClick={() => setLang('en')}>English</button>
         </div>
       </header>
-      {error && <p className="warn" style={{ padding: 16 }}>{t('計算エンジン（Rust/WASM）を読み込めませんでした。新しいブラウザ（Chrome・Edge・Safari・Firefox の最新版）で開き直してください。', 'Could not load the calculation engine (Rust/WASM). Reopen the page in a current browser (latest Chrome, Edge, Safari or Firefox).')}<br /><small>{error}</small></p>}
+      {error && <p className="warn" style={{ padding: 16 }}>{t('計算の部分を読み込めませんでした。新しいブラウザ（Chrome・Edge・Safari・Firefox の最新版）で開き直してください。', 'Could not load the calculation part. Reopen the page in a current browser (latest Chrome, Edge, Safari or Firefox).')}<br /><small>{error}</small></p>}
       {!core && !error && <p className="muted boot">{t('計算エンジンと NASA データを読み込み中…', 'Loading the calculation engine and NASA data…')}</p>}
       {core && (
         <>

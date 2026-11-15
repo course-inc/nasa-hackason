@@ -39,16 +39,25 @@ type Item =
   | { kind: 'user'; text: string }
   | { kind: 'agent'; agent: string; text: string; calls: Call[]; error?: string; note?: string; status?: string; done: boolean };
 
+/** Plain names for the tools shown under an answer (no function identifiers on screen). */
+const TOOL_JA: Record<string, [string, string]> = {
+  walkback_check: ['帰れるか判定', 'Walk-back check'], plan_route: ['経路探索', 'Route search'], evaluate_route: ['経路の評価', 'Route evaluation'],
+  rover_walkback: ['ローバー故障', 'Rover breakdown'], query_nasa: ['NASA データを調べる', 'NASA data lookup'], open_evidence: ['根拠', 'Evidence'],
+  import_walk: ['歩いた記録', 'Recorded walk'], mars_replay: ['火星で再生', 'Replay on Mars'], view_3d: ['3D 表示', '3D view'], view_globe: ['全球', 'Globe'],
+  view_overlay: ['地図の層', 'Map layer'], view_set_params: ['条件を変える', 'Settings'], view_walk: ['ヘルメットで歩く', 'Helmet walk'],
+  explore_hokkaido: ['北海道の候補地', 'Hokkaido places'], view_scan: ['北海道の地図', 'Hokkaido map'],
+};
 function Chip({ c }: { c: Call }) {
   const t = useT();
+  const lang = useLang();
   const [open, setOpen] = useState(false);
   const tool = getTools().find((t) => t.name === c.name);
   const state = c.ok == null ? 'run' : c.ok ? 'ok' : 'ng';
   return (
-    <div className={`tool-chip ${state}`}>
+    <div className={`tool-chip ${state}`} data-tool={c.name}>
       <button className="tool-chip-head" onClick={() => setOpen(!open)} aria-expanded={open}>
         <span className="tool-kind">{tool?.kind === 'view' ? t('表示', 'view') : t('計算', 'compute')}</span>
-        <code>{c.name}</code>
+        <span className="tool-name">{TOOL_JA[c.name]?.[lang === 'ja' ? 0 : 1] ?? c.name}</span>
         <span className="tool-state">{state === 'run' ? (c.name === 'explore_hokkaido' ? t('北海道を探索中…（初回は数秒）', 'Exploring Hokkaido… (a few seconds the first time)') : t('計算中…', 'Computing…')) : state === 'ok' ? '✓' : '✕'}</span>
       </button>
       {open && (
@@ -211,7 +220,7 @@ export function AgentPanel() {
         <button className="agent-close" onClick={() => setOpen(false)} aria-label={t('質問欄を閉じる', 'Close the question panel')}>—</button>
       </div>
       <div className="agent-log" ref={logRef}>
-        {items.length === 0 && <p className="muted">{t('数字はすべて Rust エンジンと NASA データのツールから。答えはツールの結果だけを使います。下の例を押すか、質問を書いてください。', 'Every number comes from the Rust engine and NASA data tools; answers only quote tool results. Tap an example below or type a question.')}</p>}
+        {items.length === 0 && <p className="muted">{t('数字はすべて NASA のデータから計算しています。下の例を押すか、質問を書いてください。', 'Every number is calculated from NASA data. Tap an example below or type a question.')}</p>}
         {items.map((it, i) => it.kind === 'user'
           ? <div key={i} className="msg user">{it.text}</div>
           : (
