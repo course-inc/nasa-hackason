@@ -5,6 +5,12 @@
 import { createRequire } from 'node:module';
 
 const { chromium } = createRequire(import.meta.url)('playwright');
+const walkReady = async (pg, ms = 30000) => {
+  // #walk starts with only the base: wait for the data, then load the example route (★).
+  await pg.waitForFunction(() => { const v = document.querySelector('.walk .verdict'); return v && !/読み込み中|Loading/.test(v.textContent); }, null, { timeout: ms });
+  if (!(await pg.locator('.walk .verdict.ok, .walk .verdict.ng').count())) await pg.locator('.draw-toolbar a[data-m=example]').click();
+  await pg.waitForSelector('.walk .verdict.ok, .walk .verdict.ng', { timeout: ms });
+};
 const BASE = process.env.BASE_URL ?? 'http://localhost:4173';
 const OFFLINE = process.env.OFFLINE === '1'; // stub outside requests (local runs)
 const SHOTS = process.env.SHOTS !== '0';
@@ -55,7 +61,7 @@ await step('2. 詳細と「再現できない点」', async () => {
 });
 await step('3. WALKBACK でルートを引く', async () => {
   await p.goto(`${BASE}/#walk`);
-  await p.waitForSelector('.walk .verdict.ok, .walk .verdict.ng', { timeout: 30000 });
+  await walkReady(p, 30000);
   await p.locator('.draw-toolbar a[data-m=clear]').click();
   await p.locator('.draw-toolbar a[data-m=route]').click();
   const box = await p.locator('.walk .maps .map').first().boundingBox();

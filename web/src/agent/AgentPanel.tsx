@@ -90,6 +90,11 @@ export function AgentPanel() {
   const [open, setOpen] = useState(() => isWalk() && !narrow());
   const [q, setQ] = useState('');
   const [items, setItems] = useState<Item[]>([]);
+  // Suggestions: hidden once a question is asked; back when the last answer came out empty, or on request.
+  const [examplesOpen, setExamplesOpen] = useState(false);
+  const lastItem = items[items.length - 1];
+  const emptyAnswer = !!lastItem && lastItem.kind === 'agent' && lastItem.done && !lastItem.text && !lastItem.calls.length;
+  const showExamples = examplesOpen || !items.some((x) => x.kind === 'user') || emptyAnswer;
   const [busy, setBusy] = useState(false);
   const abort = useRef<AbortController | null>(null);
   // A card that should come to the front (the same-slope challenge) folds the panel away, unless
@@ -153,6 +158,7 @@ export function AgentPanel() {
     const prompt = text.trim();
     if (!prompt || busy) return;
     setQ('');
+    setExamplesOpen(false);
     setBusy(true);
     lastUse.current = Date.now() + 600000; // busy: never fold mid-answer
     answerText.current = '';
@@ -169,13 +175,13 @@ export function AgentPanel() {
         if (!(e instanceof NoModelError) || agent.id === 'rules') throw e;
         // No model reachable: say so and answer with the rules version.
         agent = getAgent('rules')!;
-        patchLast((it) => ({ ...it, agent: 'rules', note: agent.id === 'claude'
-          ? t(`AI に接続できないため、規則版（AIなし）で答えます（${e.message}）`, `The AI is not reachable, so the rules version (no AI) answers (${e.message})`)
-          : t(`AI モデルに接続できないため、規則版（AIなし）で答えます。デスクトップ版で ANTHROPIC_API_KEY を設定するか、Ollama を起動してください（${e.message}）`, `No AI model is reachable, so the rules version (no AI) answers. In the desktop app, set ANTHROPIC_API_KEY or start Ollama (${e.message})`) }));
+        console.warn('agent fallback', e.message);
+        patchLast((it) => ({ ...it, agent: 'rules', note: t('AI に接続できないため、規則版（AIなし）で答えます', 'The AI is not reachable, so the rules version (no AI) answers') }));
         await agent.ask(prompt, getTools(), onEvent, ctl.signal);
       }
-      if (agent.id === 'claude' && claudeModel) patchLast((it) => ({ ...it, note: it.note ?? claudeModel! }));
-      if (agent.id === 'pi-rs' && lastModel) patchLast((it) => ({ ...it, note: it.note ?? `${lastModel!.provider} / ${lastModel!.model}` }));
+      // (Model names are not shown on screen.)
+      if (agent.id === 'claude' && claudeModel) console.debug('[agent] model', claudeModel);
+      if (agent.id === 'pi-rs' && lastModel) console.debug('[agent] model', lastModel.provider, lastModel.model);
     } catch (e) {
       onEvent({ type: 'error', message: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -195,7 +201,8 @@ export function AgentPanel() {
       <div className="agent-head">
         <b>{t('質問する', 'Ask WALKBACK')}</b>
         <select aria-label={t('エージェント', 'Agent')} value={chosen} onChange={(e) => setAgentId(e.target.value)}>
-          {agents.map((a) => (
+          {/* One "In-app AI" entry: hide the desktop one where it cannot run but the browser one can. */}
+          {agents.filter((a) => !(a.id === 'pi-rs' && avail['pi-rs'] === false && avail['pi-rs-web'])).map((a) => (
             <option key={a.id} value={a.id} disabled={avail[a.id] === false}>
               {a.label}{avail[a.id] === false ? (a.id === 'claude' ? t('（未設定）', ' (not set up)') : t('（デスクトップ版のみ）', ' (desktop app only)')) : ''}
             </option>
@@ -218,9 +225,13 @@ export function AgentPanel() {
             </div>
           ))}
       </div>
-      <div className="agent-examples">
-        {(lang === 'ja' ? EXAMPLES : EXAMPLES_EN).map((x) => <button key={x} disabled={busy} onClick={() => ask(x)}>{x}</button>)}
-      </div>
+      {showExamples ? (
+        <div className="agent-examples">
+          {(lang === 'ja' ? EXAMPLES : EXAMPLES_EN).map((x) => <button key={x} disabled={busy} onClick={() => ask(x)}>{x}</button>)}
+        </div>
+      ) : (
+        <button className="linkish agent-examples-show" onClick={() => setExamplesOpen(true)}>{t('質問の例', 'Example questions')}</button>
+      )}
       {(listening || voiceErr) && <p className={listening ? 'voice-live' : 'warn voice-err'}>{listening ? t('聞き取り中… 話し終えたら ■ を押してください', 'Listening… press ■ when you finish') : voiceErr}</p>}
       <form className="agent-input" onSubmit={(e) => { e.preventDefault(); ask(q); }}>
         <input id="agent-q" aria-label={t('質問', 'Question')} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('例: 酸素6時間で基地から3km先まで帰れる？', 'e.g. With 6 hours of oxygen, can I walk back from 3 km out?')} />

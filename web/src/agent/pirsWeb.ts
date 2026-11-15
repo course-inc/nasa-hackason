@@ -50,12 +50,20 @@ async function detectModel(): Promise<string | null> {
 
 let worker: Worker | null = null;
 let onProgress: ((pct: number) => void) | null = null;
+/** The model is already stored in this browser (reported by the worker before it loads). */
+let cachedModel: boolean | null = null;
+let onCached: ((cached: boolean) => void) | null = null;
 function runModel(body: { messages: unknown[]; tools: unknown[] }): Promise<{ text: string; calls: unknown[] }> {
-  worker ??= new Worker(`${BASE}model-worker.mjs?v=7`, { type: 'module' });
+  if (!worker) {
+    // Ask the browser to keep stored data (the model) instead of evicting it under pressure.
+    navigator.storage?.persist?.().catch(() => undefined);
+    worker = new Worker(`${BASE}model-worker.mjs?v=8`, { type: 'module' });
+  }
   const w = worker;
   return new Promise((resolve, reject) => {
     w.onmessage = ({ data }) => {
       if (data.type === 'progress') onProgress?.(data.progress);
+      else if (data.type === 'cache') { cachedModel = !!data.cached; console.debug('[in-app AI] stored model', cachedModel); onCached?.(cachedModel); }
       else if (data.type === 'result') { console.debug('[pi-rs web] model output', data.raw); resolve({ text: data.text, calls: data.calls }); }
       else if (data.type === 'error') reject(new Error(data.message));
     };
@@ -142,12 +150,12 @@ async function getSession(tools: ToolDef[], fresh = false): Promise<Session> {
 export const pirsWebAgent: AgentPort = {
   id: 'pi-rs-web',
   get label() {
-    const m = chosen ? ` Qwen3 ${chosen.toUpperCase()}` : '';
-    const dl = chosen ? DOWNLOAD[chosen] : '';
-    return getLang() === 'ja' ? `アプリ内AI（${m.trim() || 'pi-rs'}・初回 約${dl}）` : `In-app AI (${m.trim() || 'pi-rs'}, ~${dl} first download)`;
+    return getLang() === 'ja' ? 'アプリ内AI' : 'In-app AI';
   },
   async available() {
     if (typeof navigator === 'undefined' || !('gpu' in navigator)) return false;
+    // The desktop app has its own in-app AI (Rust pi-rs); offer one, not two with the same name.
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) return false;
     chosen = await detectModel().catch(() => null);
     if (!chosen) return false;
     return fetch(`${BASE}pkg/pi_rs_browser_sdk.js`, { method: 'HEAD' }).then((r) => r.ok).catch(() => false);
@@ -161,13 +169,17 @@ export const pirsWebAgent: AgentPort = {
     question = prompt;
     lastError = '';
     let shown = -1;
+    // Stored in this browser: say so and do not show download progress (it is read from storage).
+    const savedText = () => (getLang() === 'ja' ? 'アプリ内AI: 保存済み・読み込み中…' : 'In-app AI: stored on this device, loading…');
+    onCached = (c) => { if (c) onEvent({ type: 'status', text: savedText() }); };
     onProgress = (pct) => {
+      if (cachedModel) return;
       const p = Math.min(100, Math.floor(pct / 5) * 5);
       if (p === shown) return;
       shown = p;
       onEvent({ type: 'status', text: getLang() === 'ja'
-        ? `端末の中にAIを読み込み中… ${p}%（初回だけ約${DOWNLOAD[modelSize()]}、2回目からはすぐ）`
-        : `Loading the AI into this device… ${p}% (about ${DOWNLOAD[modelSize()]} the first time only)` });
+        ? `アプリ内AIをダウンロード中… ${p}%（初回だけ約${DOWNLOAD[modelSize()]}。次からは保存済みのものを使います）`
+        : `Downloading the in-app AI… ${p}% (about ${DOWNLOAD[modelSize()]} the first time only; stored for next time)` });
     };
     const before = (JSON.parse(s.messages()) as unknown[]).length;
     const stop = () => s.cancel();

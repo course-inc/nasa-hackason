@@ -7,15 +7,17 @@ import { loadCore, type Core, type World } from './core';
 import { AnalogsView } from './views/AnalogsView';
 import { TargetView, type TargetParams } from './views/TargetView';
 import { WalkView, type WalkParams } from './views/WalkView';
+import { SourcesView } from './views/SourcesView';
 import { setLang, useLang, useT } from './i18n';
 import { Splash, wantSplash } from './Splash';
 import { loadWalkData } from './walk/data';
 
-type View = 'target' | 'analogs' | 'walk';
+type View = 'target' | 'analogs' | 'walk' | 'sources';
 
 function parseHash(): { view: View; params: WalkParams; target: TargetParams } {
   const [name, world, lat, lon, z] = location.hash.replace(/^#/, '').split('/');
   if (name === 'analogs') return { view: 'analogs', params: {}, target: {} };
+  if (name === 'sources') return { view: 'sources', params: {}, target: {} };
   if (name === 'walk' || name === 'mars' || name === '') {
     const w = (['earth', 'moon', 'mars'].includes(world) ? world : name === 'mars' ? 'mars' : undefined) as World | undefined;
     const num = (s?: string) => (s && Number.isFinite(+s) ? +s : undefined);
@@ -83,6 +85,7 @@ export function App() {
           {visited.has('target') && <div className="view-host" hidden={route.view !== 'target'}><TargetView core={core} params={route.target} /></div>}
           {visited.has('analogs') && <div className="view-host" hidden={route.view !== 'analogs'}><AnalogsView core={core} /></div>}
           {visited.has('walk') && <div className="view-host" hidden={route.view !== 'walk'}><WalkView core={core} params={route.params} /></div>}
+          {route.view === 'sources' && <div className="view-host"><SourcesView core={core} /></div>}
         </>
       )}
       <footer>Data: NASA GIBS, NASA Solar System Treks (LRO LOLA/WAC/Diviner, MGS MOLA/TES, Viking, Mars Odyssey THEMIS), JAXA SELENE (Kaguya), ESA Mars Express HRSC, MRO CTX (Caltech), ESA Sentinel-2 cloudless (EOX), 国土地理院, 産総研 地質調査総合センター</footer>
