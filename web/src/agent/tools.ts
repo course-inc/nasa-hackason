@@ -51,7 +51,7 @@ export function alongRover(core: Core, raw: [number, number, number][][], km: nu
 
 export function resolveRoute(core: Core, data: WalkData, arg: unknown, current: Waypoint[]): Waypoint[] {
   if (typeof arg === 'string' && /^[[{]/.test(arg.trim())) { try { arg = JSON.parse(arg); } catch { /* fall through */ } }
-  if (arg == null || arg === 'current') return current;
+  if (arg == null || arg === 'current') return current.length >= 2 ? current : exampleRoute(data.traverseRaw);
   if (arg === 'example') return exampleRoute(data.traverseRaw);
   if (Array.isArray(arg)) {
     const r = arg.map((p) => ({ lat: Number(p?.lat), lon: Number(p?.lon) }));
@@ -79,7 +79,7 @@ const paramsFrom = (a: Record<string, unknown>, cur: PlanParams): PlanParams => 
     if (!Number.isFinite(x) || x < lo || x > hi) throw new Error(`${k} must be between ${lo} and ${hi}`);
     return x;
   };
-  return { speed: n('speed_kmh', 0.5, 5, cur.speed), o2: n('o2_h', 2, 12, cur.o2), water: n('water_h', 2, 12, cur.water), reserve: n('reserve', 0, 50, cur.reserve) };
+  return { speed: n('speed_kmh', 0.5, 5, cur.speed), o2: n('o2_h', 2, 12, cur.o2), water: n('water_h', 2, 12, cur.water), reserve: n('reserve', 0, 50, cur.reserve), footing: cur.footing, start: cur.start };
 };
 
 // ---------- walkback_check ----------
