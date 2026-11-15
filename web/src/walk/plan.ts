@@ -248,7 +248,7 @@ export function evaluateRouteMaterial(core: Core, data: WalkData | null, route: 
     const f = waterFactor(core, q);
     let temp: number | null = null;
     try { const w = core.weatherWalk(h, p.o2_h); temp = w.temp_k != null ? w.temp_k - 273.15 : null; } catch { /* no weather */ }
-    return { start_h: h, temp_c: temp, water_factor: f, o2_left: e.usable_o2_h > 0 ? 1 - e.total_effort_h / e.usable_o2_h : 0, water_left: e.usable_water_h > 0 ? 1 - (e.total_effort_h * WATER_PER_O2) / e.usable_water_h : 0, ok: e.ok };
+    return { start_h: h, temp_c: temp, water_factor: f, o2_left: e.usable_o2_h > 0 ? Math.max(0, 1 - e.total_effort_h / e.usable_o2_h) : 0, water_left: e.usable_water_h > 0 ? Math.max(0, 1 - (e.total_effort_h * WATER_PER_O2) / e.usable_water_h) : 0, ok: e.ok };
   });
   let rad: number | null = null;
   try { rad = core.radiationExposure(ev.total_h).dose_msv; } catch { /* none */ }
