@@ -127,6 +127,8 @@ export interface Core extends Boot {
   evaluateRouteOn: (world: World, grid: string, pts: Waypoint[], p: EvaParams) => RouteEval;
   /** Footing data (jezero_footing.json text) for a grid, or '' to stop counting it. */
   setFooting: (grid: string, json: string) => void;
+  /** Cells reported blocked (row-major indices); every route search steps around them. [] clears. */
+  setBlocked: (grid: string, cells: number[]) => void;
   sampleFooting: (grid: string, latlons: [number, number][]) => (number | null)[];
   footingModel: () => FootingModel;
   setWeather: (json: string) => void;
@@ -201,6 +203,7 @@ export function loadCore(): Promise<Core> {
       evaluateRoute: (world, pts, p) => JSON.parse(wasm.evaluateRoute(world, JSON.stringify(pts), JSON.stringify(p))),
       evaluateRouteOn: (world, grid, pts, p) => JSON.parse(wasm.evaluateRouteOn(world, grid, JSON.stringify(pts), JSON.stringify(p))),
       setFooting: (grid, json) => wasm.setFooting(grid, json),
+      setBlocked: (grid, cells) => wasm.setBlocked(grid, JSON.stringify(cells)),
       sampleFooting: (grid, latlons) => JSON.parse(wasm.sampleFooting(grid, JSON.stringify(latlons))),
       footingModel: () => JSON.parse(wasm.footingModel()),
       radiationExposure: (h) => JSON.parse(wasm.radiationExposure(h)),
