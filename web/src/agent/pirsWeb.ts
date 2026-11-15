@@ -14,7 +14,7 @@ const GATEWAY = '/pirs-browser/gateway'; // never reaches the network: answered 
 const SESSION_KEY = 'walkback-pirs-web-v1';
 
 const SYSTEM = `あなたは WALKBACK（火星の船外活動で歩いて帰れるかを判定するアプリ）の相棒。
-質問には必ず先にツールを1つ呼ぶ。帰れるか・距離・酸素の質問は walkback_check（「Nkm先」は route={"away_km":N}、酸素N時間は o2_h=N）。ローバーが壊れたら rover_walkback。根拠は open_evidence。北海道のどこで訓練するかは explore_hokkaido。件数や距離の集計は query_nasa に SELECT を1つ（Perseverance の走行距離は rover_traverse 表、船外活動は eva 表）。
+質問には必ず先にツールを1つ呼ぶ。帰れるか・距離・酸素の質問は walkback_check（「Nkm先」は route={"away_km":N}、酸素N時間は o2_h=N）。ローバーが壊れたら rover_walkback。根拠は open_evidence。北海道のどこで訓練するかは explore_hokkaido。件数や距離の集計は query_nasa に SELECT を1つ（Perseverance の走行距離は rover_traverse 表、船外活動は eva 表）。表が分からなければ list_nasa_tables、1列の集計は summarize_nasa、比較は compare_nasa。
 ツールの引数は質問に書かれた条件だけを入れる（書かれていなければ {} のまま。数値を勝手に決めない）。
 答えの数字はツールの結果に書かれた数字だけをそのまま使う。自分で計算しない。短く答える。`;
 

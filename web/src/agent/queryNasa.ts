@@ -185,3 +185,74 @@ export function makeSummarizeNasaTool(core: Core): ToolDef {
     },
   };
 }
+
+/** Build the read-only comparison SQL: per group (group_by) or two conditions A / B (FILTER). */
+export function compareSql(table: string, column: string, opt: { groupBy?: string; whereA?: string; whereB?: string }): string {
+  const x = `TRY_CAST("${column}" AS DOUBLE)`;
+  if (opt.groupBy) {
+    const g = `"${opt.groupBy}"`;
+    return `SELECT ${g} AS ${opt.groupBy}, count(${x}) AS n, avg(${x}) AS mean, median(${x}) AS median FROM ${table} GROUP BY ${g} ORDER BY ${g}`;
+  }
+  const part = (k: string, w: string) => `count(${x}) FILTER (WHERE ${w}) AS n_${k}, avg(${x}) FILTER (WHERE ${w}) AS mean_${k}, median(${x}) FILTER (WHERE ${w}) AS median_${k}`;
+  return `SELECT ${part('a', `(${opt.whereA})`)}, ${part('b', `(${opt.whereB})`)} FROM ${table}`;
+}
+
+const num = (v: unknown): number | null => (v === null || v === undefined || Number.isNaN(Number(v)) ? null : Number(v));
+const diff = (b: unknown, a: unknown): number | null => { const x = num(b), y = num(a); return x === null || y === null ? null : +(x - y).toFixed(4); };
+
+export function makeCompareNasaTool(core: Core): ToolDef {
+  return {
+    name: 'compare_nasa',
+    kind: 'compute',
+    description: 'Compare one numeric column of a NASA table between groups (group_by: a column, at most 50 groups) or between two SQL conditions (where_a, where_b): count, mean and median of each, and the difference (B − A, or highest − lowest group mean). Returns the SQL and sources.',
+    parameters: {
+      type: 'object',
+      properties: {
+        table: { type: 'string', description: `One of: ${Object.keys(TABLES).join(', ')}` },
+        column: { type: 'string', description: 'Numeric column to compare' },
+        group_by: { type: 'string', description: 'Column whose values form the groups' },
+        where_a: { type: 'string', description: 'SQL condition for group A, e.g. "sol <= 500"' },
+        where_b: { type: 'string', description: 'SQL condition for group B, e.g. "sol > 500"' },
+      },
+      required: ['table', 'column'],
+    },
+    async run(a: { table?: string; column?: string; group_by?: string; where_a?: string; where_b?: string } = {}): Promise<ToolResult> {
+      const ja = getLang() === 'ja';
+      const t = known(a.table);
+      const column = String(a.column ?? '').trim();
+      const groupBy = a.group_by ? String(a.group_by).trim() : '';
+      const whereA = a.where_a ? String(a.where_a).trim() : '';
+      const whereB = a.where_b ? String(a.where_b).trim() : '';
+      if (!groupBy && !(whereA && whereB)) throw new Error(ja ? 'group_by か、where_a と where_b の両方を渡してください。' : 'Pass group_by, or both where_a and where_b.');
+      const { db, manifest } = await marsDb(core, [t]);
+      const names = (await withTimeout(db.query(`DESCRIBE ${t}`), TIME_MS, 'describe')).map((r) => String(r.column_name));
+      for (const c of [column, groupBy].filter(Boolean)) {
+        if (!IDENT.test(c) || !names.includes(c)) throw new Error(ja ? `${t} に列 ${c} はありません（列: ${names.join(', ')}）` : `${t} has no column ${c} (columns: ${names.join(', ')})`);
+      }
+      const sql = compareSql(t, column, groupBy ? { groupBy } : { whereA, whereB });
+      const c = checkSql(sql);
+      if (!c.ok) throw new Error(ja ? `この条件は使えません: ${c.error}` : `This condition cannot be used: ${c.error}`);
+      let rows: Row[];
+      try {
+        rows = await withTimeout(db.query(`SELECT * FROM (${c.sql}) AS q LIMIT 51`), TIME_MS, 'query');
+      } catch (e) {
+        throw new Error(ja ? `SQL のエラー: ${e instanceof Error ? e.message : String(e)}` : `SQL error: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      if (rows.length > 50) throw new Error(ja ? 'グループが 50 を超えました。' : 'More than 50 groups.');
+      const sources = [tableSource(manifest, t)];
+      if (groupBy) {
+        const withMean = rows.filter((r) => num(r.mean) !== null);
+        const hi = withMean.reduce<Row | null>((m, r) => (!m || Number(r.mean) > Number(m.mean) ? r : m), null);
+        const lo = withMean.reduce<Row | null>((m, r) => (!m || Number(r.mean) < Number(m.mean) ? r : m), null);
+        const d = hi && lo ? diff(hi.mean, lo.mean) : null;
+        const groups = rows.map((r) => `${groupBy}=${fmt(r[groupBy])}: n=${fmt(r.n)}, mean=${fmt(r.mean)}, median=${fmt(r.median)}`).join(' | ');
+        const tail = hi && lo && d !== null ? (ja ? `。平均が最大 ${fmt(hi[groupBy])}、最小 ${fmt(lo[groupBy])}、差 ${fmt(d)}` : `. Highest mean ${fmt(hi[groupBy])}, lowest ${fmt(lo[groupBy])}, difference ${fmt(d)}`) : '';
+        return { text: `${t}.${column} by ${groupBy}: ${groups}${tail}`, data: { rows, difference: d }, sql: c.sql, sources };
+      }
+      const r = rows[0] ?? {};
+      const dMean = diff(r.mean_b, r.mean_a), dMed = diff(r.median_b, r.median_a);
+      const text = `${t}.${column}: A (${whereA}) n=${fmt(r.n_a)}, mean=${fmt(r.mean_a)}, median=${fmt(r.median_a)} | B (${whereB}) n=${fmt(r.n_b)}, mean=${fmt(r.mean_b)}, median=${fmt(r.median_b)} | B−A: mean ${dMean === null ? 'null' : fmt(dMean)}, median ${dMed === null ? 'null' : fmt(dMed)}`;
+      return { text, data: { ...r, diff_mean: dMean, diff_median: dMed }, sql: c.sql, sources };
+    },
+  };
+}

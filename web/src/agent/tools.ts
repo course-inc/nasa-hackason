@@ -534,7 +534,7 @@ export function registerAgentTools(core: Core): () => void {
   let live = true;
   const off = WALK_TOOLS.map(registerTool);
   // query_nasa: read-only SQL over the NASA tables (loads DuckDB only when called).
-  const q = import('./queryNasa').then((m) => { if (live) off.push(registerTool(m.makeQueryNasa(core)), registerTool(m.makeListNasaTablesTool(core)), registerTool(m.makeSummarizeNasaTool(core))); }).catch(() => undefined);
+  const q = import('./queryNasa').then((m) => { if (live) off.push(registerTool(m.makeQueryNasa(core)), registerTool(m.makeListNasaTablesTool(core)), registerTool(m.makeSummarizeNasaTool(core)), registerTool(m.makeCompareNasaTool(core))); }).catch(() => undefined);
   // #10's explore.ts (explore_hokkaido, view_scan, …): every exported make…Tool(core). Loaded lazily
   // so duckdb-wasm stays out of the first load.
   const ex = import('./explore').then((m) => {
