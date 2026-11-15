@@ -57,6 +57,9 @@ export function Hud({ s, limiting, onStop, children, rad }: {
         <div className="hud-qa" aria-live="polite">
           <div className="hud-q">Q {qa.q}</div>
           <div className="hud-a">{qa.a.length > 220 ? `${qa.a.slice(0, 220)}…` : qa.a}</div>
+          {qa.cond && (
+            <div className="hud-cond">{t(`回答時の条件: 酸素 ${qa.cond.o2} 時間・冷却水 ${qa.cond.water} 時間・速さ ${qa.cond.speed} km/h・余裕 ${qa.cond.reserve}%`, `Settings when answered: O₂ ${qa.cond.o2} h, water ${qa.cond.water} h, speed ${qa.cond.speed} km/h, reserve ${qa.cond.reserve}%`)}</div>
+          )}
         </div>
       )}
       {children}

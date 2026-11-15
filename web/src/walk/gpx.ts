@@ -32,7 +32,7 @@ export function parseGpx(text: string): GpxTrack {
   const nodes = [...doc.getElementsByTagName('trkpt')];
   const use = nodes.length ? nodes : [...doc.getElementsByTagName('rtept')];
   const pts = use.map((n) => ({
-    lat: Number(n.getAttribute('lat')), lon: Number(n.getAttribute('lon')),
+    lat: n.hasAttribute('lat') ? Number(n.getAttribute('lat')) : NaN, lon: n.hasAttribute('lon') ? Number(n.getAttribute('lon')) : NaN,
     t: Date.parse(n.getElementsByTagName('time')[0]?.textContent ?? '') / 1000,
   })).filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon));
   if (pts.length < 2) throw new GpxError('no-points');
