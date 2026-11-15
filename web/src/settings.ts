@@ -19,7 +19,7 @@ export interface Settings {
   openaiKey: string;
   openaiModel: string;
 }
-export const OPENAI_MODELS = ['gpt-terra-6.1', 'gpt-5-mini', 'gpt-5', 'gpt-4.1', 'gpt-4.1-mini'];
+export const OPENAI_MODELS = ['gpt-6.1-terra', 'gpt-5-mini', 'gpt-5', 'gpt-4.1', 'gpt-4.1-mini'];
 
 export const CLOUD_MODELS: { id: string; ja: string; en: string }[] = [
   { id: 'claude-opus-5-5', ja: '高精度（標準）', en: 'Most accurate (default)' },
@@ -48,7 +48,7 @@ function load(): Settings {
     if (typeof raw.desktopModel === 'string') s.desktopModel = raw.desktopModel.slice(0, 100);
     if (raw.cloudVia === 'openai') s.cloudVia = 'openai';
     if (typeof raw.openaiKey === 'string') s.openaiKey = raw.openaiKey.slice(0, 300);
-    if (typeof raw.openaiModel === 'string' && raw.openaiModel.trim() && raw.openaiModel.trim() !== 'gpt-5-mini') s.openaiModel = raw.openaiModel.slice(0, 100); // old default → new default
+    if (typeof raw.openaiModel === 'string' && raw.openaiModel.trim() && !['gpt-5-mini', 'gpt-terra-6.1'].includes(raw.openaiModel.trim())) s.openaiModel = raw.openaiModel.slice(0, 100); // old default → new default
   } catch { /* storage blocked or bad JSON: defaults */ }
   return s;
 }

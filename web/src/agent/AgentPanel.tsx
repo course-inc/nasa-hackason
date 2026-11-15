@@ -44,7 +44,7 @@ type Item =
 /** Plain names for the tools shown under an answer (no function identifiers on screen). */
 const TOOL_JA: Record<string, [string, string]> = {
   walkback_check: ['帰れるか判定', 'Walk-back check'], plan_route: ['経路探索', 'Route search'], evaluate_route: ['経路の評価', 'Route evaluation'],
-  rover_walkback: ['ローバー故障', 'Rover breakdown'], query_nasa: ['NASA データを調べる', 'NASA data lookup'], open_evidence: ['根拠', 'Evidence'],
+  rover_walkback: ['ローバー故障', 'Rover breakdown'], query_nasa: ['NASA データを調べる', 'NASA data lookup'], list_nasa_tables: ['NASA データの表一覧', 'NASA data tables'], summarize_nasa: ['NASA データの集計', 'NASA data summary'], open_evidence: ['根拠', 'Evidence'],
   import_walk: ['歩いた記録', 'Recorded walk'], mars_replay: ['火星で再生', 'Replay on Mars'], view_3d: ['3D 表示', '3D view'], view_globe: ['全球', 'Globe'],
   view_overlay: ['地図の層', 'Map layer'], view_set_params: ['条件を変える', 'Settings'], view_walk: ['ヘルメットで歩く', 'Helmet walk'],
   explore_hokkaido: ['北海道の候補地', 'Hokkaido places'], view_scan: ['北海道の地図', 'Hokkaido map'],
