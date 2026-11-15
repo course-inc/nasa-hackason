@@ -47,6 +47,8 @@ export function setWalkController(c: WalkController | null) {
   current = c;
   if (c) waiters.splice(0).forEach((fn) => fn(c));
 }
+/** The mounted screen's controller, or null when the WALKBACK screen is not open. */
+export function currentWalkController(): WalkController | null { return current; } 
 
 /** The mounted screen's controller; opens the WALKBACK tab and waits for it if needed. */
 export function walkController(timeoutMs = 15000): Promise<WalkController> {
