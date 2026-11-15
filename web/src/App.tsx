@@ -33,6 +33,40 @@ function parseHash(): { view: View; params: WalkParams; target: TargetParams } {
   return { view: 'target', params: {}, target: name === 'target' ? { body: world, test: lat, ...(lon === 'scan' ? { mode: 'scan' } : { site: lon }) } : {} };
 }
 
+/** "Other views ▾": the remaining screens in a small menu (closes on choice, outside click, Esc). */
+function OtherViews({ current }: { current: string }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const items: [string, string, string][] = [
+    ['hirise', t('レポート: 岩と波紋', 'Report: rocks & ripples'), '#hirise'],
+    ['target', t('北海道全域の探索', 'Explore all of Hokkaido'), '#target'],
+    ['analogs', t('地点 → 月・火星', 'Site → Moon/Mars'), '#analogs'],
+    ['sources', t('データと根拠', 'Data and sources'), '#sources'],
+  ];
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: Event) => { if (!(e.target as HTMLElement)?.closest?.('.other-views')) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('pointerdown', close); window.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('pointerdown', close); window.removeEventListener('keydown', esc); };
+  }, [open]);
+  const here = items.find(([v]) => v === current);
+  return (
+    <div className="other-views">
+      <button className={here ? 'on' : ''} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        {here ? here[1] : t('ほかの画面', 'Other views')} ▾
+      </button>
+      {open && (
+        <div className="other-views-menu" role="menu">
+          {items.map(([v, label, href]) => (
+            <a key={v} role="menuitem" href={href} className={v === current ? 'on' : ''} onClick={() => setOpen(false)}>{label}</a>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function App() {
   const t = useT();
   const lang = useLang();
@@ -76,11 +110,9 @@ export function App() {
       <header>
         <h1>WALKBACK <small>Hokkaido × Mars</small></h1>
         <nav aria-label={t('画面', 'Views')}>
-          <a href="#walk" className={route.view === 'walk' ? 'on' : ''}>{t('火星で歩いて帰る', 'Walk back on Mars')}</a>
+          <a href="#walk" className={route.view === 'walk' ? 'on' : ''}>🥾 {t('火星で歩いて帰る', 'Walk back on Mars')}</a>
           <a href="#suit" className={route.view === 'suit' ? 'on' : ''}>{t('宇宙飛行士ビュー', 'Astronaut view')}</a>
-          <a href="#hirise" className={route.view === 'hirise' ? 'on' : ''}>{t('レポート: 岩と波紋', 'Report: rocks & ripples')}</a>
-          <a href="#target" className={route.view === 'target' ? 'on' : ''}>{t('北海道全域の探索', 'Explore all of Hokkaido')}</a>
-          <a href="#analogs" className={route.view === 'analogs' ? 'on' : ''}>{t('地点 → 月・火星', 'Site → Moon/Mars')}</a>
+          <OtherViews current={route.view} />
         </nav>
         <div className="lang-switch" role="group" aria-label={t('言語', 'Language')}>
           <button className={lang === 'ja' ? 'on' : ''} aria-pressed={lang === 'ja'} onClick={() => setLang('ja')}>日本語</button>
