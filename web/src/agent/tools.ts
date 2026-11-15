@@ -3,10 +3,11 @@
 import type { Core, Waypoint } from '../core';
 import { LANDING, exampleRoute, loadHokkaidoGrid, type WalkData } from '../walk/data';
 import { fmtH } from '../walk/geo';
-import { DEFAULT_START, MAX_SLOPE, computePlan, evaluateRouteMaterial, evaParams, evaluate, planRoute, steepLeg, rehearsalPoints, roverWalkbackSql, turnIndex, turnWaypoint, WATER_PER_O2, type PlanParams } from '../walk/plan';
+import { DEFAULT_START, MAX_SLOPE, reachFrom, computePlan, evaluateRouteMaterial, evaParams, evaluate, planRoute, steepLeg, rehearsalPoints, roverWalkbackSql, turnIndex, turnWaypoint, WATER_PER_O2, type PlanParams } from '../walk/plan';
 import { nextFrame, walkController, type EvidenceTopic } from '../walk/controller';
 import { registerTool, setToolsReady } from './port';
 import { getLang } from '../i18n';
+import { SPOT_SRC, loadSpotSources, pickSpots } from '../walk/spots';
 import type { ToolDef, ToolResult } from './types';
 
 type Lang = 'ja' | 'en';
@@ -500,7 +501,31 @@ const planRouteTool: ToolDef = {
   },
 };
 
-export const WALK_TOOLS: ToolDef[] = [walkbackCheck, planRouteTool, evaluateRouteTool, roverWalkbackTool, importWalkTool, marsReplay, openEvidence, view3d, viewGlobe, viewOverlay, viewSetParams, viewWalk];
+/** nearby_spots: destination ideas from NASA data (named places, Perseverance's stops) in the walk-home area. */
+const nearbySpotsTool: ToolDef = {
+  name: 'nearby_spots',
+  kind: 'compute',
+  description: 'List destination ideas near the base: places that exist in NASA data (IAU Mars names from the USGS gazetteer, and the points where Perseverance stopped after each drive), kept only when they are inside the walk-home area for the current oxygen/water/speed. Returns name, lat, lon, straight distance from the base and the share of the out-and-back budget. Use it for "what is worth visiting nearby?", "where can I go?", "destination ideas"; then plan_route to one of them.',
+  parameters: { type: 'object', properties: { max: { type: 'number', description: 'How many (default 8)' }, lang: LANG } },
+  async run(a) {
+    const l = lang(a);
+    const c = await walkController();
+    const data = await c.data();
+    const base = c.route()[0] ?? LANDING;
+    const reach = reachFrom(c.core, data, base, evaParams(c.params()));
+    if (!reach || !data.dem) return { text: t(l, '地形データが読み込めていないので、帰れる範囲を計算できませんでした。', 'The terrain is not loaded, so the walk-home area could not be computed.') };
+    const spots = pickSpots(await loadSpotSources(), reach, data.dem, base, Math.max(1, Math.min(20, Number(a?.max) || 8)));
+    if (!spots.length) return { text: t(l, '今の酸素・冷却水では、帰れる範囲の中に NASA データの地点がありません。', 'With the current oxygen and water, no NASA-data place is inside the walk-home area.'), data: { spots: [] } };
+    const lines = spots.map((s, i) => `${i + 1}. ${s.name[l]} — ${r1(s.km)} km, ${t(l, '往復で使う分', 'budget')} ${Math.round(s.ratio * 100)}%`);
+    return {
+      text: `${t(l, `帰れる範囲の中にある行き先の候補（${spots.length} か所）:`, `Destination ideas inside the walk-home area (${spots.length}):`)}\n${lines.join('\n')}\n${t(l, '🎯 で地図の点か一覧を押すと、そこまでの経路を探します。', 'Press 🎯 and pick a point or list entry to plan the route there.')}`,
+      data: { base: { lat: base.lat, lon: base.lon }, spots: spots.map((s) => ({ name: s.name.en, kind: s.kind, lat: s.lat, lon: s.lon, km: +s.km.toFixed(2), budget_share: +s.ratio.toFixed(2), sol: s.sol ?? null })) },
+      sources: [SPOT_SRC.names, SPOT_SRC.rover, SRC.engine],
+    };
+  },
+};
+
+export const WALK_TOOLS: ToolDef[] = [walkbackCheck, planRouteTool, nearbySpotsTool, evaluateRouteTool, roverWalkbackTool, importWalkTool, marsReplay, openEvidence, view3d, viewGlobe, viewOverlay, viewSetParams, viewWalk];
 
 /**
  * Register the WALKBACK tools and #10's Hokkaido tools.

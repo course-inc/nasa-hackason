@@ -22,6 +22,7 @@ import { RehearsalPanel, useRehearsal } from '../walk/Rehearsal';
 import { Terrain3D, type Camera3D, type Line3D, type Point3D } from '../map/Terrain3D';
 import { Globe, type GlobeCamera, type GlobeMark } from '../map/Globe';
 import type { Reach, RoverWalkback } from '../core';
+import { loadSpotSources, pickSpots, type Spot, type SpotSources } from '../walk/spots';
 
 type Mode = 'pan' | 'route' | 'base' | 'goal';
 export interface WalkParams { world?: World; lat?: number; lon?: number; z?: number }
@@ -215,6 +216,11 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
         : t('そこまで歩いて行ける道が見つかりませんでした', 'No walkable path to that point'));
     }
   };
+  // Destination ideas from NASA data (named places, Perseverance's stops) inside the walk-home area.
+  const [spotSrc, setSpotSrc] = useState<SpotSources | null>(null);
+  useEffect(() => { if (mode === 'goal' && !spotSrc) loadSpotSources().then(setSpotSrc).catch(() => undefined); }, [mode, spotSrc]);
+  const spots = useMemo<Spot[]>(() => (mode === 'goal' && spotSrc && reachRaw && data?.dem && base ? pickSpots(spotSrc, reachRaw, data.dem, base) : []),
+    [mode, spotSrc, reachRaw, data, base?.lat, base?.lon]); // eslint-disable-line react-hooks/exhaustive-deps
   const addPoint = (lat: number, lon: number) => {
     if (mode === 'goal') { planTo(lat, lon); return; }
     const wp: Waypoint = { lat, lon, elev: undefined };
@@ -431,6 +437,8 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
     if (footImg) f.push({ kind: 'image', url: footImg.url, bounds: footImg.bounds, opacity: 0.7 });
     if (reachImg && showReach) f.push({ kind: 'image', url: reachImg.url, bounds: reachImg.bounds, opacity: 0.55 });
     f.push(...roverFeatures);
+    for (const s of spots) f.push({ kind: 'point', lat: s.lat, lon: s.lon, color: '#eb2f96', radius: 6, onClick: () => planTo(s.lat, s.lon),
+      tooltip: `${s.name[lang]}<br>${t('基地から', 'from base')} ${s.km.toFixed(1)} km · ${t('往復で使う分', 'budget used')} ${Math.round(s.ratio * 100)}%` });
     // Route coloured by slope, in runs of the same colour.
     const pts = dense.pts;
     let run: [number, number][] = [], col = '';
@@ -461,7 +469,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
       f.push({ kind: 'point', lat: pts[turnIdx].lat, lon: pts[turnIdx].lon, radius: 9, color: '#faad14', tooltip: t('🚩 引き返し地点', '🚩 Turn-back point'), openTooltip: true });
     }
     return f;
-  }, [reachImg, showReach, footImg, compare, vizTrace, mode, profHi, steep, roverFeatures, dense, ev, route, turnIdx, lang]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [reachImg, showReach, footImg, compare, vizTrace, mode, profHi, steep, roverFeatures, dense, ev, route, turnIdx, lang, spots, weights, start]); // eslint-disable-line react-hooks/exhaustive-deps
   // The same layers for the 3D view.
   const lines3d = useMemo<Line3D[]>(() => {
     const l: Line3D[] = [];
@@ -538,6 +546,16 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           <div className="card route-plan" id="route-plan">
             <h4>{t('🎯 目的地までの経路探索', '🎯 Route to a destination')}</h4>
             <p className="muted">{t('地図をクリックすると、基地から帰れる範囲だけを通る経路を自動で探します。重みを変えてからもう一度クリック。', 'Click the map: a route from the base is searched through the walk-home area only. Change the weights and click again.')}</p>
+            {spots.length > 0 && (
+              <div className="spots" id="spot-list">
+                <b>{t('行き先の候補（NASAデータにある地点、帰れる範囲だけ）', 'Destination ideas (places in NASA data, inside the walk-home area)')}</b>
+                <ul>{spots.map((s) => (
+                  <li key={s.id}><button className="spot" onClick={() => planTo(s.lat, s.lon)} title={s.src}>{s.name[lang]}</button>
+                    <small className="muted"> {s.km.toFixed(1)} km · {t('往復で使う分', 'budget')} {Math.round(s.ratio * 100)}%</small></li>
+                ))}</ul>
+                <small className="muted">{t('出典: IAU 火星地名（USGS/NASA）、Perseverance 走行記録（NASA/JPL）', 'Sources: IAU Mars names (USGS/NASA), Perseverance traverse (NASA/JPL)')}</small>
+              </div>
+            )}
             {([['slope', t('坂を避ける', 'Avoid steep slopes')], ['footing', t('足場の悪さを避ける', 'Avoid poor footing')]] as ['slope' | 'footing', string][]).map(([k, label]) => (
               <label key={k} className="wt">{label} <b>{weights[k]}</b>
                 <input id={`w-${k}`} type="range" min={0} max={3} step={0.5} value={weights[k]} onChange={(e) => setWeights((w) => ({ ...w, [k]: +e.target.value }))} /></label>
