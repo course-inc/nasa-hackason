@@ -1,14 +1,18 @@
-// Astronaut view (#suit): one glanceable helmet screen for the walk home.
+// Astronaut view (#suit): walk the route on the real Jezero terrain with the helmet numbers on top.
 // Shows only what NASA's EVA display work asks for on the way back (SUITS: path back to the
 // airlock; Joint AR: direct return to the lander with a time estimate, distances): which way and
 // how far the base is, how much margin is left, and how far to the turn-back point.
+// Big area: the 3D terrain (MOLA/HRSC grid + HiRISE photo) seen from just behind the walker.
+// Corner: the 2D map (Viking + HiRISE tiles) following the walker.
 // It reads the route and settings drawn on the WALKBACK screen (same plan, same Rust numbers).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Core, Waypoint } from '../core';
-import { exampleRoute, loadWalkData, type WalkData } from '../walk/data';
+import { LANDING, exampleRoute, loadWalkData, type WalkData } from '../walk/data';
 import { peekWalkController } from '../walk/controller';
-import { DEFAULT_PARAMS, denseRoute, evaParams, evaluate, turnIndex, type PlanParams } from '../walk/plan';
+import { DEFAULT_PARAMS, WORLD, denseRoute, evaParams, evaluate, turnIndex, type PlanParams } from '../walk/plan';
 import { fmtH } from '../walk/geo';
+import { Terrain3D, type Camera3D, type Line3D, type Point3D } from '../map/Terrain3D';
+import { PlanetMap, type Feature } from '../map/PlanetMap';
 import { useT } from '../i18n';
 import './suit.css';
 
@@ -20,6 +24,12 @@ function vec(a: Waypoint, b: Waypoint) {
   return { m: Math.hypot(dx, dy), deg: (Math.atan2(dx, dy) * 180) / Math.PI };
 }
 const fmtKm = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
+const HIRISE = ['hirise'];
+/** Follow camera: a little behind and above the walker, looking along the way. */
+const CAM_DIST_M = 160, CAM_TILT = 18;
+const MAP_Z = 15;
+/** Half-size (deg of latitude) of the 2D map's window around the walker. */
+const MAP_HALF = 0.004;
 
 export function SuitView({ core }: { core: Core }) {
   const t = useT();
@@ -48,14 +58,14 @@ export function SuitView({ core }: { core: Core }) {
   const last = dense.pts.length - 1;
   const outEnd = turn ?? last;
 
-  // Where the astronaut is: a position along the way out (slider or ▶ walk).
+  // Where the astronaut is: a position along the route (slider, keys or ▶ walk).
   const [pos, setPos] = useState(0);
   const [walking, setWalking] = useState(false);
   const raf = useRef(0);
   useEffect(() => { setPos(0); setWalking(false); }, [route, params]);
   useEffect(() => {
     if (!walking) return;
-    const t0 = performance.now(), from = pos, span = Math.max(1, last - from), ms = 14000 * (span / Math.max(1, last));
+    const t0 = performance.now(), from = pos, span = Math.max(1, last - from), ms = 20000 * (span / Math.max(1, last));
     const frame = (now: number) => {
       const f = Math.min(1, (now - t0) / ms);
       setPos(from + span * f);
@@ -65,13 +75,89 @@ export function SuitView({ core }: { core: Core }) {
     return () => cancelAnimationFrame(raf.current);
   }, [walking]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Keys (only while this tab is shown): ↑/W walk on, ↓/S walk back, space ▶/■.
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      if (!location.hash.startsWith('#suit') || last < 1) return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      const k = e.key.toLowerCase();
+      if (k === 'arrowup' || k === 'w') { e.preventDefault(); setWalking(false); setPos((x) => Math.min(last, x + 0.5)); }
+      else if (k === 'arrowdown' || k === 's') { e.preventDefault(); setWalking(false); setPos((x) => Math.max(0, x - 0.5)); }
+      else if (k === ' ') { e.preventDefault(); setWalking((w) => !w); }
+    };
+    window.addEventListener('keydown', on);
+    return () => window.removeEventListener('keydown', on);
+  }, [last]);
+
+  // Position on the route at pos: point and direction of travel (looking a few steps ahead, so the camera does not jitter).
+  const at = (x: number) => {
+    const i = Math.max(0, Math.min(last, Math.floor(x))), j = Math.min(last, i + 1), u = Math.min(1, Math.max(0, x - i));
+    const here: Waypoint = { lat: dense.pts[i].lat + (dense.pts[j].lat - dense.pts[i].lat) * u, lon: dense.pts[i].lon + (dense.pts[j].lon - dense.pts[i].lon) * u };
+    const k0 = Math.min(Math.max(0, last - 1), i), k1 = Math.min(last, i + 3);
+    return { i, j, u, here, heading: vec(dense.pts[k0], dense.pts[k1]).deg };
+  };
+
+  // 3D follow camera (~10 per second) and 2D map follow (twice a second; a fit, not a fly, so it keeps up), from the latest pos.
+  const posRef = useRef(pos);
+  posRef.current = pos;
+  const [camera, setCamera] = useState<Camera3D | null>(null);
+  const [fit, setFit] = useState<{ bounds: [[number, number], [number, number]]; seq: number } | null>(null);
+  const atRef = useRef(at);
+  atRef.current = at;
+  useEffect(() => {
+    if (last < 1) return;
+    let lastCam = -1, lastFly = -1, n = 0;
+    const id = setInterval(() => {
+      const x = posRef.current;
+      const { here, heading } = atRef.current(x);
+      if (x !== lastCam) {
+        lastCam = x;
+        setCamera({ target: here, heading, tilt: CAM_TILT, distance: CAM_DIST_M, seq: performance.now() });
+      }
+      if (++n % 5 === 0 && x !== lastFly) {
+        lastFly = x;
+        const dl = MAP_HALF / Math.cos((here.lat * Math.PI) / 180);
+        setFit({ bounds: [[here.lat - MAP_HALF, here.lon - dl], [here.lat + MAP_HALF, here.lon + dl]], seq: performance.now() });
+      }
+    }, 100);
+    return () => clearInterval(id);
+  }, [last, dense]);
+
+  // Route layers: the way out, the part past the turn-back point, base and turn-back markers.
+  const lines3d = useMemo<Line3D[]>(() => {
+    if (last < 1) return [];
+    const ll = (a: number, b: number) => dense.pts.slice(a, b + 1).map((q) => [q.lat, q.lon] as [number, number]);
+    const l: Line3D[] = [{ pts: ll(0, outEnd), color: '#7cb8d6', width: 5 }];
+    if (turn != null) l.push({ pts: ll(turn, last), color: '#8c8c8c', width: 3, opacity: 0.8 });
+    return l;
+  }, [dense, outEnd, turn, last]);
+  const features = useMemo<Feature[]>(() => {
+    if (last < 1) return [];
+    const f: Feature[] = lines3d.map((l) => ({ kind: 'line', pts: l.pts, color: l.color, weight: l.width - 1, opacity: l.opacity, dash: l.opacity ? '6 6' : undefined }));
+    f.push({ kind: 'point', lat: dense.pts[0].lat, lon: dense.pts[0].lon, radius: 7, color: '#ffffff', tooltip: t('基地', 'Base') });
+    if (turn != null) f.push({ kind: 'point', lat: dense.pts[turn].lat, lon: dense.pts[turn].lon, radius: 7, color: '#ff4d4f', tooltip: t('引き返し地点', 'Turn-back point') });
+    return f;
+  }, [lines3d, dense, turn, last]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The walker moves in steps of a tenth of a route step in 3D, so the overlay is not rebuilt every frame.
+  const step = Math.round(pos * 10) / 10;
+  const points3d = useMemo<Point3D[]>(() => {
+    if (last < 1) return [];
+    const ps: Point3D[] = [{ lat: dense.pts[0].lat, lon: dense.pts[0].lon, color: '#ffffff', size: 0.3 }];
+    if (turn != null) ps.push({ lat: dense.pts[turn].lat, lon: dense.pts[turn].lon, color: '#ff4d4f', size: 0.3 });
+    const h = atRef.current(step).here;
+    ps.push({ lat: h.lat, lon: h.lon, color: '#ff7a45', size: 0.18 });
+    return ps;
+  }, [dense, turn, last, step]);
+  const view = useMemo<[number, number, number]>(() => [route[0]?.lat ?? LANDING.lat, route[0]?.lon ?? LANDING.lon, MAP_Z], [route]);
+
   if (!data) return <div className="suit"><p className="suit-empty">{t('NASA データを読み込み中…', 'Loading NASA data…')}</p></div>;
   if (!ev || route.length < 2) {
     return (
       <div className="suit">
         <div className="suit-empty">
           <p>{t('まだルートがありません。', 'No route yet.')}</p>
-          <p className="muted">{t('「火星で歩いて帰る」でルートを引くと、ここに帰り道ナビが出ます。', 'Draw a route on “Walk back on Mars” and the way-home navigator shows here.')}</p>
+          <p className="muted">{t('「火星で歩いて帰る」でルートを引くと、ここでそのルートを 3D の地形の上で歩けます。', 'Draw a route on “Walk back on Mars” and you can walk it here on the 3D terrain.')}</p>
           <div className="suit-actions">
             <a className="btn" href="#walk">{t('ルートを引く', 'Draw a route')}</a>
             <button onClick={() => peekWalkController()?.setRoute(exampleRoute(data.traverseRaw))}>{t('サンプルのルートで見る', 'Use the sample route')}</button>
@@ -81,18 +167,15 @@ export function SuitView({ core }: { core: Core }) {
     );
   }
 
-  const i = Math.max(0, Math.min(last, Math.floor(pos)));
-  const j = Math.min(last, i + 1), u = Math.min(1, pos - i);
+  const { i, j, u, here, heading } = at(pos);
   const lerp = (x: number, y: number) => x + (y - x) * u;
   const a = ev.ticks[i], b = ev.ticks[j] ?? a;
-  const here: Waypoint = { lat: lerp(dense.pts[i].lat, dense.pts[j].lat), lon: lerp(dense.pts[i].lon, dense.pts[j].lon) };
   const km = lerp(a.km, b.km), margin = lerp(a.margin_h, b.margin_h), home = lerp(a.home_h, b.home_h);
   const o2 = lerp(a.o2_left, b.o2_left), water = lerp(a.water_left, b.water_left);
   const base = dense.pts[0];
   const toBase = vec(here, base);
-  // Heading = direction of travel on this leg; the arrow shows the base relative to it.
-  const ahead = vec(dense.pts[Math.min(last - 1, i)], dense.pts[Math.min(last, i + 1)]);
-  const rel = ((toBase.deg - ahead.deg) % 360 + 540) % 360 - 180;
+  // The arrow shows the base relative to the direction of travel (= the 3D camera's view).
+  const rel = ((toBase.deg - heading) % 360 + 540) % 360 - 180;
   const turnKm = turn != null ? ev.ticks[turn]?.km ?? null : null;
   const toTurnKm = turnKm != null ? turnKm - km : null;
   const past = turn != null && pos >= turn;
@@ -100,62 +183,49 @@ export function SuitView({ core }: { core: Core }) {
   const msg = state === 'now' ? t('今すぐ基地へ戻る', 'Head back to base now')
     : state === 'soon' ? t('まもなく引き返し', 'Turn back soon')
     : t('帰れる', 'You can get home');
-
-  // Mini-map (north up), fitted to the route.
-  const W = 260, H = 200, pad = 14;
-  const lats = dense.pts.map((q) => q.lat), lons = dense.pts.map((q) => q.lon);
-  const [la0, la1, lo0, lo1] = [Math.min(...lats), Math.max(...lats), Math.min(...lons), Math.max(...lons)];
-  const cos = Math.cos((base.lat * Math.PI) / 180);
-  const sx = (W - 2 * pad) / Math.max(1e-9, (lo1 - lo0) * cos), sy = (H - 2 * pad) / Math.max(1e-9, la1 - la0), s = Math.min(sx, sy);
-  const X = (q: Waypoint) => pad + (q.lon - lo0) * cos * s + ((W - 2 * pad) - (lo1 - lo0) * cos * s) / 2;
-  const Y = (q: Waypoint) => H - pad - (q.lat - la0) * s - ((H - 2 * pad) - (la1 - la0) * s) / 2;
-  const line = (pts: Waypoint[]) => pts.map((q) => `${X(q).toFixed(1)},${Y(q).toFixed(1)}`).join(' ');
+  const live: Feature[] = [{ kind: 'walker', lat: here.lat, lon: here.lon, color: '#ff7a45' }];
 
   return (
     <div className={`suit suit-${state}`}>
-      <div className="suit-visor" role="status" aria-live="polite">
-        <div className="suit-msg">{msg}</div>
+      <div className="suit-stage">
+        {data.demGrid
+          ? <Terrain3D grid={data.demGrid} radiusKm={core.world(WORLD).radius_km} palette="mars" lines={lines3d} points={points3d}
+              camera={camera} photo="./data/jezero_ortho.jpg" label={t('Jezero クレーター（3D・歩く人の目線）', 'Jezero crater (3D, walker’s view)')} />
+          : <p className="suit-empty">{t('3D の地形データを読み込めませんでした。', 'Could not load the 3D terrain data.')}</p>}
 
-        <div className="suit-main">
-          <div className="suit-compass" aria-label={t(`基地は ${Math.round(rel)}° の方向`, `Base at ${Math.round(rel)}°`)}>
-            <svg viewBox="-60 -60 120 120" width="180" height="180" aria-hidden="true">
-              <circle r="54" className="ring" />
-              <g transform={`rotate(${rel})`}><path d="M0,-48 L16,-6 L5,-10 L5,30 L-5,30 L-5,-10 L-16,-6 Z" className="arrow" /></g>
-            </svg>
-            <div className="suit-big">{fmtKm(toBase.m)}</div>
-            <div className="suit-sub">{t('基地まで（直線）', 'to base (straight)')}</div>
+        <div className="suit-hud" role="status" aria-live="polite">
+          <div className="suit-msg">{msg}</div>
+          <div className="suit-hud-row">
+            <div className="suit-compass" aria-label={t(`基地は ${Math.round(rel)}° の方向`, `Base at ${Math.round(rel)}°`)}>
+              <svg viewBox="-60 -60 120 120" width="92" height="92" aria-hidden="true">
+                <circle r="54" className="ring" />
+                <g transform={`rotate(${rel})`}><path d="M0,-48 L16,-6 L5,-10 L5,30 L-5,30 L-5,-10 L-16,-6 Z" className="arrow" /></g>
+              </svg>
+              <div className="suit-big">{fmtKm(toBase.m)}</div>
+              <div className="suit-sub">{t('基地まで（直線）', 'to base (straight)')}</div>
+            </div>
+            <div className="suit-figs">
+              <div><span>{t('帰りに要る時間', 'Time to get home')}</span><b>{fmtH(home)}</b></div>
+              <div className={state !== 'ok' ? 'warn' : ''}>
+                <span>{t('引き返しまでの余裕', 'Margin before turn-back')}</span>
+                <b>{past ? t('超過', 'passed') : fmtH(Math.max(0, margin))}</b>
+              </div>
+              <div className={state !== 'ok' ? 'warn' : ''}>
+                <span>{t('帰れない境界まで', 'To the point of no return')}</span>
+                <b className="small">{toTurnKm == null ? t('最後まで帰れる', 'Whole route walkable') : past ? t('越えた', 'crossed') : fmtKm(toTurnKm * 1000)}</b>
+              </div>
+            </div>
           </div>
-
-          <div className="suit-figs">
-            <div><span>{t('帰りに要る時間', 'Time to get home')}</span><b>{fmtH(home)}</b></div>
-            <div className={state !== 'ok' ? 'warn' : ''}>
-              <span>{t('引き返しまでの余裕', 'Margin before turn-back')}</span>
-              <b>{past ? t('超過', 'passed') : fmtH(Math.max(0, margin))}</b>
-            </div>
-            <div className={state !== 'ok' ? 'warn' : ''}>
-              <span>{t('帰れない境界まで', 'To the point of no return')}</span>
-              <b>{toTurnKm == null ? t('このルートは最後まで帰れる', 'Whole route walkable') : past ? t('越えた', 'crossed') : fmtKm(toTurnKm * 1000)}</b>
-            </div>
-            <div className="suit-bars">
-              <Bar label="O₂" v={o2} warn={ev.limiting === 'o2' && o2 < 0.35} />
-              <Bar label={t('冷却水', 'Water')} v={water} warn={ev.limiting === 'water' && water < 0.35} />
-            </div>
+          <div className="suit-bars">
+            <Bar label="O₂" v={o2} warn={ev.limiting === 'o2' && o2 < 0.35} />
+            <Bar label={t('冷却水', 'Water')} v={water} warn={ev.limiting === 'water' && water < 0.35} />
           </div>
-
-          <svg className="suit-map" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={t('ミニマップ', 'Mini-map')}>
-            <polyline points={line(dense.pts.slice(0, outEnd + 1))} className="route" />
-            {turn != null && <polyline points={line(dense.pts.slice(turn))} className="route beyond" />}
-            <line x1={X(here)} y1={Y(here)} x2={X(base)} y2={Y(base)} className="home" />
-            <rect x={X(base) - 5} y={Y(base) - 5} width="10" height="10" className="base" />
-            {turn != null && <circle cx={X(dense.pts[turn])} cy={Y(dense.pts[turn])} r="5" className="turn" />}
-            <circle cx={X(here)} cy={Y(here)} r="6" className="me" />
-            <text x={W - 6} y={14} textAnchor="end" className="north">N↑</text>
-          </svg>
+          <div className="suit-foot">{t(`歩いた距離 ${km.toFixed(2)} km`, `Walked ${km.toFixed(2)} km`)}</div>
         </div>
 
-        <div className="suit-foot">
-          <span>{t(`歩いた距離 ${km.toFixed(2)} km`, `Walked ${km.toFixed(2)} km`)}</span>
-          <span className="legend"><i className="lg-base" />{t('基地', 'Base')} <i className="lg-turn" />{t('引き返し地点', 'Turn-back')} <i className="lg-me" />{t('いま', 'You')}</span>
+        <div className="suit-map2d" aria-label={t('2D 地図', '2D map')}>
+          <PlanetMap core={core} world={WORLD} view={view} fit={fit} baseKey="viking" overlayKeys={HIRISE} collapsedLayers features={features} live={live} />
+          <div className="suit-legend"><i className="lg-base" />{t('基地', 'Base')} <i className="lg-turn" />{t('引き返し', 'Turn-back')} <i className="lg-me" />{t('いま', 'You')}</div>
         </div>
       </div>
 
@@ -167,6 +237,7 @@ export function SuitView({ core }: { core: Core }) {
           {t('いまの位置', 'Position')}
           <input type="range" min={0} max={last} step={0.1} value={pos} onChange={(e) => { setWalking(false); setPos(+e.target.value); }} />
         </label>
+        <span className="muted keys">{t('↑/W 進む・↓/S 戻る・スペース 歩く/止める', '↑/W forward, ↓/S back, space walk/stop')}</span>
         <a href="#walk">{t('ルートを変える', 'Change route')}</a>
         <a href="#sources">{t('出典', 'Sources')}</a>
       </div>
