@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Core, Waypoint, World } from '../core';
 import { getElevation } from '../elevation';
 import { PlanetMap, missionOverlay, type Feature, type FlyTarget } from '../map/PlanetMap';
-import { JEZERO, LANDING, ensureFooting, exampleRoute, loadWalkData, type WalkData } from '../walk/data';
+import { JEZERO, LANDING, ensureFooting, loadWalkData, type WalkData } from '../walk/data';
 import { fmtH, footingImage, reachImage, slopeColor } from '../walk/geo';
 import { DEFAULT_START, WALKBACK_COLOR, WATER_PER_O2, WORLD, waterFactor, denseRoute, easyLeg, steepLeg, MAX_SLOPE, evaluateRouteMaterial, evaParams, planRoute, routeMetrics, type RouteMetrics, evaluate, reachFrom, rehearsalPoints, roverCheck, roverWalkbackSql, turnIndex, turnWaypoint, walkbackState } from '../walk/plan';
 import { setWalkController, type EvidenceTopic } from '../walk/controller';
@@ -63,7 +63,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
     routeNow.current = next;
     setRouteRaw(next); setHistVer((v) => v + 1);
   };
-  const [mode, setMode] = useState<Mode>('route');
+  const [mode, setMode] = useState<Mode>('pan');
   const [speed, setSpeed] = useState(2);
   const [o2, setO2] = useState(8);
   const [water, setWater] = useState(8);
@@ -173,7 +173,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   }, [rw]);
 
   // Elevation for waypoints outside the Jezero grid (Trek MOLA identify).
-  const [easy, setEasy] = useState(false);
+  const [easy] = useState(false);
   // Destination mode: plan the walk from the base to the clicked point (Rust Dijkstra over the
   // walk-home area); the result becomes the route (verdict, HUD, 3D, undo all follow).
   const [planMsg, setPlanMsg] = useState<string | null>(null);
@@ -484,12 +484,10 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   ], [core, lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const n = route.length;
-  const tools: [Mode | 'undo' | 'redo' | 'clear' | 'example' | 'easy', string, string][] = [
-    ['pan', '✋', t('地図を動かす', 'Move the map')], ['route', '〰', t('ルートを引く', 'Draw the route')], ['base', '⌂', t('基地を置き直す', 'Move the base')],
-    ['undo', '↶', t('戻す（⌘Z / Ctrl+Z）', 'Undo (⌘Z / Ctrl+Z)')], ['redo', '↷', t('やり直す（⌘⇧Z / Ctrl+Y）', 'Redo (⌘⇧Z / Ctrl+Y)')],
-    ['clear', '🗑', t('ルートを消す', 'Clear the route')], ['example', '★', t('例のルートに戻す', 'Example route')],
+  const tools: [Mode | 'clear', string, string][] = [
+    ['pan', '✋', t('地図を動かす', 'Move the map')],
     ['goal', '🎯', t('目的地を置く（基地から自動で経路を探す）', 'Set a destination (plan the route from the base)')],
-    ['easy', '⤳', easy ? t('楽な道モード: オン（坂の楽な道で点をつなぐ）', 'Easy path: on (joins points along the easiest slopes)') : t('楽な道モード: オフ（まっすぐつなぐ）', 'Easy path: off (straight lines)')],
+    ['clear', '🗑', t('ルートを消す', 'Clear the route')],
   ];
 
   return (
@@ -498,7 +496,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
       <aside className={`panel ${panelOpen ? 'open' : 'closed'}`} aria-label={t('計画パネル', 'Plan panel')}>
         <button className="panel-fold" onClick={() => setPanelOpen(false)} aria-label={t('パネルを畳む', 'Fold the panel')} title={t('パネルを畳んで地図を広く', 'Fold the panel to see more map')}>⟨</button>
         <h2 className="walk-title">{t('火星', 'Mars')} <small>{t('Jezero クレーター・Perseverance の着陸地点が基地', "Jezero crater · base at Perseverance's landing site")}</small></h2>
-        <p className="muted">{t('基地から歩いて出て、酸素と冷却水が尽きる前に帰れるか。地図をクリックしてルートを引きます（最初の点が基地）。', 'Walk out from the base: can you get back before oxygen or cooling water runs out? Click the map to draw a route (the first point is the base).')}</p>
+        <p className="muted">{t('基地から歩いて出て、酸素と冷却水が尽きる前に帰れるか。🎯 で目的地を置くと、基地から帰れる経路を自動で探します。', 'Walk out from the base: can you get back before oxygen or cooling water runs out? Set a destination with 🎯 and the app plans a route you can walk back from.')}</p>
         {data?.errors.length ? <p className="warn">{data.errors.map((e) => ({
           dem: t('火星の地形データを読み込めませんでした（判定は「地形不明＝急な登り」として計算します）。', 'Could not load the Mars terrain (unknown ground is counted as a steep climb).'),
           traverse: t('探査車の走行記録を読み込めませんでした（実走ルートとの比較とローバーの判定は出ません）。', "Could not load Perseverance's path (no rover comparison)."),
@@ -507,7 +505,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
         } as Record<string, string>)[e] ?? e).join(' ')} {t('ページを再読み込みしてください。', 'Reload the page to try again.')}</p> : null}
 
         <div className={`verdict ${n < 2 ? '' : ev.ok && steep == null ? 'ok' : 'ng'}`}>
-          {!data ? t('データを読み込み中…', 'Loading data…') : n < 2 ? t('地図をクリックしてルートを引く／🎯 で目的地を置く', 'Click the map to draw a route / 🎯 to set a destination')
+          {!data ? t('データを読み込み中…', 'Loading data…') : n < 2 ? t('🎯 で目的地を置いてください', 'Set a destination with 🎯')
             : steep != null ? t(`通れない坂がある（${Math.abs(ev.legs[steep].slope_deg).toFixed(0)}°、上限 ${MAX_SLOPE}°）`, `Impassable slope on the route (${Math.abs(ev.legs[steep].slope_deg).toFixed(0)}°, limit ${MAX_SLOPE}°)`)
             : ev.ok ? t('帰れる', 'Can walk back') : t(`途中で引き返す（引き返し地点: WP${turnWaypoint(ev, dense)} の手前）`, `Turn back before WP${turnWaypoint(ev, dense)}`)}
         </div>
@@ -664,7 +662,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
 
       {!panelOpen && (
         <button className={`panel-chip ${n < 2 ? '' : ev.ok ? 'ok' : 'ng'}`} onClick={() => setPanelOpen(true)} aria-label={t('パネルを開く', 'Open the panel')}>
-          <span>☰</span><b>{!data ? t('読み込み中…', 'Loading…') : n < 2 ? t('ルートを引く', 'Draw a route') : ev.ok ? t('帰れる', 'Can walk back') : t('引き返す', 'Turn back')}</b>
+          <span>☰</span><b>{!data ? t('読み込み中…', 'Loading…') : n < 2 ? t('目的地を置く', 'Set a destination') : ev.ok ? t('帰れる', 'Can walk back') : t('引き返す', 'Turn back')}</b>
           {n >= 2 && <small>{ev.out_km.toFixed(1)} km · {fmtH(ev.total_h)}</small>}
         </button>
       )}
@@ -678,13 +676,9 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
             onClick={(lat, lon) => mode !== 'pan' && !hud && addPoint(lat, lon)}>
             <div className="leaflet-bar draw-toolbar">
               {tools.map(([m, icon, title]) => (
-                <a key={m} href="#" title={title} aria-label={title} data-m={m} className={`${m === mode || (m === 'easy' && easy) ? 'on' : ''}${(m === 'undo' && !hist.current.past.length) || (m === 'redo' && !hist.current.future.length) ? ' off' : ''}`} onClick={(e) => {
+                <a key={m} href="#" title={title} aria-label={title} data-m={m} className={m === mode ? 'on' : ''} onClick={(e) => {
                   e.preventDefault(); e.stopPropagation();
-                  if (m === 'undo') undo();
-                  else if (m === 'redo') redo();
-                  else if (m === 'clear') setRoute((r) => r.slice(0, 1));
-                  else if (m === 'example') { if (data) setRoute(exampleRoute(data.traverseRaw)); }
-                  else if (m === 'easy') { setEasy((x) => !x); setMode('route'); }
+                  if (m === 'clear') setRoute((r) => r.slice(0, 1));
                   else setMode(m);
                 }}>{icon}</a>
               ))}
@@ -732,7 +726,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
               ? (easy ? t('⤳ 楽な道モード（坂の楽な道でつなぐ）・', '⤳ Easy path (follows the easiest slopes) · ') : '') + t('クリックで点を追加・点に乗せると距離と O₂・ドラッグで移動・線の中の小さな点で挿入・右クリックで削除・Backspace で最後の点を消す・Esc か Enter で終わる', 'Click to add · hover a point for distance and O₂ · drag to move · drag a middle dot to insert · right-click to delete · Backspace removes the last point · Esc or Enter to finish')
               : mode === 'base' ? t('クリックした所に基地を置き直す', 'Click to move the base')
               : mode === 'goal' ? (planMsg ?? t('🎯 目的地をクリック: 基地から、坂・足場・帰り道を計算して経路を自動で引きます', '🎯 Click a destination: the route from the base is planned with slopes, footing and the way back'))
-              : t('〰 を押すとルートを引けます（点はドラッグで動かせます）', 'Press 〰 to draw a route (points can be dragged)')}</div>
+              : t('🎯 を押すと目的地までの経路を自動で探します（点はドラッグで動かせます）', 'Press 🎯 to plan a route to a destination (points can be dragged)')}</div>
           )}
         </div>
         {walkRec && <EarthWalkPanel core={core} rec={walkRec} walker={earthWalker} />}
@@ -741,7 +735,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
             params={p} onImportFile={onDropFile} />
         )}
         {rehOpen && reh.status === 'done' && reh.found.length === 0 && (
-          <p className="warn floating">{t('北海道の候補地の範囲（約21km四方）に収まるコースが見つかりませんでした。ルートを短くして（★で例のルートに戻すのが早いです）、もう一度探してください。', 'No Hokkaido practice course fits (each area is about 21 km across). Shorten the route (★ restores the example) and search again.')}</p>
+          <p className="warn floating">{t('北海道の候補地の範囲（約21km四方）に収まるコースが見つかりませんでした。ルートを短くして、もう一度探してください。', 'No Hokkaido practice course fits (each area is about 21 km across). Shorten the route and search again.')}</p>
         )}
       </div>
     </section>
