@@ -69,7 +69,7 @@ export async function openaiTurn(messages: Msg[], specs: Spec[], signal?: AbortS
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${s.openaiKey.trim()}` },
     body: JSON.stringify({
-      model: s.openaiModel.trim() || 'gpt-5-mini',
+      model: s.openaiModel.trim() || 'gpt-terra-6.1',
       messages: toOpenAI(SYSTEM, messages),
       tools: specs.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })),
     }),
