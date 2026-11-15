@@ -6,6 +6,7 @@ import { NoModelError, lastModel } from './pirs';
 import { claudeModel } from './claude';
 import type { AgentEvent, ToolResult } from './types';
 import { useLang, useT } from '../i18n';
+import { currentWalkController } from '../walk/controller';
 import { publishAnswer } from './lastAnswer';
 import { startVoice, voiceStatus, type Recording, type VoiceStatus } from './voice';
 
@@ -180,7 +181,7 @@ export function AgentPanel() {
       onEvent({ type: 'error', message: e instanceof Error ? e.message : String(e) });
     } finally {
       patchLast((it) => ({ ...it, done: true }));
-      if (answerText.current) publishAnswer({ q: prompt, a: answerText.current, at: Date.now() });
+      if (answerText.current) publishAnswer({ q: prompt, a: answerText.current, at: Date.now(), cond: currentWalkController()?.params() });
       setBusy(false);
       lastUse.current = Date.now();
       abort.current = null;
