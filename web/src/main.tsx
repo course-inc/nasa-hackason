@@ -8,6 +8,7 @@ import { registerAgent } from './agent/port';
 import { rulesAgent } from './agent/rules';
 import { pirsAgent } from './agent/pirs';
 import { claudeAgent } from './agent/claude';
+import { pirsWebAgent } from './agent/pirsWeb';
 import { registerAgentTools } from './agent/tools';
 import './styles.css';
 
@@ -15,6 +16,7 @@ import './styles.css';
 registerAgent(rulesAgent);
 registerAgent(pirsAgent);
 registerAgent(claudeAgent);
+registerAgent(pirsWebAgent); // in-browser pi-rs + WebGPU model, when the device can run it
 loadCore().then(registerAgentTools, () => undefined);
 
 createRoot(document.getElementById('root')!).render(<StrictMode><App /><AgentPanel /></StrictMode>);

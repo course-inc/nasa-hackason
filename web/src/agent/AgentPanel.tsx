@@ -37,7 +37,7 @@ export const EXAMPLES_EN = [
 interface Call { id: string; name: string; args: unknown; result?: ToolResult; ok?: boolean }
 type Item =
   | { kind: 'user'; text: string }
-  | { kind: 'agent'; agent: string; text: string; calls: Call[]; error?: string; note?: string; done: boolean };
+  | { kind: 'agent'; agent: string; text: string; calls: Call[]; error?: string; note?: string; status?: string; done: boolean };
 
 function Chip({ c }: { c: Call }) {
   const t = useT();
@@ -145,6 +145,7 @@ export function AgentPanel() {
     else if (e.type === 'tool_call') patchLast((it) => ({ ...it, calls: [...it.calls, { id: e.id, name: e.name, args: e.args }] }));
     else if (e.type === 'tool_result') patchLast((it) => ({ ...it, calls: it.calls.map((c) => (c.id === e.id ? { ...c, result: e.result, ok: e.ok } : c)) }));
     else if (e.type === 'error') patchLast((it) => ({ ...it, error: e.message }));
+    else if (e.type === 'status') patchLast((it) => ({ ...it, status: e.text || undefined }));
     else if (e.type === 'done') patchLast((it) => ({ ...it, done: true }));
   };
 
@@ -211,7 +212,8 @@ export function AgentPanel() {
               <div className="msg-who">{label[it.agent] ?? it.agent}{it.note ? ` · ${it.note}` : ''}</div>
               {it.calls.map((c) => <Chip key={c.id} c={c} />)}
               {it.text && <div className="msg-text">{it.text}</div>}
-              {!it.done && !it.text && <div className="muted">…</div>}
+              {!it.done && it.status && <div className="muted">{it.status}</div>}
+              {!it.done && !it.text && !it.status && <div className="muted">…</div>}
               {it.error && <div className="warn">{it.error}</div>}
             </div>
           ))}
