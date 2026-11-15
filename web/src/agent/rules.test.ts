@@ -44,6 +44,11 @@ describe('rules agent routing', () => {
     expect(plan('Gusev クレーターはどこ？', ALL).find((c) => c.name === 'query_nasa')?.args.sql).toMatch(/ILIKE '%Gusev%'/);
     expect(plan('Where is Olympus Mons?', ALL)[0].args.sql).toMatch(/ILIKE '%Olympus Mons%'/);
   });
+  it('destination ideas use nearby_spots', () => {
+    const avail = new Set([...ALL, 'nearby_spots']);
+    expect(plan('近くの見どころは？', avail).map((s) => s.name)).toEqual(['nearby_spots']);
+    expect(plan('What is worth visiting nearby?', avail)[0]).toEqual({ name: 'nearby_spots', args: { lang: 'en' } });
+  });
   it('globe', () => {
     expect(names('火星の全球を見せて')).toEqual(['view_globe']);
   });

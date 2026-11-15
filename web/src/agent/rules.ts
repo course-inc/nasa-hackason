@@ -60,6 +60,8 @@ export function plan(question: string, available: Set<string>): Step[] {
   const wantCheck = !wantRover && has(q, /帰れ|戻れ|帰って|戻って|歩いて帰|帰還|間に合|return|walk back|get back|make it back|come back/i) || (km != null && !wantExplore);
 
   if (Object.keys(params).length) add('view_set_params', params);
+  // Destination ideas from NASA data inside the walk-home area.
+  if (has(q, /見どころ|行き先|行ける場所|どこに行|目的地.{0,6}候補|近くに何|nearby|worth (?:visiting|seeing)|destination ideas|where (?:can|could|should) (?:i|we) go/i)) add('nearby_spots', { lang });
   // Counting questions on the NASA tables → query_nasa with a fixed, readable SQL.
   const evaH = q.match(/(?:船外活動|EVA|spacewalk)[^\d]{0,20}(\d+(?:\.\d+)?)\s*(?:時間|h|hours?)\s*(?:を?超え|以上|より長|over|longer|more)/i)
     ?? q.match(/(\d+(?:\.\d+)?)\s*(?:時間|h|hours?)\s*(?:を?超え|以上|より長|over|longer|more)[^。?？]{0,20}(?:船外活動|EVA|spacewalk)/i);
