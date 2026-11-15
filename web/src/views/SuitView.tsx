@@ -9,9 +9,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Core, Waypoint } from '../core';
 import { LANDING, exampleRoute, loadWalkData, type WalkData } from '../walk/data';
 import { peekWalkController } from '../walk/controller';
-import { DEFAULT_PARAMS, WORLD, denseRoute, evaParams, evaluate, turnIndex, type PlanParams } from '../walk/plan';
+import { DEFAULT_PARAMS, DEFAULT_START, WORLD, denseRoute, evaParams, evaluate, turnIndex, type PlanParams } from '../walk/plan';
 import { fmtH } from '../walk/geo';
-import { Terrain3D, type Beacon3D, type Camera3D, type Patch3D, type Ribbon3D } from '../map/Terrain3D';
+import { Terrain3D, type Beacon3D, type Camera3D, type Patch3D, type Ribbon3D, type Sky3D } from '../map/Terrain3D';
 import { LAYERS } from '../layers';
 import { PlanetMap, type Feature } from '../map/PlanetMap';
 import { useT } from '../i18n';
@@ -209,6 +209,15 @@ export function SuitView({ core }: { core: Core }) {
     if (turn != null) f.push({ kind: 'point', lat: dense.pts[turn].lat, lon: dense.pts[turn].lon, radius: 7, color: '#ff4d4f', tooltip: t('引き返し地点', 'Turn-back point') });
     return f;
   }, [ribbons, dense, turn, last]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Sky from the local solar time of the walk (departure hour + time walked), or forced night for showing the stars.
+  const [skyMode, setSkyMode] = useState<'real' | 'night'>('real');
+  const tH = ev && last >= 1 ? ev.ticks[Math.max(0, Math.min(last, Math.floor(pos)))]?.t_h ?? 0 : 0;
+  const hour = ((params.start ?? DEFAULT_START) + tH) % 24;
+  const sky = useMemo<Sky3D>(() => {
+    if (skyMode === 'night') return { sunAz: 0, sunEl: -30 };
+    const f = (hour - 6) / 12; // 0 at 6:00, 1 at 18:00 (rough: Jezero 18°N, equinox)
+    return { sunAz: Math.round(90 + 180 * f), sunEl: Math.round(72 * Math.sin(Math.PI * f)) };
+  }, [skyMode, Math.round(hour * 10)]); // eslint-disable-line react-hooks/exhaustive-deps
   const view = useMemo<[number, number, number]>(() => [route[0]?.lat ?? LANDING.lat, route[0]?.lon ?? LANDING.lon, MAP_Z], [route]);
 
   if (!data) return <div className="suit"><p className="suit-empty">{t('NASA データを読み込み中…', 'Loading NASA data…')}</p></div>;
@@ -249,7 +258,7 @@ export function SuitView({ core }: { core: Core }) {
     <div className={`suit suit-${state}`}>
       <div className="suit-stage">
         {data.demGrid
-          ? <Terrain3D grid={data.demGrid} radiusKm={core.world(WORLD).radius_km} palette="mars" ribbons={ribbons} beacons={beacons} near={0.3} exaggeration={1}
+          ? <Terrain3D grid={data.demGrid} radiusKm={core.world(WORLD).radius_km} palette="mars" ribbons={ribbons} beacons={beacons} near={0.3} exaggeration={1} sky={sky}
               camera={camera} patch={patch} photo="./data/jezero_ortho.jpg" label={t('Jezero クレーター・一人称（AR）', 'Jezero crater, first person (AR)')} />
           : <p className="suit-empty">{t('3D の地形データを読み込めませんでした。', 'Could not load the 3D terrain data.')}</p>}
 
@@ -304,6 +313,11 @@ export function SuitView({ core }: { core: Core }) {
           <input type="range" min={0} max={last} step={0.1} value={pos} onChange={(e) => { setWalking(false); setPos(+e.target.value); }} />
         </label>
         <span className="muted keys">{t('↑/W 進む・↓/S 戻る・スペース 歩く/止める', '↑/W forward, ↓/S back, space walk/stop')}</span>
+        <span className="suit-speed" role="group" aria-label={t('空', 'Sky')}>
+          {t('空', 'Sky')}
+          <button className={skyMode === 'real' ? 'on' : ''} aria-pressed={skyMode === 'real'} onClick={() => setSkyMode('real')}>{t(`実際の時刻 ${Math.floor(hour)}:${String(Math.floor((hour % 1) * 60)).padStart(2, '0')}`, `Real time ${Math.floor(hour)}:${String(Math.floor((hour % 1) * 60)).padStart(2, '0')}`)}</button>
+          <button className={skyMode === 'night' ? 'on' : ''} aria-pressed={skyMode === 'night'} onClick={() => setSkyMode('night')}>{t('夜にする', 'Night')}</button>
+        </span>
         <a href="#walk">{t('ルートを変える', 'Change route')}</a>
         <a href="#sources">{t('出典', 'Sources')}</a>
       </div>

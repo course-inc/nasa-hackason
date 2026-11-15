@@ -24,6 +24,8 @@ export interface Camera3D {
   eye?: { lat: number; lon: number; heightM: number; pitch: number };
 }
 /** A flat translucent band draped on the terrain (e.g. the route as an AR bar). */
+/** Sky for eye-level views: sun direction (deg; az clockwise from north) drives colours, light and stars. */
+export interface Sky3D { sunAz: number; sunEl: number }
 export interface Ribbon3D { pts: [number, number][]; color: string; widthM: number; opacity: number }
 /** A translucent vertical pillar standing on the terrain (e.g. the base, seen from far away). */
 export interface Beacon3D { lat: number; lon: number; color: string; heightM: number; radiusM: number }
@@ -51,6 +53,7 @@ interface Props {
   beacons?: Beacon3D[];
   /** Camera near plane in metres (default: a 2000th of the grid; set ~0.5 for eye-level views). */
   near?: number;
+  sky?: Sky3D | null;
 }
 
 const MAX_SIDE = 720; // the Jezero grid (700 × 467) at full resolution
@@ -158,7 +161,7 @@ function chevrons() {
   return t;
 }
 
-export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], reach, walker, focus, label, camera, exaggeration, photo, patch, ribbons, beacons, near }: Props) {
+export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], reach, walker, focus, label, camera, exaggeration, photo, patch, ribbons, beacons, near, sky }: Props) {
   const t = useT();
   // Surface photo (when given) or the elevation colours; the photo loads once and stays.
   const [img, setImg] = useState<HTMLImageElement | null>(null);
@@ -178,7 +181,7 @@ export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], re
   const scene = useRef<{
     r: THREE.WebGLRenderer; s: THREE.Scene; cam: THREE.PerspectiveCamera; ctl: OrbitControls;
     project: (lat: number, lon: number, lift?: number) => THREE.Vector3; overlay: THREE.Group; walker: THREE.Mesh;
-    terrain: THREE.Mesh; mats: LineMaterial[];
+    terrain: THREE.Mesh; mats: LineMaterial[]; hemi: THREE.HemisphereLight; sun: THREE.DirectionalLight; span: number;
     goal: { pos: THREE.Vector3; target: THREE.Vector3; k?: number } | null;
   } | null>(null);
 
@@ -224,7 +227,8 @@ export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], re
     if (palette === 'mars') s.fog = new THREE.Fog('#c9926a', span0 * 0.25, span0 * 1.6);
     else s.background = new THREE.Color('#0f1a24');
     s.add(terrain);
-    s.add(new THREE.HemisphereLight(palette === 'mars' ? '#ffd9c2' : '#dfefff', '#2a1a14', palette === 'mars' ? 0.55 : 0.9));
+    const hemi = new THREE.HemisphereLight(palette === 'mars' ? '#ffd9c2' : '#dfefff', '#2a1a14', palette === 'mars' ? 0.55 : 0.9);
+    s.add(hemi);
     // Low afternoon sun from the west-north-west: long shadows make the relief stand out.
     const sun = new THREE.DirectionalLight(palette === 'mars' ? '#fff1e0' : '#ffffff', palette === 'mars' ? 2.8 : 2.2);
     sun.position.set(-1, palette === 'mars' ? 0.42 : 1.1, -0.45).normalize().multiplyScalar(span0 * 1.2);
@@ -260,7 +264,7 @@ export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], re
     cam.position.copy(target).add(new THREE.Vector3(-0.55, 0.75, 0.9).normalize().multiplyScalar(fspan * 1.5));
 
     const mats: LineMaterial[] = [];
-    scene.current = { r, s, cam, ctl, project, overlay, walker: walkerMesh, terrain, mats, goal: null };
+    scene.current = { r, s, cam, ctl, project, overlay, walker: walkerMesh, terrain, mats, goal: null, hemi, sun, span: span0 };
     ctl.addEventListener('start', () => { if (scene.current) scene.current.goal = null; }); // the user takes over
 
     const resize = () => {
@@ -391,6 +395,59 @@ export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], re
     };
   }, [ribbons, beacons, grid, exag, radiusKm]);
 
+  // Sky: day = dusty butterscotch, darker overhead; around sunrise/sunset a blue glow near the sun;
+  // night = near black with stars. Light on the ground and the haze follow.
+  const [skyBg, setSkyBg] = useState<string | null>(null);
+  useEffect(() => {
+    const sc = scene.current;
+    if (!sc || !sky) { setSkyBg(null); return; }
+    const el = sky.sunEl, az = (sky.sunAz * Math.PI) / 180, e = (Math.max(-10, el) * Math.PI) / 180;
+    const dir = new THREE.Vector3(Math.sin(az) * Math.cos(e), Math.sin(e), -Math.cos(az) * Math.cos(e));
+    const day = Math.max(0, Math.min(1, (el + 2) / 14)), night = Math.max(0, Math.min(1, (-el - 2) / 8));
+    sc.sun.position.copy(dir.clone().multiplyScalar(sc.span * 1.2));
+    sc.sun.intensity = 0.15 + 2.6 * day;
+    sc.hemi.intensity = 0.12 + 0.45 * day;
+    const fog = new THREE.Color().lerpColors(new THREE.Color('#3a3f55'), new THREE.Color('#b98462'), day).lerp(new THREE.Color('#07070b'), night);
+    sc.s.fog = new THREE.Fog(fog, 400, sc.span * (0.35 + 0.5 * day));
+    const sunX = 50 + (((sky.sunAz - 180) / 2) % 50), sunY = 70 - Math.max(-10, el) * 1.2;
+    setSkyBg(night > 0.6
+      ? 'linear-gradient(#000 0%, #03040a 55%, #0c0a0c 100%)'
+      : day > 0.6
+        ? 'linear-gradient(#2b1d18 0%, #6e4632 28%, #b07a58 58%, #c9926a 100%)'
+        : `radial-gradient(circle at ${sunX}% ${sunY}%, rgba(150,190,255,.9) 0%, rgba(90,120,190,.55) 12%, transparent 35%), linear-gradient(#07080f 0%, #1c1f2e 45%, #4a4650 75%, #7a6050 100%)`);
+    const g = new THREE.Group();
+    if (night > 0.05) { // stars: a few hundred points on a far sphere, no fog
+      const n = 600, pos = new Float32Array(n * 3);
+      let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647); // same stars every time
+      for (let i = 0; i < n; i++) {
+        const u = rnd() * 2 * Math.PI, v = Math.acos(rnd() * 1.9 - 0.9), r = sc.span * 6;
+        pos.set([r * Math.sin(v) * Math.cos(u), r * Math.cos(v), r * Math.sin(v) * Math.sin(u)], i * 3);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      const mat = new THREE.PointsMaterial({ color: '#ffffff', size: 1.6, sizeAttenuation: false, transparent: true, opacity: 0.9 * night, fog: false, depthWrite: false });
+      const pts = new THREE.Points(geo, mat);
+      pts.onBeforeRender = () => { pts.position.copy(sc.cam.position); mat.opacity = night * (0.75 + 0.2 * Math.sin(performance.now() / 700)); };
+      g.add(pts);
+    }
+    if (el > -4) { // sun disc (about 2/3 of the Sun seen from Earth) with a small glow
+      const cv = document.createElement('canvas'); cv.width = cv.height = 128;
+      const ctx = cv.getContext('2d')!, gr = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+      gr.addColorStop(0, 'rgba(255,255,245,1)'); gr.addColorStop(0.12, 'rgba(255,250,235,1)'); gr.addColorStop(0.16, day > 0.6 ? 'rgba(255,230,200,.35)' : 'rgba(170,200,255,.5)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = gr; ctx.fillRect(0, 0, 128, 128);
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), fog: false, depthWrite: false, transparent: true }));
+      const d = sc.span * 5, size = d * Math.tan((0.35 * Math.PI) / 180) * 6.5;
+      sp.scale.set(size, size, 1);
+      sp.onBeforeRender = () => sp.position.copy(sc.cam.position).add(dir.clone().multiplyScalar(d));
+      g.add(sp);
+    }
+    sc.s.add(g);
+    return () => {
+      sc.s.remove(g);
+      g.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose(); const mm = m.material as THREE.SpriteMaterial | undefined; mm?.map?.dispose(); mm?.dispose(); });
+    };
+  }, [sky?.sunAz, sky?.sunEl, grid, exag]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Walk-home area: repaint the terrain texture.
   useEffect(() => {
     const sc = scene.current;
@@ -457,7 +514,7 @@ export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], re
 
   return (
     <div className={`terrain3d ${palette}`}>
-      <div ref={host} className="terrain3d-canvas" />
+      <div ref={host} className="terrain3d-canvas" style={skyBg ? { background: skyBg } : undefined} />
       {label && <div className="maplabel">{label}</div>}
       <div className="terrain3d-ctl" role="group" aria-label={t('表示', 'Display')}>
         {photo && (
