@@ -16,9 +16,13 @@ export interface Spot {
   /** Share of the out-and-back budget used to reach it (walk-home area value). */
   ratio: number;
   sol?: number; link?: string;
+  /** Height above (+) or below (-) the base in metres, from the Jezero DEM (absent off the grid). */
+  dz?: number;
+  /** Feature type and diameter (km) for gazetteer names. */
+  type?: string; diamKm?: number;
   src: string;
 }
-interface Grid { lat0: number; lon0: number; dlat: number; dlon: number; rows: number; cols: number }
+interface Grid { lat0: number; lon0: number; dlat: number; dlon: number; rows: number; cols: number; z?: (number | null)[] }
 
 export const SPOT_SRC = {
   names: { label: 'IAU Gazetteer of Planetary Nomenclature (USGS Astrogeology / NASA)', url: 'https://planetarynames.wr.usgs.gov/' },
@@ -55,6 +59,40 @@ export function reachAt(reach: Reach, g: Grid, lat: number, lon: number): number
   return v == null || v > 1 ? null : v;
 }
 
+/** Elevation (m) at a point, nearest DEM cell; null without elevations or off the grid. */
+export function elevAt(g: Grid, lat: number, lon: number): number | null {
+  if (!g.z) return null;
+  const north = g.lat0 + g.dlat / 2, west = g.lon0 - g.dlon / 2;
+  const r = Math.floor((north - lat) / g.dlat), c = Math.floor((lon - west) / g.dlon);
+  if (r < 0 || r >= g.rows || c < 0 || c >= g.cols) return null;
+  const v = g.z[r * g.cols + c];
+  return v == null || !Number.isFinite(v) ? null : v;
+}
+
+/** How much of the out-and-back budget a trip takes, in words. */
+export function budgetWord(ratio: number, l: Lang): string {
+  if (ratio < 0.5) return l === 'ja' ? '余裕あり' : 'plenty to spare';
+  if (ratio < 0.8) return l === 'ja' ? '半分以上使う' : 'uses over half';
+  return l === 'ja' ? 'ぎりぎり' : 'cutting it close';
+}
+
+/** One line about a spot, only from numbers already in the data. */
+export function spotNote(s: Pick<Spot, 'kind' | 'ratio' | 'dz' | 'type' | 'diamKm'>, l: Lang): string {
+  const parts: string[] = [];
+  if (s.kind === 'rover') parts.push(l === 'ja' ? '探査車が実際に通った場所' : 'where the rover really drove');
+  else if (s.type) {
+    const ty = l === 'ja' ? TYPE_JA[s.type] ?? s.type : s.type.toLowerCase();
+    parts.push(s.diamKm ? (l === 'ja' ? `直径 ${s.diamKm.toFixed(1)} km の${ty}` : `${ty} ${s.diamKm.toFixed(1)} km across`) : ty);
+  }
+  if (s.dz != null) {
+    const m = Math.round(Math.abs(s.dz));
+    parts.push(m < 5 ? (l === 'ja' ? '基地とほぼ同じ高さ' : 'about level with the base')
+      : l === 'ja' ? `基地より ${m} m ${s.dz > 0 ? '高い' : '低い'}` : `${m} m ${s.dz > 0 ? 'above' : 'below'} the base`);
+  }
+  parts.push(`${budgetWord(s.ratio, l)}${l === 'ja' ? `（往復で使う分 ${Math.round(s.ratio * 100)}%）` : ` (${Math.round(s.ratio * 100)}% of the budget)`}`);
+  return parts.join(l === 'ja' ? '・' : ' · ');
+}
+
 const TYPE_JA: Record<string, string> = { Crater: 'クレーター', Vallis: '谷', Mons: '山', Planum: '台地', 'Landing site': '着陸地点' };
 
 /**
@@ -67,12 +105,14 @@ export function pickSpots(src: SpotSources, reach: Reach, g: Grid, base: Waypoin
     const km = kmBetween(base, { lat, lon });
     return v != null && v <= limit && km >= 0.3 ? { v, km } : null;
   };
+  const z0 = elevAt(g, base.lat, base.lon);
+  const dzAt = (lat: number, lon: number) => { const z = elevAt(g, lat, lon); return z != null && z0 != null ? z - z0 : undefined; };
   const out: Spot[] = [];
   for (const n of src.names) {
-    const [name, , type, lat, lon, , , link] = n;
+    const [name, , type, lat, lon, diam, , link] = n;
     const q = ok(lat, lon);
     if (!q) continue;
-    out.push({ id: `n:${name}`, kind: 'name', name: { ja: `${name}（${TYPE_JA[type] ?? type}）`, en: `${name} (${type})` }, lat, lon, km: q.km, ratio: q.v, link: link ?? undefined, src: SPOT_SRC.names.label });
+    out.push({ id: `n:${name}`, kind: 'name', name: { ja: `${name}（${TYPE_JA[type] ?? type}）`, en: `${name} (${type})` }, lat, lon, km: q.km, ratio: q.v, link: link ?? undefined, dz: dzAt(lat, lon), type, diamKm: diam ?? undefined, src: SPOT_SRC.names.label });
   }
   const cand = src.stops.map((s) => ({ s, q: ok(s.lat, s.lon) })).filter((x) => x.q) as { s: Stop; q: { v: number; km: number } }[];
   const picked: typeof cand = [];
@@ -88,7 +128,7 @@ export function pickSpots(src: SpotSources, reach: Reach, g: Grid, base: Waypoin
     picked.push(cand.splice(best, 1)[0]);
   }
   for (const { s, q } of picked) {
-    out.push({ id: `r:${s.sol}`, kind: 'rover', name: { ja: `Perseverance が sol ${s.sol} に止まった地点`, en: `Where Perseverance stopped on sol ${s.sol}` }, lat: s.lat, lon: s.lon, km: q.km, ratio: q.v, sol: s.sol, src: SPOT_SRC.rover.label });
+    out.push({ id: `r:${s.sol}`, kind: 'rover', name: { ja: `Perseverance が sol ${s.sol} に止まった地点`, en: `Where Perseverance stopped on sol ${s.sol}` }, lat: s.lat, lon: s.lon, km: q.km, ratio: q.v, sol: s.sol, dz: dzAt(s.lat, s.lon), src: SPOT_SRC.rover.label });
   }
   return out.sort((a, b) => a.km - b.km);
 }

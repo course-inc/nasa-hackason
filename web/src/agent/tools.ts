@@ -7,7 +7,7 @@ import { DEFAULT_START, MAX_SLOPE, reachFrom, computePlan, evaluateRouteMaterial
 import { nextFrame, walkController, type EvidenceTopic } from '../walk/controller';
 import { registerTool, setToolsReady } from './port';
 import { getLang } from '../i18n';
-import { SPOT_SRC, loadSpotSources, pickSpots } from '../walk/spots';
+import { SPOT_SRC, loadSpotSources, pickSpots, spotNote } from '../walk/spots';
 import type { ToolDef, ToolResult } from './types';
 
 type Lang = 'ja' | 'en';
@@ -514,12 +514,12 @@ const nearbySpotsTool: ToolDef = {
     const base = c.route()[0] ?? LANDING;
     const reach = reachFrom(c.core, data, base, evaParams(c.params()));
     if (!reach || !data.dem) return { text: t(l, '地形データが読み込めていないので、帰れる範囲を計算できませんでした。', 'The terrain is not loaded, so the walk-home area could not be computed.') };
-    const spots = pickSpots(await loadSpotSources(), reach, data.dem, base, Math.max(1, Math.min(20, Number(a?.max) || 8)));
+    const spots = pickSpots(await loadSpotSources(), reach, data.demGrid ?? data.dem, base, Math.max(1, Math.min(20, Number(a?.max) || 8)));
     if (!spots.length) return { text: t(l, '今の酸素・冷却水では、帰れる範囲の中に NASA データの地点がありません。', 'With the current oxygen and water, no NASA-data place is inside the walk-home area.'), data: { spots: [] } };
-    const lines = spots.map((s, i) => `${i + 1}. ${s.name[l]} — ${r1(s.km)} km, ${t(l, '往復で使う分', 'budget')} ${Math.round(s.ratio * 100)}%`);
+    const lines = spots.map((s, i) => `${i + 1}. ${s.name[l]} — ${r1(s.km)} km, ${spotNote(s, l)}`);
     return {
       text: `${t(l, `帰れる範囲の中にある行き先の候補（${spots.length} か所）:`, `Destination ideas inside the walk-home area (${spots.length}):`)}\n${lines.join('\n')}\n${t(l, '🎯 で地図の点か一覧を押すと、そこまでの経路を探します。', 'Press 🎯 and pick a point or list entry to plan the route there.')}`,
-      data: { base: { lat: base.lat, lon: base.lon }, spots: spots.map((s) => ({ name: s.name.en, kind: s.kind, lat: s.lat, lon: s.lon, km: +s.km.toFixed(2), budget_share: +s.ratio.toFixed(2), sol: s.sol ?? null })) },
+      data: { base: { lat: base.lat, lon: base.lon }, spots: spots.map((s) => ({ name: s.name.en, kind: s.kind, lat: s.lat, lon: s.lon, km: +s.km.toFixed(2), budget_share: +s.ratio.toFixed(2), sol: s.sol ?? null, height_vs_base_m: s.dz != null ? Math.round(s.dz) : null, note: spotNote(s, l) })) },
       sources: [SPOT_SRC.names, SPOT_SRC.rover, SRC.engine],
     };
   },
