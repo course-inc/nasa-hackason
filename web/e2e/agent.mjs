@@ -366,7 +366,7 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
   console.log('\nvoice wav', w, '|', text.slice(0, 60));
   if (w.head !== 'RIFF' || w.rate !== 16000 || !(w.n > 40000)) fail('voice: 16 kHz WAV recorded');
   if (!/判定: 帰れ(る|ない)/.test(text) || !/酸素 6 時間/.test(text)) fail('voice question answered with the spoken conditions');
-  if (!/規則版/.test(await v.locator('.msg-who').first().innerText())) fail('voice: no model → rules version says so');
+  if (!/QA/.test(await v.locator('.msg-who').first().innerText())) fail('voice: no model → QA says so');
   await v.locator('.walk .btns button.primary').click();
   await v.waitForSelector('.hud-qa', { timeout: 5000 }).catch(() => fail('answer shown in the helmet HUD'));
   if (!/3キロ/.test(await v.locator('.hud-q').innerText().catch(() => ''))) fail('HUD shows the spoken question');
