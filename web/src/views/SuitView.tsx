@@ -16,7 +16,7 @@ import { LAYERS } from '../layers';
 import { PlanetMap, type Feature } from '../map/PlanetMap';
 import { useT } from '../i18n';
 import { callTool } from '../agent/port';
-import { getObstacles, onObstacles, setSuitLink, type Obstacle } from '../walk/obstacle';
+import { clearObstacles, getObstacles, onObstacles, setSuitLink, type Obstacle } from '../walk/obstacle';
 import './suit.css';
 
 const R_MARS_M = 3389.5e3;
@@ -110,17 +110,23 @@ export function SuitView({ core }: { core: Core }) {
   speedRef.current = speed;
   const raf = useRef(0);
   // After an obstacle re-search the route changes under the walker: keep walking from where they stood.
-  const resume = useRef<{ at: number; back: boolean; walking: boolean } | null>(null);
+  const resume = useRef<{ at: number; back: boolean; walking: boolean; km: number; h: number } | null>(null);
+  // Distance and time walked before a re-search, so the totals carry on across it.
+  const offset = useRef({ km: 0, h: 0 });
+  const shown = useRef({ km: 0, h: 0 });
   useEffect(() => {
     const r = resume.current;
     resume.current = null;
     if (r && dense.wp[r.at] != null) {
       const k = dense.wp[r.at], oe = turn ?? dense.pts.length - 1;
-      setPos(r.back ? Math.min(2 * oe, 2 * oe - Math.min(k, oe) + 0.01) : Math.min(k, oe));
+      const np = r.back ? Math.min(2 * oe, 2 * oe - Math.min(k, oe) + 0.01) : Math.min(k, oe);
+      offset.current = { km: r.km - atRef.current(np).walkedM / 1000, h: r.h - timeAt(np) };
+      setPos(np);
       setWalking(false);
       if (r.walking) setTimeout(() => setWalking(true), 0); // restart playback on the new route's clock
       return;
     }
+    offset.current = { km: 0, h: 0 };
     setPos(0); setWalking(false);
   }, [route, params]); // eslint-disable-line react-hooks/exhaustive-deps
   // Clock of the walk (hours) at each whole pos: out = the plan's elapsed time, back = + time already walked home.
@@ -177,7 +183,7 @@ export function SuitView({ core }: { core: Core }) {
     const walkedM = (back && ev ? 2 * ev.ticks[outEnd].km - kmHere : kmHere) * 1000;
     const bob = 0.025 * Math.abs(Math.sin((walkedM / 0.8) * Math.PI));
     const fwd = vec(dense.pts[k0], dense.pts[k1]).deg;
-    return { i, j, u, here, back, heading: back ? (fwd + 180) % 360 : fwd, pitch: PITCH + slope * 0.6, eyeM: EYE_M + bob };
+    return { i, j, u, here, back, walkedM, heading: back ? (fwd + 180) % 360 : fwd, pitch: PITCH + slope * 0.6, eyeM: EYE_M + bob };
   };
 
   // 3D first-person camera (~20 per second) and 2D map follow (twice a second; a fit, not a fly, so it keeps up), from the latest pos.
@@ -309,7 +315,7 @@ export function SuitView({ core }: { core: Core }) {
           homeH: idx?.home_h ?? 0, homeKm: w.back ? (idx?.km ?? 0) : T.km };
       },
       continueOn: (r, at, back) => {
-        resume.current = { at, back, walking: walkingRef.current };
+        resume.current = { at, back, walking: walkingRef.current, km: shown.current.km, h: shown.current.h };
         peekWalkController()?.setRoute(r);
       },
     });
@@ -340,8 +346,7 @@ export function SuitView({ core }: { core: Core }) {
 
   // Sky from the local solar time of the walk (departure hour + time walked), or forced night for showing the stars.
   const [skyMode, setSkyMode] = useState<'real' | 'night'>('real');
-  const tIdx = (x: number) => ev?.ticks[Math.max(0, Math.min(last, Math.floor(x)))];
-  const tH = ev && last >= 1 ? (pos <= outEnd ? tIdx(pos)?.t_h ?? 0 : (ev.ticks[outEnd].t_h + ev.ticks[outEnd].home_h - (tIdx(2 * outEnd - pos)?.home_h ?? 0))) : 0;
+  const tH = ev && last >= 1 ? timeAt(pos) + offset.current.h : 0;
   const hour = ((params.start ?? DEFAULT_START) + tH) % 24;
   const sky = useMemo<Sky3D>(() => {
     if (skyMode === 'night') return { sunAz: 0, sunEl: -30 };
@@ -376,6 +381,7 @@ export function SuitView({ core }: { core: Core }) {
   const km = back ? 2 * T.km - lerp(a.km, b.km) : lerp(a.km, b.km), margin = back ? T.margin_h : lerp(a.margin_h, b.margin_h), home = homeHere;
   const o2 = back ? T.o2_left - rate(T.o2_left) * backH : lerp(a.o2_left, b.o2_left);
   const water = back ? T.water_left - rate(T.water_left) * backH : lerp(a.water_left, b.water_left);
+  shown.current = { km: km + offset.current.km, h: tH };
   const base = dense.pts[0];
   const toBase = vec(here, base);
   // The arrow shows the base relative to the direction of travel (= the 3D camera's view).
@@ -426,7 +432,7 @@ export function SuitView({ core }: { core: Core }) {
             <Bar label="O₂" v={o2} warn={ev.limiting === 'o2' && o2 < 0.35} />
             <Bar label={t('冷却水', 'Water')} v={water} warn={ev.limiting === 'water' && water < 0.35} />
           </div>
-          <div className="suit-foot">{t(`歩いた距離 ${km.toFixed(2)} km`, `Walked ${km.toFixed(2)} km`)}</div>
+          <div className="suit-foot">{t(`歩いた距離 ${(km + offset.current.km).toFixed(2)} km`, `Walked ${(km + offset.current.km).toFixed(2)} km`)}</div>
         </div>
 
         <ol className="suit-feed" aria-live="polite">
@@ -460,6 +466,7 @@ export function SuitView({ core }: { core: Core }) {
           <button className={skyMode === 'night' ? 'on' : ''} aria-pressed={skyMode === 'night'} onClick={() => setSkyMode('night')}>{t('夜にする', 'Night')}</button>
         </span>
         <button className="suit-obstacle" onClick={obstacleAhead} disabled={busy}>{t('⚠ 前に障害物', '⚠ Obstacle ahead')}</button>
+        {obst.length > 0 && <button onClick={() => clearObstacles(core, data)}>{t('障害物を消す', 'Clear obstacles')}</button>}
         <a href="#walk">{t('ルートを変える', 'Change route')}</a>
         <a href="#sources">{t('出典', 'Sources')}</a>
       </div>
