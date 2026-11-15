@@ -16,6 +16,8 @@ export interface Point3D { lat: number; lon: number; color: string; size: number
  * Camera request (agent view_3d tool). heading: direction the camera looks, degrees clockwise from
  * north. tilt: how far it looks down from the horizon (90 = straight down). A new seq re-applies it.
  */
+/** A sharper image for part of the grid (e.g. HiRISE tiles around the walker), draped over the base surface. */
+export interface Patch3D { image: HTMLCanvasElement; north: number; south: number; west: number; east: number }
 export interface Camera3D { target?: { lat: number; lon: number }; distance?: number; heading?: number; tilt?: number; seq: number }
 
 interface Props {
@@ -35,6 +37,8 @@ interface Props {
   camera?: Camera3D | null;
   /** Height exaggeration set from outside (the ×1/×2/×4 buttons still work). */
   exaggeration?: number;
+  /** Optional sharper image over part of the grid; drawn on top of the base surface. */
+  patch?: Patch3D | null;
 }
 
 const MAX_SIDE = 720; // the Jezero grid (700 × 467) at full resolution
@@ -125,7 +129,7 @@ function texture(g: GridData, palette: 'mars' | 'earth', reach: Reach | null | u
   return t;
 }
 
-export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], reach, walker, focus, label, camera, exaggeration, photo }: Props) {
+export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], reach, walker, focus, label, camera, exaggeration, photo, patch }: Props) {
   const t = useT();
   // Surface photo (when given) or the elevation colours; the photo loads once and stays.
   const [img, setImg] = useState<HTMLImageElement | null>(null);
@@ -264,6 +268,45 @@ export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], re
     // focus is only used for the first framing; re-framing on every route edit would be jarring.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [grid, radiusKm, palette, exag]);
+
+  // Sharper patch: a piece of the terrain mesh over the patch bounds, textured with the patch image,
+  // drawn just in front of the base surface (polygon offset) so it covers it without z-fighting.
+  useEffect(() => {
+    const sc = scene.current;
+    if (!sc || !patch) return;
+    const g = grid;
+    const r0 = Math.max(0, Math.floor((g.lat0 - patch.north) / g.dlat)), r1 = Math.min(g.rows - 1, Math.ceil((g.lat0 - patch.south) / g.dlat));
+    const c0 = Math.max(0, Math.floor((patch.west - g.lon0) / g.dlon)), c1 = Math.min(g.cols - 1, Math.ceil((patch.east - g.lon0) / g.dlon));
+    if (r1 <= r0 || c1 <= c0) return;
+    const nr = r1 - r0 + 1, nc = c1 - c0 + 1;
+    const pos = new Float32Array(nr * nc * 3), uv = new Float32Array(nr * nc * 2);
+    for (let i = 0; i < nr; i++) for (let j = 0; j < nc; j++) {
+      const lat = g.lat0 - (r0 + i) * g.dlat, lon = g.lon0 + (c0 + j) * g.dlon, n = i * nc + j;
+      sc.project(lat, lon).toArray(pos, n * 3);
+      uv[n * 2] = (lon - patch.west) / (patch.east - patch.west);
+      uv[n * 2 + 1] = (lat - patch.south) / (patch.north - patch.south);
+    }
+    const idx: number[] = [];
+    for (let i = 0; i < nr - 1; i++) for (let j = 0; j < nc - 1; j++) {
+      const a = i * nc + j, b = a + 1, c = a + nc, d = c + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const tex = new THREE.CanvasTexture(patch.image);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = sc.r.capabilities.getMaxAnisotropy();
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95, metalness: 0, transparent: true, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.receiveShadow = true;
+    sc.s.add(mesh);
+    return () => { sc.s.remove(mesh); geo.dispose(); tex.dispose(); mat.dispose(); };
+  }, [patch, grid, exag]);
 
   // Walk-home area: repaint the terrain texture.
   useEffect(() => {

@@ -11,7 +11,8 @@ import { LANDING, exampleRoute, loadWalkData, type WalkData } from '../walk/data
 import { peekWalkController } from '../walk/controller';
 import { DEFAULT_PARAMS, WORLD, denseRoute, evaParams, evaluate, turnIndex, type PlanParams } from '../walk/plan';
 import { fmtH } from '../walk/geo';
-import { Terrain3D, type Camera3D, type Line3D, type Point3D } from '../map/Terrain3D';
+import { Terrain3D, type Camera3D, type Line3D, type Patch3D, type Point3D } from '../map/Terrain3D';
+import { LAYERS } from '../layers';
 import { PlanetMap, type Feature } from '../map/PlanetMap';
 import { useT } from '../i18n';
 import './suit.css';
@@ -30,6 +31,41 @@ const CAM_DIST_M = 160, CAM_TILT = 18;
 const MAP_Z = 15;
 /** Playback only: how fast ▶ and the keys move along the route. The calculation's walking speed is unchanged. */
 const SPEEDS = [0.5, 1, 2, 5, 10];
+
+// Sharper ground near the walker: HiRISE z15 tiles (≈1.2 m/px; the whole-crater photo is ≈9.6 m/px),
+// bundled copy first, NASA Trek as the fallback. EPSG:4326 tiles: 2^(z+1) × 2^z of 256 px.
+const HZ = 15, TILE_DEG = 180 / 2 ** HZ, PATCH_TILES = 8, PATCH_MOVE_M = 700;
+const hiriseTile = (y: number, x: number) => [`./tiles/mars-hirise/${HZ}/${y}/${x}.png`,
+  LAYERS.marsOverlay.hirise.url.replace('{z}', String(HZ)).replace('{y}', String(y)).replace('{x}', String(x))];
+const tileCache = new Map<string, Promise<HTMLImageElement | null>>();
+function loadTile(y: number, x: number) {
+  const key = `${y}/${x}`;
+  let p = tileCache.get(key);
+  if (!p) {
+    const [local, remote] = hiriseTile(y, x);
+    p = new Promise((res) => {
+      const im = new Image();
+      im.crossOrigin = 'anonymous';
+      im.onload = () => res(im);
+      im.onerror = () => { if (im.src.endsWith(local.slice(1))) im.src = remote; else res(null); };
+      im.src = local;
+    });
+    tileCache.set(key, p);
+  }
+  return p;
+}
+/** A PATCH_TILES² mosaic of HiRISE tiles centred on lat/lon, with the same light Mars tint as the 2D map. */
+async function buildPatch(lat: number, lon: number): Promise<Patch3D | null> {
+  const x0 = Math.floor((lon + 180) / TILE_DEG) - PATCH_TILES / 2, y0 = Math.floor((90 - lat) / TILE_DEG) - PATCH_TILES / 2;
+  const tiles = await Promise.all(Array.from({ length: PATCH_TILES * PATCH_TILES }, (_, k) => loadTile(y0 + Math.floor(k / PATCH_TILES), x0 + (k % PATCH_TILES))));
+  if (!tiles.some(Boolean)) return null;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = PATCH_TILES * 256;
+  const ctx = cv.getContext('2d')!;
+  ctx.filter = 'sepia(0.85) saturate(2.1) hue-rotate(-28deg) brightness(0.98)';
+  tiles.forEach((im, k) => im && ctx.drawImage(im, (k % PATCH_TILES) * 256, Math.floor(k / PATCH_TILES) * 256));
+  return { image: cv, west: -180 + x0 * TILE_DEG, east: -180 + (x0 + PATCH_TILES) * TILE_DEG, north: 90 - y0 * TILE_DEG, south: 90 - (y0 + PATCH_TILES) * TILE_DEG };
+}
 /** Half-size (deg of latitude) of the 2D map's window around the walker. */
 const MAP_HALF = 0.004;
 
@@ -130,6 +166,21 @@ export function SuitView({ core }: { core: Core }) {
     return () => clearInterval(id);
   }, [last, dense]);
 
+  // Sharper ground: rebuild the HiRISE patch when the walker is PATCH_MOVE_M from its centre.
+  const [patch, setPatch] = useState<Patch3D | null>(null);
+  const patchAt = useRef<Waypoint | null>(null);
+  useEffect(() => {
+    if (last < 1) return;
+    let live = true;
+    const id = setInterval(() => {
+      const { here } = atRef.current(posRef.current);
+      if (patchAt.current && vec(patchAt.current, here).m < PATCH_MOVE_M) return;
+      patchAt.current = here;
+      buildPatch(here.lat, here.lon).then((p) => { if (live && p) setPatch(p); }, () => undefined);
+    }, 300);
+    return () => { live = false; clearInterval(id); patchAt.current = null; };
+  }, [last, dense]);
+
   // Route layers: the way out, the part past the turn-back point, base and turn-back markers.
   const lines3d = useMemo<Line3D[]>(() => {
     if (last < 1) return [];
@@ -196,7 +247,7 @@ export function SuitView({ core }: { core: Core }) {
       <div className="suit-stage">
         {data.demGrid
           ? <Terrain3D grid={data.demGrid} radiusKm={core.world(WORLD).radius_km} palette="mars" lines={lines3d} points={points3d}
-              camera={camera} photo="./data/jezero_ortho.jpg" label={t('Jezero クレーター（3D・歩く人の目線）', 'Jezero crater (3D, walker’s view)')} />
+              camera={camera} patch={patch} photo="./data/jezero_ortho.jpg" label={t('Jezero クレーター（3D・歩く人の目線）', 'Jezero crater (3D, walker’s view)')} />
           : <p className="suit-empty">{t('3D の地形データを読み込めませんでした。', 'Could not load the 3D terrain data.')}</p>}
 
         <div className="suit-hud" role="status" aria-live="polite">
