@@ -517,3 +517,10 @@ h1 small { font-size: 12px; margin-left: 6px; }
 .route-eval table.cmp th, .route-eval table.cmp td { padding: 2px 4px; border-bottom: 1px solid var(--line); text-align: right; }
 .route-eval table.cmp th:first-child { text-align: left; font-weight: normal; color: var(--muted); }
 .route-eval tr.over td { color: #ff7875; }
+
+/* Data and sources page */
+.sources-page { overflow-y: auto; }
+.sources-body { max-width: 52rem; margin: 0 auto; padding: 16px 20px 40px; font-size: 14px; line-height: 1.7; }
+.sources-body p.muted { color: var(--text, #e8edf5); opacity: .9; margin: 0 0 14px; }
+.sources-body h2 { margin: 6px 0 14px; }
+.sources-body a { color: var(--accent); }
