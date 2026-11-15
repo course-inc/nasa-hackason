@@ -2,22 +2,25 @@
 //   #walk[/world/lat/lon/zoom]    → WALKBACK route planner (default; #mars kept as an alias)
 //   #target[/body/test/site]      → Explore all of Hokkaido (#10, target-first)
 //   #analogs                      → Hokkaido site → Moon/Mars (#10, site-first)
+//   #suit                         → Astronaut view: way-home navigator (reads the WALKBACK route)
 import { useEffect, useState } from 'react';
 import { loadCore, type Core, type World } from './core';
 import { AnalogsView } from './views/AnalogsView';
 import { TargetView, type TargetParams } from './views/TargetView';
 import { WalkView, type WalkParams } from './views/WalkView';
 import { SourcesView } from './views/SourcesView';
+import { SuitView } from './views/SuitView';
 import { setLang, useLang, useT } from './i18n';
 import { Splash, wantSplash } from './Splash';
 import { loadWalkData } from './walk/data';
 
-type View = 'target' | 'analogs' | 'walk' | 'sources';
+type View = 'target' | 'analogs' | 'walk' | 'sources' | 'suit';
 
 function parseHash(): { view: View; params: WalkParams; target: TargetParams } {
   const [name, world, lat, lon, z] = location.hash.replace(/^#/, '').split('/');
   if (name === 'analogs') return { view: 'analogs', params: {}, target: {} };
   if (name === 'sources') return { view: 'sources', params: {}, target: {} };
+  if (name === 'suit') return { view: 'suit', params: {}, target: {} };
   if (name === 'walk' || name === 'mars' || name === '') {
     const w = (['earth', 'moon', 'mars'].includes(world) ? world : name === 'mars' ? 'mars' : undefined) as World | undefined;
     const num = (s?: string) => (s && Number.isFinite(+s) ? +s : undefined);
@@ -69,6 +72,7 @@ export function App() {
         <h1>WALKBACK <small>Hokkaido × Mars</small></h1>
         <nav aria-label={t('画面', 'Views')}>
           <a href="#walk" className={route.view === 'walk' ? 'on' : ''}>{t('火星で歩いて帰る', 'Walk back on Mars')}</a>
+          <a href="#suit" className={route.view === 'suit' ? 'on' : ''}>{t('宇宙飛行士ビュー', 'Astronaut view')}</a>
           <a href="#target" className={route.view === 'target' ? 'on' : ''}>{t('北海道全域の探索', 'Explore all of Hokkaido')}</a>
           <a href="#analogs" className={route.view === 'analogs' ? 'on' : ''}>{t('地点 → 月・火星', 'Site → Moon/Mars')}</a>
         </nav>
@@ -84,7 +88,8 @@ export function App() {
           {/* Views stay mounted once opened so map state survives tab switches. */}
           {visited.has('target') && <div className="view-host" hidden={route.view !== 'target'}><TargetView core={core} params={route.target} /></div>}
           {visited.has('analogs') && <div className="view-host" hidden={route.view !== 'analogs'}><AnalogsView core={core} /></div>}
-          {visited.has('walk') && <div className="view-host" hidden={route.view !== 'walk'}><WalkView core={core} params={route.params} /></div>}
+          {(visited.has('walk') || visited.has('suit')) && <div className="view-host" hidden={route.view !== 'walk'}><WalkView core={core} params={route.params} /></div>}
+          {visited.has('suit') && <div className="view-host" hidden={route.view !== 'suit'}><SuitView core={core} /></div>}
           {route.view === 'sources' && <div className="view-host"><SourcesView core={core} /></div>}
         </>
       )}
