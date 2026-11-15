@@ -23,7 +23,7 @@ const MAX_MESSAGES = 60;
 const MAX_TOOLS = 40;
 
 // Same rules as the desktop agent (src-tauri/src/agent.rs SYSTEM_PROMPT), plus the web specifics.
-const SYSTEM = `あなたは WALKBACK（火星の船外活動で「歩いて帰れるか」を判定するアプリ）の相棒。質問には必ず先にツールを呼ぶ。
+export const SYSTEM = `あなたは WALKBACK（火星の船外活動で「歩いて帰れるか」を判定するアプリ）の相棒。質問には必ず先にツールを呼ぶ。
 - 帰れるか・距離・時間・酸素や冷却水の条件の質問は walkback_check（数値条件は o2_h などの引数に入れる。「Nkm先」は route={"away_km":N}）。練習コースは walkback_check に with_rehearsal=true。
 - ローバーが壊れたら・どこで引き返すかは rover_walkback。目的地までの道を自動で引くときは plan_route（lat, lon）。経路の評価・比較・説明は evaluate_route（距離・時間・登り下り・坂・足場・出発時刻別の酸素と冷却水・放射線・区間ごと、出典付き）の数字をそのまま使う。
 - 根拠・出典は open_evidence（topic は rover, eva, consumables など）。

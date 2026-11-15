@@ -592,3 +592,4 @@ h1 small { font-size: 12px; margin-left: 6px; }
 .route-plan .spots li { margin: 2px 0; }
 .route-plan .spots button.spot { background: none; border: 1px solid #eb2f96; color: inherit; border-radius: 10px; padding: 1px 8px; cursor: pointer; font-size: 12px; }
 .route-plan .spots button.spot:hover { background: rgba(235, 47, 150, 0.18); }
+.settings-row input { padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 13px; }

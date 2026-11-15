@@ -13,7 +13,13 @@ export interface Settings {
   cloudModel: string;
   /** Desktop app: local model name for the in-app AI ('' = automatic). */
   desktopModel: string;
+  /** Cloud AI goes through this site's relay, or straight to OpenAI with the person's own key. */
+  cloudVia: 'relay' | 'openai';
+  /** The person's OpenAI API key (kept in this browser only). */
+  openaiKey: string;
+  openaiModel: string;
 }
+export const OPENAI_MODELS = ['gpt-5-mini', 'gpt-5', 'gpt-4.1', 'gpt-4.1-mini'];
 
 export const CLOUD_MODELS: { id: string; ja: string; en: string }[] = [
   { id: 'claude-opus-5-5', ja: '高精度（標準）', en: 'Most accurate (default)' },
@@ -29,7 +35,7 @@ export const IN_APP_MODELS: { id: InAppModel; ja: string; en: string }[] = [
 
 const KEY = 'walkback.settings';
 const OLD_MODEL_KEY = 'walkback.pirsModel'; // earlier override, still honoured
-const DEFAULTS: Settings = { ai: 'auto', inAppModel: 'auto', cloudModel: CLOUD_MODELS[0].id, desktopModel: '' };
+const DEFAULTS: Settings = { ai: 'auto', inAppModel: 'auto', cloudModel: CLOUD_MODELS[0].id, desktopModel: '', cloudVia: 'relay', openaiKey: '', openaiModel: OPENAI_MODELS[0] };
 
 function load(): Settings {
   const s = { ...DEFAULTS };
@@ -40,6 +46,9 @@ function load(): Settings {
     else { const old = localStorage.getItem(OLD_MODEL_KEY); if (IN_APP_MODELS.some((m) => m.id === old)) s.inAppModel = old as InAppModel; }
     if (CLOUD_MODELS.some((m) => m.id === raw.cloudModel)) s.cloudModel = raw.cloudModel!;
     if (typeof raw.desktopModel === 'string') s.desktopModel = raw.desktopModel.slice(0, 100);
+    if (raw.cloudVia === 'openai') s.cloudVia = 'openai';
+    if (typeof raw.openaiKey === 'string') s.openaiKey = raw.openaiKey.slice(0, 300);
+    if (typeof raw.openaiModel === 'string' && raw.openaiModel.trim()) s.openaiModel = raw.openaiModel.slice(0, 100);
   } catch { /* storage blocked or bad JSON: defaults */ }
   return s;
 }

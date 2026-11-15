@@ -6,6 +6,7 @@ import { callTool, toolSpecs } from './port';
 import { getLang } from '../i18n';
 import { NoModelError } from './pirs';
 import { getSettings } from '../settings';
+import { openaiTurn, openaiOn } from './openai';
 import type { AgentEvent, AgentPort, ToolDef } from './types';
 
 const RELAY = '/api/agent';
@@ -34,6 +35,7 @@ function trim(msgs: Msg[]): Msg[] {
 async function turn(messages: Msg[], tools: ToolDef[], signal?: AbortSignal): Promise<Reply> {
   const names = new Set(tools.map((t) => t.name));
   const specs = toolSpecs().filter((s) => names.has(s.name)).map((s) => ({ name: s.name, description: s.description, input_schema: s.parameters }));
+  if (openaiOn()) return openaiTurn(messages, specs, signal);
   const res = await fetch(RELAY, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ messages, tools: specs, model: getSettings().cloudModel }), signal });
   const body = (await res.json().catch(() => ({}))) as Reply;
   if (res.status === 503 || res.status === 404) throw new NoModelError(getLang() === 'ja' ? '公開先に API キーが未設定です' : 'no API key is set on this deployment');
@@ -48,6 +50,7 @@ export const claudeAgent: AgentPort = {
   id: 'claude',
   get label() { return getLang() === 'ja' ? 'クラウドAI' : 'Cloud AI'; },
   available() {
+    if (openaiOn()) return Promise.resolve(true);
     availability ??= fetch(RELAY, { method: 'GET' })
       .then((r) => (r.ok ? r.json() : { available: false }))
       .then((j: { available?: boolean; model?: string }) => { claudeModel = j.model ?? null; return !!j.available; })
