@@ -34,6 +34,7 @@ await p.route('**/*', (r) => {
 
 // #10 target-first: Mons Mouton × each test ranks every site, shows numbered gaps, both languages.
 await p.goto(`${BASE}/#target/mons_mouton/ice`);
+await p.locator('#mode-tabs button[data-mode=sites]').click(); // the scan is the default now
 await p.waitForSelector('#rank-list li');
 const nr = await p.locator('#rank-list li').count();
 console.log('target ranking', nr); if (nr < 10) fail('target ranking');
@@ -45,10 +46,10 @@ await p.locator('#test-tabs button[data-test=walk]').click();
 await p.locator('#rank-list li').nth(2).click();
 await p.waitForTimeout(300);
 if (!(await p.evaluate(() => location.hash)).startsWith('#target/mons_mouton/walk/')) fail('target hash');
-await p.locator('.target .lang button', { hasText: '日本語' }).click();
+await p.locator('.lang-switch button', { hasText: '日本語' }).click();
 const ja = await p.locator('#gaps h4').innerText();
 console.log('ja gaps title', ja); if (!/再現できない/.test(ja)) fail('japanese');
-await p.locator('.target .lang button', { hasText: 'EN' }).click();
+await p.locator('.lang-switch button', { hasText: 'English' }).click();
 await p.locator('#target-body').selectOption('jezero');
 await p.waitForTimeout(300);
 const air = await p.locator('#gaps').innerText();
@@ -67,12 +68,13 @@ if (nTop < 1) fail('scan top');
 if (!(await p.locator('.leaflet-image-layer').count())) fail('scan heat map');
 await p.locator('#scan-top li').first().click();
 await p.waitForSelector('#scan-cell .total b');
+await p.locator('#scan-more summary').click();
 console.log('scan check:', await p.locator('#scan .check-line').innerText());
 await p.screenshot({ path: 'e2e/shot-scan.png' });
 
 // #10 inside #11: Mars by default; explore_hokkaido runs DuckDB over the scan; view_scan drives the view.
 await p.goto(`${BASE}/?fresh#target`); // new document: no state from the scan above
-await p.waitForSelector('#rank-list li');
+await p.waitForSelector('#scan-top li', { timeout: 20000 }).catch(() => fail('scan is the default'));
 const defBody = await p.locator('#target-body').inputValue();
 console.log('default target', defBody); if (defBody !== 'jezero') fail('default target jezero');
 const ex = await p.evaluate(async () => {
@@ -111,6 +113,7 @@ console.log('body scale', await p.locator('.maps .mapwrap').nth(1).locator('.pla
 await p.screenshot({ path: 'e2e/shot-analogs.png' });
 
 // WALKBACK: bundled Jezero data loads, the example route is judged, and a clicked route is too.
+await p.locator('.lang-switch button', { hasText: '日本語' }).click(); // the language is global: back to the default for #walk
 await p.goto(`${BASE}/#walk`);
 await walkReady(p, 15000);
 const verdict = await p.locator('.walk .verdict').innerText();

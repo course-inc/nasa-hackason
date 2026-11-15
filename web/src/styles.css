@@ -582,8 +582,7 @@ h1 small { font-size: 12px; margin-left: 6px; }
 @media (max-width: 800px) {
   .view.target { overflow-y: auto; }
   .target-body { flex-direction: column; flex: none; }
-  .target-body > .maps { order: -1; min-height: 0; height: 52vh; grid-template-rows: 1fr; flex: none; }
-  .target-body > .maps > :nth-child(2) { display: none; }
+  .target-body > .maps { order: -1; min-height: 0; height: auto; grid-template-rows: 50vh 26vh; flex: none; }
   .target .panel { max-height: none; overflow: visible; }
   .target .bar { grid-template-columns: 90px 1fr 28px; }
 }

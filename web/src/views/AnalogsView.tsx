@@ -107,7 +107,8 @@ export function AnalogsView({ core }: { core: Core }) {
               <Similarity dims={pair.dims} />
               <p className="warn">地球では再現できない: 低重力（{core.world(curB.world).gravity} m/s²）・真空・宇宙放射線{curB.world === 'mars' ? '・CO₂の薄い大気' : ''}</p>
               <div className="btns">
-                <a className="btn" href="#walk">🥾 火星で歩いて帰る練習</a>
+                <a className="btn" target="_blank" rel="noopener" href={`https://maps.gsi.go.jp/#15/${curE.lat}/${curE.lon}/`}>🥾 北海道のこの場所で歩く練習（地図）</a>
+                <a className="btn" href="#walk">🔴 火星で歩いて帰る練習</a>
                 <a className="btn" href={curB.id === 'jezero' ? `#walk/mars/${curB.lat}/${curB.lon}/9` : '#walk'}>{core.world(curB.world).icon} 現地ルート計画</a>
               </div>
               <p className="muted">{curB.kind}。天体側の値: {curB.src}{curB.approx ? '（代表値）' : ''}</p>
