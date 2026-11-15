@@ -32,6 +32,7 @@ export const scanColumns: () => [number, number, number, number];
 export const scanGaps: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
 export const scanScores: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const scanTop: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+export const setBlocked: (a: number, b: number, c: number, d: number) => [number, number];
 export const setEvaCsv: (a: number, b: number) => [number, number];
 export const setFooting: (a: number, b: number, c: number, d: number) => [number, number];
 export const setGrid: (a: number, b: number, c: number, d: number) => [number, number];

@@ -914,6 +914,30 @@ export function scanTop(scores, n, min_km) {
 }
 
 /**
+ * Cells reported blocked (an obstacle seen on the way), as row-major indices `[i, …]`; every route
+ * search on this grid steps around them. `"[]"` clears them.
+ * @param {string} name
+ * @param {string} cells_json
+ */
+export function setBlocked(name, cells_json) {
+    let ptr0, len0, ptr1, len1;
+    try {
+        ptr0 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        len0 = WASM_VECTOR_LEN;
+        ptr1 = passStringToWasm0(cells_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        len1 = WASM_VECTOR_LEN;
+    } catch (e) {
+        if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+        if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+        throw e;
+    }
+    const ret = wasm.setBlocked(ptr0, len0, ptr1, len1);
+    if (ret[1]) {
+        throw takeFromExternrefTable0(ret[0]);
+    }
+}
+
+/**
  * Parse the data.nasa.gov EVA CSV, keep its statistics and return them.
  * @param {string} csv
  * @returns {string}
