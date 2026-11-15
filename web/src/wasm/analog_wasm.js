@@ -333,6 +333,17 @@ export function planTraceOrder() {
 }
 
 /**
+ * Side of each settled cell: 0 = searched from the base, 1 = from the destination.
+ * @returns {Uint8Array}
+ */
+export function planTraceSide() {
+    const ret = wasm.planTraceSide();
+    var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v1;
+}
+
+/**
  * Radiation dose for `hours` on the surface (Curiosity RAD rate, NASA limits): {dose_msv,
  * career_share, hours_to_career_limit}.
  * @param {number} hours
