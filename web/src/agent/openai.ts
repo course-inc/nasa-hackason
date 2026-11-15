@@ -1,9 +1,33 @@
 // Cloud AI with the person's own OpenAI key (settings screen). The browser calls OpenAI directly,
 // so the key stays in this browser and never reaches our relay. Same system prompt and the same
 // Anthropic-shaped messages as the relay (web/public/_worker.js), translated to chat completions here.
-import { getSettings } from '../settings';
+import { getSettings, setSetting } from '../settings';
 
 const OPENAI_API = 'https://api.openai.com/v1/chat/completions';
+const OPENAI_MODELS_API = 'https://api.openai.com/v1/models';
+
+const NOT_CHAT = /embedding|audio|realtime|tts|image|transcribe|search|moderation|whisper|dall-e/i;
+
+/** Chat model ids from a /v1/models list, best first: gpt-terra → gpt-5 → gpt-4.1 → gpt-4o (plain before -mini, undated before dated). */
+export function chatModels(ids: string[]): string[] {
+  const fam = (id: string) => (/gpt-terra/.test(id) ? 0 : id.startsWith('gpt-5') ? 1 : id.startsWith('gpt-4.1') ? 2 : id.startsWith('gpt-4o') ? 3 : 9);
+  const rank = (id: string) => [fam(id), /-(mini|nano)\b/.test(id) ? 1 : 0, /\d{4}-\d{2}-\d{2}/.test(id) ? 1 : 0, id.length] as const;
+  return ids.filter((id) => !NOT_CHAT.test(id) && fam(id) < 9).sort((a, b) => {
+    const x = rank(a), y = rank(b);
+    for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return (x[i] as number) - (y[i] as number);
+    return a.localeCompare(b);
+  });
+}
+
+/** The chat models this key can use (empty when the list cannot be read). */
+export async function listOpenAIModels(key: string, signal?: AbortSignal): Promise<string[]> {
+  try {
+    const res = await fetch(OPENAI_MODELS_API, { headers: { authorization: `Bearer ${key.trim()}` }, signal });
+    if (!res.ok) return [];
+    const body = (await res.json()) as { data?: { id?: string }[] };
+    return chatModels((body.data ?? []).map((m) => String(m.id ?? '')).filter(Boolean));
+  } catch { return []; }
+}
 
 /** Keep in step with SYSTEM in web/public/_worker.js (a unit test compares them). */
 export const SYSTEM = `あなたは WALKBACK（火星の船外活動で「歩いて帰れるか」を判定するアプリ）の相棒。質問には必ず先にツールを呼ぶ。
@@ -13,6 +37,7 @@ export const SYSTEM = `あなたは WALKBACK（火星の船外活動で「歩い
 - 北海道のどこで・いつ訓練するかは explore_hokkaido。歩いた記録・GPX は import_walk。
 - 見せてと言われたら表示ツール（view_3d, view_walk, view_globe など）で地図を動かす。
 - 件数・範囲・一覧など、ほかのツールで答えられない質問は query_nasa に読み取り専用の SELECT を1つ渡して表から引く（集計や WHERE で絞る）。Perseverance が何 km 走ったか・sol ごとの位置は rover_traverse 表（例: SELECT max(km) FROM rover_traverse WHERE sol <= 1000）。船外活動の回数や時間は eva 表。Jezero の足場（熱慣性・ダスト被覆）は mars_footing 表。船外活動の放射線（Curiosity RAD の線量率と NASA の上限）は mars_radiation 表。Jezero の時刻ごとの気温・気圧（Perseverance MEDA）は mars_weather 表。火星の地名・着陸地点・有人着陸の候補地は mars_names 表（例: SELECT name, lat, lon, diameter_km FROM mars_names WHERE name ILIKE '%Jezero%'）。
+- どんな表・列があるか分からないときは list_nasa_tables（table を渡すと列の型と例）。列の件数・最小・最大・平均・中央値・欠損は summarize_nasa（where で絞り込み、group_by でグループ別）、それ以外の集計は query_nasa。
 - walkback_check は歩く計画の判定だけに使う。
 数字の決まり（最重要）: 答えに書く数字は、ツールの結果の文に出てくる数字だけを、そのまま写す。自分で計算・換算・四捨五入・推測をしない。ツールで出せない数字は「ツールでは出せません」と言う。
 最後に出典（sources）を一言添える。ユーザーの言語で、短く（3〜6文）答える。答えはそのまま文字で表示されるので、**太字** や見出しなどのマークダウン記法は使わない（箇条書きは「・」で）。`;
@@ -62,20 +87,32 @@ export function fromOpenAI(r: Completion): Reply {
 /** The settings say to use the person's own OpenAI key, and one is entered. */
 export const openaiOn = () => { const s = getSettings(); return s.cloudVia === 'openai' && !!s.openaiKey.trim(); };
 
-/** One model turn on OpenAI. */
+/** One model turn on OpenAI. If the chosen model does not exist for this key, pick one it can use, save it, and retry once. */
 export async function openaiTurn(messages: Msg[], specs: Spec[], signal?: AbortSignal): Promise<Reply> {
   const s = getSettings();
-  const res = await fetch(OPENAI_API, {
+  const key = s.openaiKey.trim();
+  const call = (model: string) => fetch(OPENAI_API, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${s.openaiKey.trim()}` },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
     body: JSON.stringify({
-      model: s.openaiModel.trim() || 'gpt-terra-6.1',
+      model,
       messages: toOpenAI(SYSTEM, messages),
       tools: specs.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })),
     }),
     signal,
   });
-  const body = (await res.json().catch(() => ({}))) as Completion & { error?: { message?: string } };
+  type Body = Completion & { error?: { message?: string; code?: string } };
+  const wanted = s.openaiModel.trim() || 'gpt-terra-6.1';
+  let res = await call(wanted);
+  let body = (await res.json().catch(() => ({}))) as Body;
+  if (!res.ok && (res.status === 404 || body.error?.code === 'model_not_found')) {
+    const pick = (await listOpenAIModels(key, signal)).find((m) => m !== wanted);
+    if (!pick) throw new Error(`OpenAI のモデル ${wanted} が使えず、使えるモデルの一覧も取れませんでした。設定画面でモデル名を入れてください / model ${wanted} is not available and the model list could not be read: enter a model name in Settings`);
+    setSetting('openaiModel', pick);
+    console.info('[agent] OpenAI model', wanted, '→', pick);
+    res = await call(pick);
+    body = (await res.json().catch(() => ({}))) as Body;
+  }
   if (!res.ok) throw new Error(res.status === 401 ? 'OpenAI のキーが正しくありません / the OpenAI key was rejected' : `OpenAI ${res.status}: ${body.error?.message ?? ''}`);
   return fromOpenAI(body);
 }

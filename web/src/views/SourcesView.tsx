@@ -14,11 +14,69 @@ export function SourcesView({ core }: { core: Core }) {
   const wxModel = useMemo(() => { try { return core.weatherModel(); } catch { return null; } }, [core]);
   const radModel = useMemo(() => { try { return core.radiationModel(); } catch { return null; } }, [core]);
   return (
-    <section className="view sources-page" id="sources">
-      <div className="sources-body">
-        <p><a href="#walk">← {t('火星で歩いて帰る', 'Walk back on Mars')}</a></p>
-        <h2>{t('データと根拠', 'Data and sources')}</h2>
-        <p className="muted" id="src-colour">{t('地図の色: Jezero の HiRISE の画像は赤フィルターの単色（白黒）です。見やすさのために火星の色味を薄く着色しています（3D の写真も同じ）。全球の Viking モザイクも、少し明るく赤みを足して表示しています。数字には影響しません。', 'Map colours: the Jezero HiRISE images are single-colour (red filter, greyscale). A light Mars tint is added for readability (as in the 3D photo). The Viking globe mosaic is shown a little brighter and redder. No numbers are affected.')}</p>
+    <main className="report sources-report" id="sources">
+      <p className="report-eyebrow">{t('出典一覧 · アプリが実際に読み込んでいるデータ', 'Sources · the data the app actually loads')}</p>
+      <h2>{t('このアプリの数字は、どのデータから来ているか', 'Where every number in this app comes from')}</h2>
+      <p>{t('計算に入る数字はすべて NASA と宇宙機関のデータから来ています。背景の地図は見た目のためだけで、計算には入りません。岩の成分だけは論文の値です。',
+        'Every number that goes into a calculation comes from NASA or space agency data. Background maps are for looks only and are not used in any calculation. Only the rock composition values come from published papers.')}</p>
+
+      <div className="report-verdict">
+        <div><span className="pill ok">{t('計算に使う', 'Used in calculations')}</span><b>{t('NASA・宇宙機関のデータ', 'NASA and space agency data')}</b>
+          <p>{t('地形・地表・気温・放射線など。下の表の 3 つのグループ。', 'Terrain, ground, air temperature, radiation and more. The three tables below.')}</p></div>
+        <div><span className="pill gray">{t('表示のみ', 'Display only')}</span><b>{t('背景の地図', 'Background maps')}</b>
+          <p>{t('写真・陰影・地質図など。数字には影響しません。', 'Photos, shading and geology maps. No numbers are affected.')}</p></div>
+        <div><span className="pill mid">{t('NASA以外', 'Not NASA')}</span><b>{t('論文の値', 'Values from papers')}</b>
+          <p>{t('月・火星の岩の成分（酸化物の割合）と、歩く式の係数。', 'Moon and Mars rock composition (oxides), and the coefficients of the walking formulas.')}</p></div>
+      </div>
+
+      <h3>{t('地球側: 北海道ぜんぶを 1 km マスで調べる', 'Earth: all of Hokkaido on a 1 km grid')}</h3>
+      <div className="report-table"><table>
+        <thead><tr><th>{t('データ', 'Dataset')}</th><th>{t('何に使うか', 'What it is used for')}</th><th>{t('使い方', 'Use')}</th></tr></thead>
+        <tbody>
+          <tr><td><b>NASADEM</b> <small>NASA/JPL</small></td><td>{t('標高・坂・凹凸（1 km マスと、候補 14 か所の詳しい地形）', 'Elevation, slope and ruggedness (1 km cells and 14 detailed candidate sites)')}</td><td><span className="tag calc">{t('計算', 'Calc')}</span></td></tr>
+          <tr><td><b>MODIS NDVI</b> <small>MOD13A1</small></td><td>{t('地面がどれだけ裸か（夏でいちばん緑の値で判定）', 'How bare the ground is (greenest value of summer)')}</td><td><span className="tag calc">{t('計算', 'Calc')}</span></td></tr>
+          <tr><td><b>MODIS {t('土地被覆', 'Land Cover')}</b> <small>MCD12Q1</small></td><td>{t('裸地・雪・水の区分で、候補に入れるか外すか', 'Barren / snow / water classes to keep or drop a cell')}</td><td><span className="tag calc">{t('計算', 'Calc')}</span></td></tr>
+          <tr><td><b>NASA POWER</b></td><td>{t('いちばん寒い月・暑い月・降水量（気温の点数と「いつ行くか」）', 'Coldest and warmest months and rain (temperature score and when to go)')}</td><td><span className="tag calc">{t('計算', 'Calc')}</span></td></tr>
+        </tbody></table></div>
+
+      <h3>{t('月・火星側: 比べる相手', 'Moon and Mars: the targets to compare with')}</h3>
+      <div className="report-table"><table>
+        <thead><tr><th>{t('データ', 'Dataset')}</th><th>{t('何に使うか', 'What it is used for')}</th><th>{t('使い方', 'Use')}</th></tr></thead>
+        <tbody>
+          <tr><td><b>Artemis III {t('候補地域', 'candidate regions')}</b> <small>NASA</small></td><td>{t('月の目標地点の位置', 'Where the lunar targets are')}</td><td><span className="tag calc">{t('計算', 'Calc')}</span></td></tr>
+          <tr><td><b>LRO Diviner</b></td><td>{t('月の目標地点の最低・最高温度（北海道と比べる）', 'Min / max temperature of each lunar target (compared with Hokkaido)')}</td><td><span className="tag calc">{t('計算', 'Calc')}</span></td></tr>
+          <tr><td><b>LRO LOLA</b></td><td>{t('月の標高（計算）。坂・陰影・南極の日照と永久影は地図で表示', 'Lunar elevation (calculated). Slope, shading and south-pole light / permanent shadow are shown as maps')}</td><td><span className="tag calc">{t('計算', 'Calc')}</span> <span className="tag disp">{t('表示', 'Display')}</span></td></tr>
+          <tr><td><b>MOLA</b> · <b>TES</b></td><td>{t('火星の標高・凹凸、熱慣性とダスト被覆（地表のタイプ）', 'Mars elevation and roughness, thermal inertia and dust cover (surface type)')}</td><td><span className="tag calc">{t('計算', 'Calc')}</span></td></tr>
+          <tr><td><b>JAXA {t('かぐや', 'SELENE/Kaguya')}</b></td><td>{t('月の写真と坂（LOLA と合成）の地図', 'Lunar imagery and slope maps (merged with LOLA)')}</td><td><span className="tag disp">{t('表示', 'Display')}</span></td></tr>
+          <tr><td><b>{t('岩の成分（酸化物）', 'Rock composition (oxides)')}</b></td><td>{t('月・火星の目標地点の岩の化学組成', 'Rock chemistry of the Moon and Mars targets')}</td><td><span className="tag lit">{t('論文値・NASA以外', 'Papers, not NASA')}</span></td></tr>
+        </tbody></table></div>
+
+      <h3>{t('火星で歩いて帰る（Jezero クレーター）', 'Walk back on Mars (Jezero crater)')}</h3>
+      <div className="report-table"><table>
+        <thead><tr><th>{t('データ', 'Dataset')}</th><th>{t('何に使うか', 'What it is used for')}</th><th>{t('使い方', 'Use')}</th></tr></thead>
+        <tbody>
+          <tr><td><b>HiRISE DTM</b> <small>MRO · USGS</small> + <b>MOLA</b></td><td>{t('Jezero の標高（HiRISE がある所は HiRISE、ほかは MOLA）。坂を考えた経路のコスト', 'Jezero elevation (HiRISE where available, MOLA elsewhere) for slope-aware route cost')}</td><td><span className="tag calc">{t('計算', 'Calc')}</span></td></tr>
+          <tr><td><b>THEMIS {t('熱慣性', 'thermal inertia')}</b> <small>Mars Odyssey</small></td><td>{t('足元が砂か岩か（足場の係数）', 'Sand or rock under foot (footing factor)')}</td><td><span className="tag calc">{t('計算', 'Calc')}</span></td></tr>
+          <tr><td><b>TES {t('ダスト被覆指数', 'Dust Cover Index')}</b> <small>MGS</small></td><td>{t('ちりに覆われた所', 'Dust-mantled ground')}</td><td><span className="tag calc">{t('計算', 'Calc')}</span></td></tr>
+          <tr><td><b>HiRISE 25 cm {t('写真', 'image')}</b> <small>MRO</small></td><td>{t('砂の波紋・岩（チェックを入れたときだけ経路に入る）', 'Sand ripples and rocks (in the route only when ticked)')} <a href="#hirise">{t('レポート', 'Report')}</a></td><td><span className="tag calc">{t('計算', 'Calc')}</span></td></tr>
+          <tr><td><b>MEDA</b> <small>Mars 2020</small></td><td>{t('時刻ごとの気温と気圧（1 火星年）', 'Air temperature and pressure by hour (one Mars year)')}</td><td><span className="tag calc">{t('計算', 'Calc')}</span></td></tr>
+          <tr><td><b>Perseverance {t('走行記録', 'traverse')}</b> <small>NASA/JPL</small></td><td>{t('本物のローバーの道を、提案ルートの横に表示', 'The real rover path, shown next to our route')}</td><td><span className="tag calc">{t('比較', 'Compare')}</span></td></tr>
+          <tr><td><b>RAD</b> <small>Curiosity</small></td><td>{t('地表の放射線量（地球では再現できない差）', 'Surface radiation dose (the gap Earth cannot reproduce)')}</td><td><span className="tag calc">{t('計算', 'Calc')}</span></td></tr>
+          <tr><td><b>{t('船外活動の記録', 'EVA records')}</b> <small>data.nasa.gov</small></td><td>{t('実際の船外活動の長さ（歩く時間の目安）', 'Real spacewalk durations (reference for walk length)')}</td><td><span className="tag calc">{t('参考', 'Reference')}</span></td></tr>
+          <tr><td><b>{t('惑星地名辞典', 'Planetary Nomenclature')}</b> <small>IAU/USGS</small></td><td>{t('地名と着陸地点（行き先の候補）', 'Named places and landing sites (destinations)')}</td><td><span className="tag calc">{t('計算', 'Calc')}</span></td></tr>
+        </tbody></table></div>
+
+      <h3>{t('背景の地図（表示のみ・計算には使わない）', 'Background maps (display only, not used in calculations)')}</h3>
+      <p className="tag-list">
+        {['NASA GIBS (Blue Marble, ASTER GDEM)', 'Viking MDIM 2.1', 'THEMIS Day IR', 'CTX Global Mosaic', 'MOLA + HRSC (ESA/DLR)', 'Sentinel-2 cloudless (ESA/EOX)', t('国土地理院の地図', 'GSI Japan maps'), t('産総研 シームレス地質図', 'GSJ Seamless Geological Map')].map((n) => <span key={n} className="tag disp">{n}</span>)}
+      </p>
+      <p className="muted" id="src-colour">{t('地図の色: Jezero の HiRISE の画像は赤フィルターの単色（白黒）です。見やすさのために火星の色味を薄く着色しています（3D の写真も同じ）。全球の Viking モザイクも、少し明るく赤みを足して表示しています。数字には影響しません。', 'Map colours: the Jezero HiRISE images are single-colour (red filter, greyscale). A light Mars tint is added for readability (as in the 3D photo). The Viking globe mosaic is shown a little brighter and redder. No numbers are affected.')}</p>
+
+      <h3>{t('地球では再現できないもの', 'What Earth cannot match')}</h3>
+      <p>{t('重力（月 0.17 g・火星 0.38 g）、真空・薄い大気、宇宙の放射線。隠さずに「差」として表示しています。', 'Gravity (Moon 0.17 g, Mars 0.38 g), vacuum or thin air, and space radiation. The app shows these as gaps instead of hiding them.')}</p>
+
+      <h3>{t('歩く計算の式と係数', 'Formulas and coefficients of the walk')}</h3>
+      <div className="report-formulas">
           {footModel && (
             <p className="muted" id="ev-footing">{t(
               `足場: Mars Odyssey THEMIS の熱慣性（100 m）と MGS TES のダスト被覆指数から、歩く時間（＝酸素・冷却水）を何倍にするかを決めています。熱慣性 ${footModel.ti_loose} 以下は細かい砂・ちり（Presley & Christensen 1997）で ×${footModel.eta_loose}（砂の上を歩くと平らな硬い地面の 1.6〜2.5 倍のエネルギー、Lejeune ほか 1998 の下限）、${footModel.ti_firm} 以上は岩・固まった地面（Putzig & Mellon 2007）で ×${footModel.eta_firm}（未舗装路の地形係数、Soule & Goldman 1972）。その間は熱慣性の対数で直線的に補間（目安）。ダスト被覆指数 ${footModel.dci_dusty} 未満のちりに覆われた所は ×${footModel.dust_extra}（目安）。岩の多さは熱慣性に含まれます（1 km より細かい岩の量の地図はないため）。`,
@@ -47,6 +105,7 @@ export function SourcesView({ core }: { core: Core }) {
 
         <p id="src-terrain" className="muted">{t('データ: Mars 2020 Perseverance 走行記録（NASA/JPL MMGIS）、MRO HiRISE 画像と地形（NASA/UArizona, USGS）、MGS MOLA 地形、Mars Odyssey THEMIS、MRO CTX、data.nasa.gov 船外活動記録、NASADEM（北海道の地形、NASA/JPL）。北海道の航空写真は国土地理院（表示のみ）。', 'Data: Mars 2020 Perseverance traverse (NASA/JPL MMGIS), MRO HiRISE images and terrain (NASA/UArizona, USGS), MGS MOLA, Mars Odyssey THEMIS, MRO CTX, data.nasa.gov EVA records, NASADEM (Hokkaido terrain, NASA/JPL). Hokkaido aerial photos: GSI Japan (display only).')}{data?.dem?.src ? ` ${t('地形グリッド', 'Terrain grid')}: ${data.dem.src}` : ''}</p>
       </div>
-    </section>
+      <p className="muted"><a href="#walk">{t('← 火星で歩いて帰る に戻る', '← Back to Walk back on Mars')}</a></p>
+    </main>
   );
 }

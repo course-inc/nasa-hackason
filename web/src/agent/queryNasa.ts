@@ -5,7 +5,7 @@
 import type { Core } from '../core';
 import type { Row } from '../db';
 import { getLang } from '../i18n';
-import { marsDb, withTimeout } from './marsDb';
+import { marsDb, marsManifest, withTimeout } from './marsDb';
 import type { ToolDef, ToolResult } from './types';
 
 export const TABLES: Record<string, string> = {
@@ -86,6 +86,102 @@ export function makeQueryNasa(core: Core): ToolDef {
         (shown.length ? shown.join(' | ') : ja ? '該当なし' : 'none') + (rows.length > 20 ? (ja ? ` …ほか ${rows.length - 20} 行` : ` … and ${rows.length - 20} more`) : '');
       const sources = c.tables.map((t) => manifest.tables[t]?.source ?? (t === 'cells' ? SCAN_SOURCE : { label: t }));
       return { text, data: { rows, ms, tables: c.tables }, sql: c.sql, sources };
+    },
+  };
+}
+
+// ---- Data analysis helpers: what is in the tables, and quick column statistics ----
+
+const IDENT = /^[a-z_][a-z0-9_]*$/i;
+const tableSource = (manifest: { tables: Record<string, { source?: { label: string; url?: string } }> }, t: string) =>
+  manifest.tables[t]?.source ?? (t === 'cells' ? SCAN_SOURCE : { label: t });
+const known = (t: unknown): string => {
+  const name = String(t ?? '').trim().toLowerCase();
+  if (!(name in TABLES)) throw new Error(`unknown table ${name || '(none)'} (tables: ${Object.keys(TABLES).join(', ')})`);
+  return name;
+};
+
+/** Build the read-only statistics SQL for one column (identifiers checked by the caller). */
+export function summarySql(table: string, column: string, where?: string, groupBy?: string): string {
+  const c = `"${column}"`;
+  const g = groupBy ? `"${groupBy}"` : '';
+  const sel = [g && `${g} AS ${groupBy}`, 'count(*) AS n', `count(${c}) AS non_null`, `count(*) - count(${c}) AS missing`,
+    `min(${c}) AS min`, `max(${c}) AS max`, `avg(TRY_CAST(${c} AS DOUBLE)) AS mean`, `median(TRY_CAST(${c} AS DOUBLE)) AS median`,
+    `stddev_samp(TRY_CAST(${c} AS DOUBLE)) AS stddev`, `count(DISTINCT ${c}) AS distinct_values`].filter(Boolean).join(', ');
+  return `SELECT ${sel} FROM ${table}${where ? ` WHERE ${where}` : ''}${g ? ` GROUP BY ${g} ORDER BY ${g}` : ''}`;
+}
+
+export function makeListNasaTablesTool(core: Core): ToolDef {
+  return {
+    name: 'list_nasa_tables',
+    kind: 'compute',
+    description: 'List the NASA tables query_nasa / summarize_nasa can read: each table with its columns, row count and source (NASA dataset). Pass table to get that table in detail: column names and types plus 3 example rows. Use it first when unsure which table or column holds the data.',
+    parameters: { type: 'object', properties: { table: { type: 'string', description: `Optional: one table (${Object.keys(TABLES).join(', ')})` } } },
+    async run(a: { table?: string } = {}): Promise<ToolResult> {
+      const ja = getLang() === 'ja';
+      if (!a.table) {
+        const manifest = await marsManifest();
+        const lines = Object.entries(TABLES).map(([t, d]) => `${t}${manifest.tables[t] ? ` (${manifest.tables[t].rows} ${ja ? '行' : 'rows'})` : ''}: ${d}`);
+        return { text: (ja ? `表は ${lines.length} 個: ` : `${lines.length} tables: `) + lines.join(' | '),
+          data: { tables: Object.keys(TABLES) }, sources: Object.keys(TABLES).map((t) => tableSource(manifest, t)) };
+      }
+      const t = known(a.table);
+      const { db, manifest } = await marsDb(core, [t]);
+      const cols = await withTimeout(db.query(`DESCRIBE ${t}`), TIME_MS, 'describe');
+      const [{ n }] = await withTimeout(db.query(`SELECT count(*) AS n FROM ${t}`), TIME_MS, 'count');
+      const sample = await withTimeout(db.query(`SELECT * FROM ${t} LIMIT 3`), TIME_MS, 'sample');
+      const colText = cols.map((r) => `${r.column_name} ${r.column_type}`).join(', ');
+      const ex = sample.map((r) => Object.entries(r).map(([k, v]) => `${k}=${fmt(v)}`).join(', ')).join(' | ');
+      const note = manifest.tables[t]?.note;
+      return {
+        text: ja ? `${t}: ${n} 行。列: ${colText}。例: ${ex}${note ? `。注: ${note}` : ''}` : `${t}: ${n} rows. Columns: ${colText}. Examples: ${ex}${note ? `. Note: ${note}` : ''}`,
+        data: { table: t, rows: Number(n), columns: cols, sample }, sql: `DESCRIBE ${t}`, sources: [tableSource(manifest, t)],
+      };
+    },
+  };
+}
+
+export function makeSummarizeNasaTool(core: Core): ToolDef {
+  return {
+    name: 'summarize_nasa',
+    kind: 'compute',
+    description: 'Statistics of one column of a NASA table: count, missing, min, max, mean, median, standard deviation and distinct values, optionally filtered (where: a SQL condition) and per group (group_by: a column, at most 50 groups). Returns the SQL and sources. Use list_nasa_tables to see column names.',
+    parameters: {
+      type: 'object',
+      properties: {
+        table: { type: 'string', description: `One of: ${Object.keys(TABLES).join(', ')}` },
+        column: { type: 'string', description: 'Column to summarise' },
+        where: { type: 'string', description: "Optional SQL condition, e.g. \"sol <= 1000\" or \"country = 'US'\"" },
+        group_by: { type: 'string', description: 'Optional column to group by' },
+      },
+      required: ['table', 'column'],
+    },
+    async run(a: { table?: string; column?: string; where?: string; group_by?: string } = {}): Promise<ToolResult> {
+      const ja = getLang() === 'ja';
+      const t = known(a.table);
+      const column = String(a.column ?? '').trim();
+      const groupBy = a.group_by ? String(a.group_by).trim() : '';
+      const where = a.where ? String(a.where).trim() : '';
+      const { db, manifest } = await marsDb(core, [t]);
+      const names = (await withTimeout(db.query(`DESCRIBE ${t}`), TIME_MS, 'describe')).map((r) => String(r.column_name));
+      for (const c of [column, groupBy].filter(Boolean)) {
+        if (!IDENT.test(c) || !names.includes(c)) throw new Error(ja ? `${t} に列 ${c} はありません（列: ${names.join(', ')}）` : `${t} has no column ${c} (columns: ${names.join(', ')})`);
+      }
+      const sql = summarySql(t, column, where || undefined, groupBy || undefined);
+      const c = checkSql(sql);
+      if (!c.ok) throw new Error(ja ? `この条件は使えません: ${c.error}` : `This condition cannot be used: ${c.error}`);
+      let rows: Row[];
+      try {
+        rows = await withTimeout(db.query(`SELECT * FROM (${c.sql}) AS q LIMIT 51`), TIME_MS, 'query');
+      } catch (e) {
+        throw new Error(ja ? `SQL のエラー: ${e instanceof Error ? e.message : String(e)}` : `SQL error: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      if (rows.length > 50) throw new Error(ja ? 'グループが 50 を超えました。where で絞ってください。' : 'More than 50 groups. Narrow it with where.');
+      const line = (r: Row) => Object.entries(r).map(([k, v]) => `${k}=${fmt(v)}`).join(', ');
+      return {
+        text: `${t}.${column}${where ? ` (${where})` : ''}: ` + rows.map(line).join(' | '),
+        data: { rows }, sql: c.sql, sources: [tableSource(manifest, t)],
+      };
     },
   };
 }
