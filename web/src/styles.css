@@ -523,3 +523,9 @@ h1 small { font-size: 12px; margin-left: 6px; }
 .sources-body p.muted { color: var(--text, #e8edf5); opacity: .9; margin: 0 0 14px; }
 .sources-body h2 { margin: 6px 0 14px; }
 .sources-body a { color: var(--accent); }
+
+/* HiRISE map tiles are single-colour (red filter): a light Mars tint for readability, the same
+   idea as the 3D photo (display only; the sources page says so). */
+.leaflet-tile[src*="mars-hirise"], .leaflet-tile[src*="hirise_soc"], .leaflet-tile[src*="JEZ_hirise"] {
+  filter: sepia(0.85) saturate(2.1) hue-rotate(-28deg) brightness(0.98);
+}

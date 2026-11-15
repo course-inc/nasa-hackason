@@ -20,7 +20,7 @@ export const TABLES: Record<string, string> = {
   tests: 'Rehearsal tests: id, name_en, name_ja, season_en, season_ja',
   cells: 'Hokkaido 1 km cells (NASA terrain/climate/vegetation): k, lat, lon, elev_m, relief_m, slope_deg, slope_p90_deg, ndvi, urban, crop, forest, water, barren, tmin_jan_c, tmax_aug_c, precip_mm, screened',
 };
-const SCAN_SOURCE = { label: 'Hokkaido 1 km scan: NASADEM, NASA POWER, MODIS (analog-core scan)' };
+const SCAN_SOURCE = { label: 'Hokkaido 1 km scan: NASADEM, NASA POWER, MODIS' };
 export const MAX_ROWS = 200;
 export const TIME_MS = 8000;
 
@@ -84,7 +84,7 @@ export function makeQueryNasa(core: Core): ToolDef {
       const shown = rows.slice(0, 20).map((r) => cols.map((k) => `${k}=${fmt(r[k])}`).join(', '));
       const text = (ja ? `${rows.length} 行（${ms} ms）: ` : `${rows.length} rows (${ms} ms): `) +
         (shown.length ? shown.join(' | ') : ja ? '該当なし' : 'none') + (rows.length > 20 ? (ja ? ` …ほか ${rows.length - 20} 行` : ` … and ${rows.length - 20} more`) : '');
-      const sources = c.tables.map((t) => manifest.tables[t]?.source ?? (t === 'cells' ? SCAN_SOURCE : { label: `${t} (analog-core)` }));
+      const sources = c.tables.map((t) => manifest.tables[t]?.source ?? (t === 'cells' ? SCAN_SOURCE : { label: t }));
       return { text, data: { rows, ms, tables: c.tables }, sql: c.sql, sources };
     },
   };

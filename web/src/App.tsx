@@ -81,7 +81,7 @@ export function App() {
           <button className={lang === 'en' ? 'on' : ''} aria-pressed={lang === 'en'} onClick={() => setLang('en')}>English</button>
         </div>
       </header>
-      {error && <p className="warn" style={{ padding: 16 }}>{t('計算エンジン（Rust/WASM）を読み込めませんでした。新しいブラウザ（Chrome・Edge・Safari・Firefox の最新版）で開き直してください。', 'Could not load the calculation engine (Rust/WASM). Reopen the page in a current browser (latest Chrome, Edge, Safari or Firefox).')}<br /><small>{error}</small></p>}
+      {error && <p className="warn" style={{ padding: 16 }}>{t('計算の部分を読み込めませんでした。新しいブラウザ（Chrome・Edge・Safari・Firefox の最新版）で開き直してください。', 'Could not load the calculation part. Reopen the page in a current browser (latest Chrome, Edge, Safari or Firefox).')}<br /><small>{error}</small></p>}
       {!core && !error && <p className="muted boot">{t('計算エンジンと NASA データを読み込み中…', 'Loading the calculation engine and NASA data…')}</p>}
       {core && (
         <>
@@ -93,7 +93,10 @@ export function App() {
           {route.view === 'sources' && <div className="view-host"><SourcesView core={core} /></div>}
         </>
       )}
-      <footer>Data: NASA GIBS, NASA Solar System Treks (LRO LOLA/WAC/Diviner, MGS MOLA/TES, Viking, Mars Odyssey THEMIS), JAXA SELENE (Kaguya), ESA Mars Express HRSC, MRO CTX (Caltech), ESA Sentinel-2 cloudless (EOX), 国土地理院, 産総研 地質調査総合センター</footer>
+      {/* Credits for what the current screen shows: Mars only on the Mars screens. */}
+      {route.view === 'walk' || route.view === 'suit' || route.view === 'sources'
+        ? <footer>Data: NASA Solar System Treks (MRO HiRISE, MGS MOLA/TES, Viking MDIM 2.1, Mars Odyssey THEMIS), MRO CTX (Caltech), ESA Mars Express HRSC, NASA/JPL Mars 2020 (traverse, MEDA), Curiosity RAD, USGS Astrogeology, IAU/USGS Gazetteer, data.nasa.gov</footer>
+        : <footer>Data: NASA GIBS, NASA Solar System Treks (LRO LOLA/WAC/Diviner, MGS MOLA/TES, Viking, Mars Odyssey THEMIS), JAXA SELENE (Kaguya), ESA Mars Express HRSC, MRO CTX (Caltech), ESA Sentinel-2 cloudless (EOX), 国土地理院, 産総研 地質調査総合センター</footer>}
     </>
   );
 }
