@@ -130,7 +130,7 @@ const HELP: Record<Lang, string> = {
 
 export const rulesAgent: AgentPort = {
   id: 'rules',
-  get label() { return getLang() === 'ja' ? '規則版（AIなし）' : 'Rules (no AI)'; },
+  get label() { return 'QA'; },
   available: () => true,
   async ask(prompt, tools: ToolDef[], onEvent: (e: AgentEvent) => void, signal?: AbortSignal) {
     const lang = detectLang(prompt);

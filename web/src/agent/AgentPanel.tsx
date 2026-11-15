@@ -176,7 +176,7 @@ export function AgentPanel() {
         // No model reachable: say so and answer with the rules version.
         agent = getAgent('rules')!;
         console.warn('agent fallback', e.message);
-        patchLast((it) => ({ ...it, agent: 'rules', note: t('AI に接続できないため、規則版（AIなし）で答えます', 'The AI is not reachable, so the rules version (no AI) answers') }));
+        patchLast((it) => ({ ...it, agent: 'rules', note: t('AI に接続できないため、QA で答えます', 'The AI is not reachable, so QA answers') }));
         await agent.ask(prompt, getTools(), onEvent, ctl.signal);
       }
       // (Model names are not shown on screen.)
