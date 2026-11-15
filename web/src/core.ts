@@ -40,6 +40,8 @@ export interface EvaParams {
   start_h?: number;
   /** Walk home along the route reversed instead of in a straight line. */
   retrace?: boolean;
+  /** Hours of work at the destination, at the nominal O₂ / water rate (estimate). */
+  work_h?: number;
 }
 /** Route-planner weights (grid.rs RouteWeights): penalties added to the walking time of a step. */
 export interface RouteWeights { time?: number; slope?: number; footing?: number; margin?: number; distance?: boolean }
@@ -51,7 +53,7 @@ export interface FootingModel { ti_loose: number; ti_firm: number; eta_loose: nu
 export interface Leg { km: number; slope_deg: number; hours: number; effort_h: number; known: boolean }
 export interface Tick { idx: number; t_h: number; km: number; o2_left: number; water_left: number; home_h: number; margin_h: number }
 export interface RouteEval {
-  out_km: number; out_h: number; back_km: number; back_h: number; total_h: number;
+  out_km: number; out_h: number; back_km: number; back_h: number; total_h: number; work_h?: number;
   total_effort_h: number; usable_h: number; usable_o2_h: number; usable_water_h: number;
   limiting: 'o2' | 'water';
   limit_km: number; max_slope_deg: number; unknown_segments: number;

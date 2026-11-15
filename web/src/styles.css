@@ -676,3 +676,9 @@ header { background: rgba(11,15,25,.72); border-bottom-color: var(--glass-line);
   background: #e8692c; color: #fff; border: 1px solid #ff8a4d; box-shadow: 0 2px 10px rgba(232,105,44,.35); text-align: left; }
 .goal-cta:hover { background: #f2783a; }
 .goal-cta.on { background: #1d2433; color: #ffb37a; border-color: #e8692c; box-shadow: none; }
+
+/* Phones: keep the "other views" button on one line and open its menu leftwards */
+@media (max-width: 600px) {
+  .other-views > button { white-space: nowrap; max-width: 118px; overflow: hidden; text-overflow: ellipsis; padding: 6px 8px; }
+  .other-views-menu { left: auto; right: 0; }
+}
