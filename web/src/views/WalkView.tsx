@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Core, Waypoint, World } from '../core';
 import { getElevation } from '../elevation';
 import { PlanetMap, missionOverlay, type Feature, type FlyTarget } from '../map/PlanetMap';
-import { JEZERO, LANDING, ensureFooting, exampleRoute, loadWalkData, type WalkData } from '../walk/data';
+import { JEZERO, LANDING, ensureFooting, exampleRoute, loadWalkData, setSurfaceOn, type WalkData } from '../walk/data';
 import { fmtH, footingImage, reachImage, slopeColor } from '../walk/geo';
 import { DEFAULT_START, WALKBACK_COLOR, WATER_PER_O2, WORLD, waterFactor, denseRoute, easyLeg, steepLeg, MAX_SLOPE, evaluateRouteMaterial, evaParams, planRoute, routeMetrics, type RouteMetrics, evaluate, reachFrom, rehearsalPoints, roverCheck, roverWalkbackSql, turnIndex, turnWaypoint, walkbackState } from '../walk/plan';
 import { setWalkController, type EvidenceTopic } from '../walk/controller';
@@ -72,6 +72,9 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const [showRover, setShowRover] = useState(true);
   // Footing (THEMIS thermal inertia, TES dust): counted in every walk number; layer off by default.
   const [footOn, setFootOn] = useState(true);
+  // Sand ripples / rocky ground judged from HiRISE images (report page #hirise); off by default.
+  const [surfOn, setSurfOn] = useState(false);
+  setSurfaceOn(surfOn);
   // Departure, local solar hour at Jezero: MEDA air temperature over the walk sets the cooling water.
   const [start, setStart] = useState(DEFAULT_START);
   const [showFoot, setShowFoot] = useState(false);
@@ -98,7 +101,8 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   }, [params.lat, params.lon, params.z]);
 
   // Same functions as the agent tools (walk/plan.ts), so both always show the same numbers.
-  const p = useMemo(() => evaParams({ speed, o2, water, reserve, footing: footOn, start }), [speed, o2, water, reserve, footOn, start]);
+  // surfOn is read by ensureFooting (walk/data.ts); it is in the deps so every number recomputes.
+  const p = useMemo(() => evaParams({ speed, o2, water, reserve, footing: footOn, start }), [speed, o2, water, reserve, footOn, start, surfOn]); // eslint-disable-line react-hooks/exhaustive-deps
   const dense = useMemo(() => denseRoute(core, data, route), [core, data, route]);
   const ev = useMemo(() => evaluate(core, dense, p), [core, dense, p]);
   // The same route on firm ground, to show how much time the footing adds.
@@ -123,7 +127,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
     const img = footingImage(core.footingBadness(JEZERO), data.dem);
     ensureFooting(core, footOn);
     return img;
-  }, [core, data, showFoot]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [core, data, showFoot, surfOn]); // eslint-disable-line react-hooks/exhaustive-deps
   const check = useMemo(() => roverCheck(core, data, dense), [core, data, dense]);
   const longer = useMemo(() => (data?.eva ? core.evaLongerShare(ev.total_h) : 0), [core, data, ev.total_h]);
 
@@ -531,6 +535,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
               <label key={k} className="wt">{label} <b>{weights[k]}</b>
                 <input id={`w-${k}`} type="range" min={0} max={3} step={0.5} value={weights[k]} onChange={(e) => setWeights((w) => ({ ...w, [k]: +e.target.value }))} /></label>
             ))}
+            <label className="check" id="surface-toggle"><input type="checkbox" checked={surfOn} onChange={(e) => setSurfOn(e.target.checked)} /> {t('砂の波紋・岩（HiRISE写真から判定）を避ける', 'Avoid sand ripples and rocks (judged from HiRISE images)')} <a href="#hirise">{t('レポート', 'Report')}</a></label>
             <label className="wt">{t('気温（出発時刻、火星の地方時）', 'Air temperature (departure, Mars local time)')} <b>{String(Math.floor(start)).padStart(2, '0')}:{start % 1 ? '30' : '00'}</b>
               <input id="w-start" type="range" min={5} max={19} step={0.5} value={start} onChange={(e) => setStart(+e.target.value)} /></label>
             <label className="wt">{t('速さ優先 ⇄ 安全優先', 'Speed first ⇄ safety first')} <b>{weights.safety}</b>
@@ -630,6 +635,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           {wx && <div className="kv sub" id="wx-water"><span>{t('冷却水の減り方（気温による・目安）', 'Cooling water use (air temperature, estimate)')}</span><b>×{wx.f.toFixed(2)}</b></div>}
           <p className="muted"><a href="#sources" id="sources-link">{t('根拠', 'Sources')}</a></p>
           <label className="check" id="foot-toggle"><input type="checkbox" checked={footOn} onChange={(e) => setFootOn(e.target.checked)} /> {t('足場（地面のやわらかさ）を計算に入れる', 'Count the footing (how loose the ground is)')}</label>
+          <label className="check" id="surface-toggle2"><input type="checkbox" checked={surfOn} onChange={(e) => setSurfOn(e.target.checked)} /> {t('砂の波紋・岩（HiRISE写真から判定）を計算に入れる', 'Count sand ripples and rocks (judged from HiRISE images)')}</label>
         </details>
 
         <WalkImportCard rec={walkRec} error={walkErr} busy={walkBusy} onFile={onDropFile}

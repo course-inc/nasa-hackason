@@ -12,11 +12,43 @@ export interface HokkaidoSite { id: string; name: string; lat: number; lon: numb
 export interface Footing { rows: number; cols: number; ti: (number | null)[]; dci: (number | null)[]; src: string }
 /** The footing JSON as text, handed to the Rust core when the footing is switched on. */
 export let footingText = '';
-let footingSet: boolean | null = null;
-/** Count the footing in the Rust core's Jezero grid or not (only calls into WASM on a change). */
+let footingSet: string | null = null;
+/**
+ * Sand ripples and rocky ground judged from HiRISE images (jezero_surface.json, built from the
+ * HiRISE orthomosaic tiles): ripple / rocky share per Jezero grid cell, in percent, for a window of
+ * the grid. Off by default; the route-search checkbox switches it on for every walk number.
+ */
+export interface Surface { rows: number; cols: number; r0: number; c0: number; h: number; w: number;
+  ripple: number[]; rocky: number[]; ripple_factor: number; rocky_factor: number; src: string }
+export let surface: Surface | null = null;
+let surfaceOn = false;
+let surfaceFactors: (number | null)[] | null = null;
+/** Count the HiRISE ripples / rocks in the walk numbers or not (takes effect at the next computation). */
+export function setSurfaceOn(on: boolean) { surfaceOn = on; }
+export const isSurfaceOn = () => surfaceOn;
+/** Extra walking factor per full grid cell: 1 + (ripple_factor − 1)·ripple share + (rocky_factor − 1)·rocky share. */
+function surfaceGrid(s: Surface): (number | null)[] {
+  if (surfaceFactors) return surfaceFactors;
+  const out: (number | null)[] = new Array(s.rows * s.cols).fill(null);
+  for (let r = 0; r < s.h; r++) for (let c = 0; c < s.w; c++) {
+    const k = r * s.w + c;
+    out[(s.r0 + r) * s.cols + s.c0 + c] = 1 + (s.ripple_factor - 1) * s.ripple[k] / 100 + (s.rocky_factor - 1) * s.rocky[k] / 100;
+  }
+  return (surfaceFactors = out);
+}
+/** Count the footing (and, when switched on, the HiRISE surface) in the Rust core's Jezero grid (only calls into WASM on a change). */
 export function ensureFooting(core: Core, on: boolean) {
-  if (!footingText || footingSet === on) return;
-  try { core.setFooting(JEZERO, on ? footingText : ''); footingSet = on; } catch (e) { console.warn('footing', e); }
+  const surf = surfaceOn && !!surface;
+  const key = `${on && !!footingText}|${surf}`;
+  if (footingSet === key) return;
+  try {
+    let text = on ? footingText : '';
+    if (surf && surface) {
+      const base = text ? JSON.parse(text) : { rows: surface.rows, cols: surface.cols };
+      text = JSON.stringify({ ...base, surface: surfaceGrid(surface) });
+    }
+    core.setFooting(JEZERO, text); footingSet = key;
+  } catch (e) { console.warn('footing', e); }
 }
 
 /** Elevation grid as stored in web/public/data (north-up, cell centres, metres or null). */
@@ -64,6 +96,8 @@ export function loadWalkData(core: Core): Promise<WalkData> {
         .catch((e) => (console.warn('weather', e), d.errors.push('weather'))),
       get('./data/jezero_footing.json').then((t) => { footingText = t; d.footing = JSON.parse(t); })
         .catch((e) => (console.warn('footing', e), d.errors.push('footing'))),
+      get('./data/jezero_surface.json').then((t) => { surface = JSON.parse(t); })
+        .catch((e) => (console.warn('surface', e), d.errors.push('surface'))),
       get('./data/m20_traverse.json').then((t) => {
         d.rover = core.setTraverse(t);
         const j = JSON.parse(t) as { drives: { sol: number; c: [number, number, number][] }[] };
