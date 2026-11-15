@@ -25,7 +25,7 @@ const T = {
     gapsNote: 'Red = matters for this test. Rehearse procedures here; true conditions need a vacuum chamber, offloading rig or parabolic flight.',
     season: 'Best season', seasonNote: '(rule of thumb; monthly satellite data is the next step)',
     similar: 'Most similar', different: 'Least similar',
-    walk: '🥾 Practice walk here', plan: 'Plan the route there',
+    walk: '🥾 Walk-back practice on Mars', plan: 'Plan the route there',
     src: 'Target values', approx: ' (representative values)',
     moon: 'Moon', mars: 'Mars', earthLabel: 'Earth · Hokkaido', control: 'control',
     modeSites: '14 known sites', modeScan: 'Scan all of Hokkaido (1 km)',
@@ -41,7 +41,7 @@ const T = {
     gapsNote: '赤はこの試験で効くもの。北海道では手順の練習まで、本番の条件は真空チャンバー・吊り下げ装置・放物線飛行で。',
     season: 'おすすめの時期', seasonNote: '（目安。月別の衛星データは次の段で）',
     similar: '似ている点', different: '違う点',
-    walk: '🥾 ここで歩く練習', plan: '現地のルートを計画',
+    walk: '🥾 火星で歩いて帰る練習', plan: '現地のルートを計画',
     src: '天体側の値', approx: '（代表値）',
     moon: '月', mars: '火星', earthLabel: '地球 北海道', control: '対照',
     modeSites: '人が選んだ14地点', modeScan: '北海道全体をスキャン（1km）',
@@ -287,8 +287,8 @@ export function TargetView({ core, params }: { core: Core; params: TargetParams 
         )}
 
         <div className="btns">
-          <a className="btn" href={`#walk/earth/${curSite.lat}/${curSite.lon}/14`}>{t.walk}</a>
-          <a className="btn" href={`#walk/${body.world}/${body.lat}/${body.lon}/${body.world === 'mars' ? 9 : 10}`}>{core.world(body.world).icon} {t.plan}</a>
+          <a className="btn" href="#walk">{t.walk}</a>
+          <a className="btn" href={body.id === 'jezero' ? `#walk/mars/${body.lat}/${body.lon}/9` : '#walk'}>{core.world(body.world).icon} {t.plan}</a>
         </div>
         <p className="muted">{t.src}: {body.src}{body.approx ? t.approx : ''}</p>
       </aside>

@@ -358,7 +358,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
       },
       runRehearsal: (pts) => { setRehOpen(true); setRehSel(0); return live$.current.startRehearsalWith(pts); },
       selectRehearsal: (i) => { setRehOpen(true); setRehSel(i); },
-      set3d: setView3d,
+      set3d: (on) => { setGlobeOn(false); setView3d(on); },
       setCamera: (c) => {
         if (c.exaggeration != null) setExag(c.exaggeration);
         if ([c.lat, c.lon, c.distance_m, c.heading_deg, c.tilt_deg].some((x) => x != null)) {
@@ -398,7 +398,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const routePreview = (pts: Waypoint[]): Preview | null => {
     if (!data || pts.length < 2) return null;
     const e = evaluate(core, denseRoute(core, data, pts), p);
-    return { ok: e.ok, out_km: e.out_km, total_h: e.total_h, o2_left: e.ticks.at(-1)?.o2_left ?? null };
+    return { ok: e.ok, out_km: e.out_km, total_h: e.total_h, o2_left: e.usable_o2_h > 0 ? 1 - e.total_effort_h / e.usable_o2_h : 0 };
   };
 
   // ---- map features ----
@@ -602,7 +602,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
             </tbody></table>
             <h5>{t('出発時刻ごと（気温: Perseverance MEDA）', 'By departure (air: Perseverance MEDA)')}</h5>
             <table className="cmp" id="eval-departure"><thead><tr><th>{t('出発', 'Start')}</th><th>{t('気温', 'Air')}</th><th>{t('冷却水', 'Water')}</th><th>{t('帰着時 O₂', 'O₂ left')}</th><th>{t('冷却水の残り', 'Water left')}</th></tr></thead><tbody>
-              {evalMat.by_departure.map((d) => <tr key={d.start_h}><th>{d.start_h}:00</th><td>{d.temp_c != null ? `${d.temp_c.toFixed(0)} °C` : '—'}</td><td>×{d.water_factor.toFixed(2)}</td><td>{Math.round(d.o2_left * 100)}%</td><td>{Math.round(d.water_left * 100)}%</td></tr>)}
+              {evalMat.by_departure.map((d) => <tr key={d.start_h}><th>{d.start_h}:00</th><td>{d.temp_c != null ? `${d.temp_c.toFixed(0)} °C` : '—'}</td><td>×{d.water_factor.toFixed(2)}</td><td>{Math.round(Math.max(0, d.o2_left) * 100)}%</td><td>{Math.round(Math.max(0, d.water_left) * 100)}%</td></tr>)}
             </tbody></table>
             <h5>{t('区間ごと（断面グラフと同じ区切り）', 'By segment (same cuts as the profile)')}</h5>
             <table className="cmp" id="eval-segments"><thead><tr><th>{t('区間', 'Leg')}</th><th>km</th><th>{t('時間', 'Time')}</th><th>{t('登り/下り', 'Up/down')}</th><th>{t('最大の坂', 'Max')}</th><th>{t('足場', 'Footing')}</th></tr></thead><tbody>

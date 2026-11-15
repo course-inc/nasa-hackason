@@ -30,7 +30,8 @@ export function AnalogsView({ core }: { core: Core }) {
     setEarthId(id);
     setEarthFly({ lat: e.lat, lon: e.lon, z: 13, seq: Date.now() });
     const r = rankings.find((x) => x.earth_id === id)!;
-    selectBody(r.ranks[0].body_id);
+    const rk = r.ranks.find((x) => body(x.body_id).world === bodyWorld) ?? r.ranks[0];
+    selectBody(rk.body_id);
   };
 
   // The Moon/Mars tab switches the whole comparison, not just the map: pick this site's best
@@ -46,6 +47,11 @@ export function AnalogsView({ core }: { core: Core }) {
   const curE = earthId ? site(earthId) : undefined;
   const curB = bodyId ? body(bodyId) : undefined;
   const pair = cur && curB ? cur.ranks.find((p) => p.body_id === curB.id) : undefined;
+  const effScore = (r: (typeof rankings)[number]) => {
+    const rk = r.ranks.find((x) => body(x.body_id).world === bodyWorld) ?? r.ranks[0];
+    return rk.excluded ? -1 : rk.total;
+  };
+  const ordered = [...rankings].sort((a, b) => effScore(b) - effScore(a));
 
   return (
     <section className="view">
@@ -56,8 +62,8 @@ export function AnalogsView({ core }: { core: Core }) {
           </select>
         </label>
         <ol id="site-list">
-          {rankings.map((r) => {
-            const e = site(r.earth_id), best = r.ranks[0], b = body(best.body_id);
+          {ordered.map((r) => {
+            const e = site(r.earth_id), best = r.ranks.find((x) => body(x.body_id).world === bodyWorld) ?? r.ranks[0], b = body(best.body_id);
             return (
               <li key={e.id} onClick={() => selectEarth(e.id)}
                 className={`${e.id === earthId ? 'active' : ''} ${e.id === CONTROL_ID ? 'control' : ''}`}>
@@ -77,7 +83,7 @@ export function AnalogsView({ core }: { core: Core }) {
               <p className="muted">{curE.lithology_ja ?? ''}{curE.age_ja ? `（${curE.age_ja}）` : ''}<br />
                 標高 {curE.elev_m ?? '–'} m・起伏 {curE.relief_m ?? '–'} m（半径1km）</p>
               <div className="chips">
-                {cur.ranks.slice(0, 3).map((x) => {
+                {cur.ranks.filter((x) => body(x.body_id).world === curB.world).slice(0, 3).map((x) => {
                   const b = body(x.body_id);
                   return (
                     <button key={b.id} className={`chip ${b.id === curB.id ? 'on' : ''}`} onClick={() => selectBody(b.id)}>
@@ -101,8 +107,8 @@ export function AnalogsView({ core }: { core: Core }) {
               <Similarity dims={pair.dims} />
               <p className="warn">地球では再現できない: 低重力（{core.world(curB.world).gravity} m/s²）・真空・宇宙放射線{curB.world === 'mars' ? '・CO₂の薄い大気' : ''}</p>
               <div className="btns">
-                <a className="btn" href={`#walk/earth/${curE.lat}/${curE.lon}/14`}>🥾 北海道で歩く練習</a>
-                <a className="btn" href={`#walk/${curB.world}/${curB.lat}/${curB.lon}/${curB.world === 'mars' ? 9 : 10}`}>{core.world(curB.world).icon} 現地ルート計画</a>
+                <a className="btn" href="#walk">🥾 火星で歩いて帰る練習</a>
+                <a className="btn" href={curB.id === 'jezero' ? `#walk/mars/${curB.lat}/${curB.lon}/9` : '#walk'}>{core.world(curB.world).icon} 現地ルート計画</a>
               </div>
               <p className="muted">{curB.kind}。天体側の値: {curB.src}{curB.approx ? '（代表値）' : ''}</p>
             </>
@@ -117,7 +123,7 @@ export function AnalogsView({ core }: { core: Core }) {
           }))}>
           <div className="maplabel">地球 Hokkaido</div>
         </PlanetMap>
-        <PlanetMap core={core} world={bodyWorld} view={bodyWorld === 'mars' ? [20, 0, 1] : [0, 0, 1]} fly={bodyFly}
+        <PlanetMap core={core} world={bodyWorld} view={[0, 0, 2]} fly={bodyFly}
           overlays={missionOverlay(core, bodyWorld)}
           features={core.bodies.filter((b) => b.world === bodyWorld).map((b) => ({
             kind: 'point', lat: b.lat, lon: b.lon, radius: b.id === bodyId ? 9 : 7, tooltip: b.ja,
