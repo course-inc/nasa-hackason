@@ -66,6 +66,11 @@ export function planTraceCost(): Float32Array;
 export function planTraceOrder(): Uint32Array;
 
 /**
+ * Side of each settled cell: 0 = searched from the base, 1 = from the destination.
+ */
+export function planTraceSide(): Uint8Array;
+
+/**
  * Radiation dose for `hours` on the surface (Curiosity RAD rate, NASA limits): {dose_msv,
  * career_share, hours_to_career_limit}.
  */
@@ -230,6 +235,7 @@ export interface InitOutput {
     readonly planRoute: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number) => [number, number, number, number];
     readonly planTraceCost: () => [number, number];
     readonly planTraceOrder: () => [number, number];
+    readonly planTraceSide: () => [number, number];
     readonly radiationExposure: (a: number) => [number, number];
     readonly radiationModel: () => [number, number];
     readonly rankAll: (a: number, b: number) => [number, number, number, number];
