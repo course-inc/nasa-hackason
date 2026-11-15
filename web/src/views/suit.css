@@ -108,3 +108,6 @@
 @keyframes suit-card { 0% { opacity: 0; transform: translateY(-6px); } 6% { opacity: 1; transform: none; } 85% { opacity: 1; } 100% { opacity: 0; } }
 .suit-controls .suit-obstacle { border-color: rgba(255, 90, 90, .8); color: #ffd6d6; }
 .suit-controls .suit-obstacle:disabled { opacity: .5; }
+/* Mini-map in the bottom-left corner (the notices and the question panel use the right side). */
+.suit-map2d { right: auto; left: 12px; }
+@media (max-height: 760px) and (min-width: 821px) { .suit-map2d { width: 240px; height: 170px; } }
