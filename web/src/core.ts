@@ -41,6 +41,9 @@ export interface EvaParams {
 }
 /** Route-planner weights (grid.rs RouteWeights): penalties added to the walking time of a step. */
 export interface RouteWeights { time?: number; slope?: number; footing?: number; margin?: number; distance?: boolean }
+/** Side of each cell in the last planTrace(): 0 = searched from the base, 1 = from the destination. */
+let lastSide: Uint8Array = new Uint8Array();
+export const lastPlanSide = () => lastSide;
 export interface PlannedRoute { path: [number, number][]; status: 'ok' | 'outside_grid' | 'outside_reach' | 'no_path'; goal_ratio: number | null }
 export interface FootingModel { ti_loose: number; ti_firm: number; eta_loose: number; eta_firm: number; dci_dusty: number; dust_extra: number }
 export interface Leg { km: number; slope_deg: number; hours: number; effort_h: number; known: boolean }
@@ -198,7 +201,7 @@ export function loadCore(): Promise<Core> {
       footingModel: () => JSON.parse(wasm.footingModel()),
       radiationExposure: (h) => JSON.parse(wasm.radiationExposure(h)),
       setWeather: (j) => wasm.setWeather(j),
-      planTrace: () => ({ order: wasm.planTraceOrder(), cost: wasm.planTraceCost() }),
+      planTrace: () => { lastSide = wasm.planTraceSide(); return { order: wasm.planTraceOrder(), cost: wasm.planTraceCost() }; },
       planRoute: (world, grid, a, b, p, max, w) => JSON.parse(wasm.planRoute(world, grid, a[0], a[1], b[0], b[1], JSON.stringify(p), max, w ? JSON.stringify(w) : '')),
       weatherWalk: (a, h) => JSON.parse(wasm.weatherWalk(a, h)),
       weatherModel: () => JSON.parse(wasm.weatherModel()),

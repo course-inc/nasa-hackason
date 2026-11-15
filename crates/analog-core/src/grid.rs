@@ -545,6 +545,12 @@ pub struct PlannedRoute {
     pub settled: Vec<u32>,
     #[serde(skip)]
     pub settled_cost: Vec<f32>,
+    /// 0 = settled from the base, 1 = from the destination (bidirectional search).
+    #[serde(skip)]
+    pub settled_side: Vec<u8>,
+    /// Cost of the cell path before string-pulling (comparison tests).
+    #[serde(skip)]
+    pub path_cost: f64,
 }
 
 /// Plan a walk from the base to a destination: Dijkstra over the cells of the walk-home area only
@@ -560,12 +566,29 @@ pub fn plan_route(
     max_slope_deg: f64,
     w: &RouteWeights,
 ) -> PlannedRoute {
+    plan_route_with(world, g, from, to, p, max_slope_deg, w, true)
+}
+
+/// plan_route with the search chosen: bidirectional (default) or one-sided from the base.
+#[allow(clippy::too_many_arguments)]
+pub fn plan_route_with(
+    world: World,
+    g: &Grid,
+    from: (f64, f64),
+    to: (f64, f64),
+    p: &EvaParams,
+    max_slope_deg: f64,
+    w: &RouteWeights,
+    bidirectional: bool,
+) -> PlannedRoute {
     let none = |status, goal_ratio| PlannedRoute {
         path: Vec::new(),
         status,
         goal_ratio,
         settled: Vec::new(),
         settled_cost: Vec::new(),
+        settled_side: Vec::new(),
+        path_cost: f64::INFINITY,
     };
     if g.rows == 0 || !g.contains(from.0, from.1) || !g.contains(to.0, to.1) {
         return none("outside_grid", None);
@@ -605,11 +628,6 @@ pub fn plan_route(
         Some(t * foot * pen)
     };
     let n = g.rows * g.cols;
-    let mut best = vec![f64::INFINITY; n];
-    let mut prev = vec![usize::MAX; n];
-    let mut heap = BinaryHeap::new();
-    best[a] = 0.0;
-    heap.push(Node(0.0, a));
     let dirs: [(i64, i64); 8] = [
         (-1, 0),
         (1, 0),
@@ -620,51 +638,175 @@ pub fn plan_route(
         (1, -1),
         (1, 1),
     ];
-    let (mut settled, mut settled_cost) = (Vec::new(), Vec::new());
-    while let Some(Node(c, i)) = heap.pop() {
-        if c > best[i] {
-            continue;
-        }
-        settled.push(i as u32);
-        settled_cost.push(c as f32);
-        if i == b {
-            break;
-        }
-        let (r, cc) = ((i / g.cols) as i64, (i % g.cols) as i64);
-        for (ddr, ddc) in dirs {
-            let (nr, nc) = (r + ddr, cc + ddc);
-            if nr < 0 || nc < 0 || nr >= g.rows as i64 || nc >= g.cols as i64 {
+    let neighbours = |i: usize| {
+        let (r, c) = ((i / g.cols) as i64, (i % g.cols) as i64);
+        dirs.iter().filter_map(move |&(ddr, ddc)| {
+            let (nr, nc) = (r + ddr, c + ddc);
+            (nr >= 0 && nc >= 0 && nr < g.rows as i64 && nc < g.cols as i64).then(|| {
+                let dist = ((ddr as f64 * dy).powi(2) + (ddc as f64 * dx).powi(2)).sqrt();
+                (nr as usize * g.cols + nc as usize, dist)
+            })
+        })
+    };
+    let (mut settled, mut settled_cost, mut settled_side) = (Vec::new(), Vec::new(), Vec::new());
+    let cells: Vec<usize> = if !bidirectional {
+        // One-sided Dijkstra from the base.
+        let mut best = vec![f64::INFINITY; n];
+        let mut prev = vec![usize::MAX; n];
+        let mut heap = BinaryHeap::new();
+        best[a] = 0.0;
+        heap.push(Node(0.0, a));
+        while let Some(Node(c, i)) = heap.pop() {
+            if c > best[i] {
                 continue;
             }
-            let j = nr as usize * g.cols + nc as usize;
-            let dist = ((ddr as f64 * dy).powi(2) + (ddc as f64 * dx).powi(2)).sqrt();
-            if let Some(s) = cost(i, j, dist) {
-                if c + s < best[j] {
-                    best[j] = c + s;
-                    prev[j] = i;
-                    heap.push(Node(c + s, j));
+            settled.push(i as u32);
+            settled_cost.push(c as f32);
+            settled_side.push(0u8);
+            if i == b {
+                break;
+            }
+            for (j, dist) in neighbours(i) {
+                if let Some(s) = cost(i, j, dist) {
+                    if c + s < best[j] {
+                        best[j] = c + s;
+                        prev[j] = i;
+                        heap.push(Node(c + s, j));
+                    }
                 }
             }
         }
-    }
-    if !best[b].is_finite() {
+        if !best[b].is_finite() {
+            Vec::new()
+        } else {
+            let mut cells = vec![b];
+            while let Some(&i) = cells.last() {
+                if i == a {
+                    break;
+                }
+                cells.push(prev[i]);
+            }
+            cells.reverse();
+            cells
+        }
+    } else if a == b {
+        vec![a]
+    } else {
+        // Bidirectional Dijkstra: from the base with the step costs, from the destination with the
+        // reversed steps (walking v → u costs cost(v, u): uphill and downhill differ), both only
+        // through cells of the walk-home area. Stop once the two frontiers' minima add up to at
+        // least the best meeting found (then that meeting is optimal).
+        let mut df = vec![f64::INFINITY; n];
+        let mut db = vec![f64::INFINITY; n];
+        let (mut pf, mut pb) = (vec![usize::MAX; n], vec![usize::MAX; n]);
+        let (mut hf, mut hb) = (BinaryHeap::new(), BinaryHeap::new());
+        df[a] = 0.0;
+        db[b] = 0.0;
+        hf.push(Node(0.0, a));
+        hb.push(Node(0.0, b));
+        let (mut mu, mut meet) = (f64::INFINITY, (usize::MAX, usize::MAX));
+        let allowed = |i: usize| i == a || ratio(i).is_some_and(|r| r <= 1.0);
+        loop {
+            let tf = hf.peek().map_or(f64::INFINITY, |x: &Node| x.0);
+            let tb = hb.peek().map_or(f64::INFINITY, |x: &Node| x.0);
+            if (tf.is_infinite() && tb.is_infinite()) || tf + tb >= mu {
+                break;
+            }
+            if tf <= tb {
+                let Node(c, i) = hf.pop().unwrap();
+                if c > df[i] {
+                    continue;
+                }
+                settled.push(i as u32);
+                settled_cost.push(c as f32);
+                settled_side.push(0);
+                for (j, dist) in neighbours(i) {
+                    if let Some(s) = cost(i, j, dist) {
+                        if c + s < df[j] {
+                            df[j] = c + s;
+                            pf[j] = i;
+                            hf.push(Node(c + s, j));
+                        }
+                        if db[j].is_finite() && c + s + db[j] < mu {
+                            mu = c + s + db[j];
+                            meet = (i, j);
+                        }
+                    }
+                }
+            } else {
+                let Node(c, u) = hb.pop().unwrap();
+                if c > db[u] {
+                    continue;
+                }
+                settled.push(u as u32);
+                settled_cost.push(c as f32);
+                settled_side.push(1);
+                for (v, dist) in neighbours(u) {
+                    if !allowed(v) {
+                        continue;
+                    }
+                    if let Some(s) = cost(v, u, dist) {
+                        if c + s < db[v] {
+                            db[v] = c + s;
+                            pb[v] = u;
+                            hb.push(Node(c + s, v));
+                        }
+                        if df[v].is_finite() && df[v] + s + c < mu {
+                            mu = df[v] + s + c;
+                            meet = (v, u);
+                        }
+                    }
+                }
+            }
+        }
+        if !mu.is_finite() {
+            Vec::new()
+        } else {
+            let (x, y) = meet;
+            let mut head = vec![x];
+            while let Some(&i) = head.last() {
+                if i == a {
+                    break;
+                }
+                head.push(pf[i]);
+            }
+            head.reverse();
+            let mut tail = vec![y];
+            while let Some(&i) = tail.last() {
+                if i == b {
+                    break;
+                }
+                tail.push(pb[i]);
+            }
+            head.extend(tail);
+            head
+        }
+    };
+    if cells.is_empty() {
         return PlannedRoute {
             settled,
             settled_cost,
+            settled_side,
             ..none("no_path", goal_ratio)
         };
     }
-    let mut cells = vec![b];
-    while let Some(&i) = cells.last() {
-        if i == a {
-            break;
-        }
-        cells.push(prev[i]);
+    // Cost from the base along the path (for the string-pull below and the comparison tests).
+    let step_dist = |i: usize, j: usize| {
+        let (dr, dc) = (
+            (j / g.cols) as f64 - (i / g.cols) as f64,
+            (j % g.cols) as f64 - (i % g.cols) as f64,
+        );
+        ((dr * dy).powi(2) + (dc * dx).powi(2)).sqrt()
+    };
+    let mut acc = vec![0.0];
+    for k in 1..cells.len() {
+        let s = cost(cells[k - 1], cells[k], step_dist(cells[k - 1], cells[k]))
+            .unwrap_or(f64::INFINITY);
+        acc.push(acc[k - 1] + s);
     }
-    cells.reverse();
+    let path_cost = *acc.last().unwrap();
     let ll = |i: usize| (g.lat((i / g.cols) as f64), g.lon((i % g.cols) as f64));
     let mut pts: Vec<(f64, f64)> = cells.iter().map(|&i| ll(i)).collect();
-    let acc: Vec<f64> = cells.iter().map(|&i| best[i]).collect();
     pts[0] = from;
     if pts.len() > 1 {
         *pts.last_mut().unwrap() = to;
@@ -712,6 +854,8 @@ pub fn plan_route(
         goal_ratio,
         settled,
         settled_cost,
+        settled_side,
+        path_cost,
     }
 }
 
@@ -766,5 +910,64 @@ mod plan_tests {
             &RouteWeights::default(),
         );
         assert_eq!(r2.status, "outside_reach");
+    }
+
+    #[test]
+    fn bidirectional_matches_one_sided() {
+        // Uneven ground (a ramp and a ridge) so uphill and downhill costs differ.
+        let mut g = Grid {
+            lat0: 0.0,
+            lon0: 0.0,
+            dlat: 0.001,
+            dlon: 0.001,
+            rows: 61,
+            cols: 61,
+            z: vec![Some(0.0); 61 * 61],
+            foot: Vec::new(),
+        };
+        for r in 0..61 {
+            for c in 0..61 {
+                let ridge = if (25..=27).contains(&c) && r < 45 {
+                    40.0
+                } else {
+                    0.0
+                };
+                g.z[r * 61 + c] = Some(c as f64 * 1.5 + ridge);
+            }
+        }
+        let p = EvaParams {
+            water_h: 100.0,
+            min_reserve_h: 0.0,
+            ..EvaParams::new(2.0, 8.0, 0.0)
+        };
+        let ws = [
+            RouteWeights::default(),
+            RouteWeights {
+                distance: true,
+                ..RouteWeights::default()
+            },
+            RouteWeights {
+                time: 1.0,
+                slope: 2.0,
+                footing: 1.0,
+                margin: 1.0,
+                distance: false,
+            },
+        ];
+        for w in ws {
+            for to in [(-0.03, 0.06), (-0.055, 0.05), (-0.01, 0.04), (-0.05, 0.002)] {
+                let one = plan_route_with(World::Mars, &g, (-0.03, 0.0), to, &p, 30.0, &w, false);
+                let two = plan_route_with(World::Mars, &g, (-0.03, 0.0), to, &p, 30.0, &w, true);
+                assert_eq!(one.status, two.status);
+                if one.status == "ok" {
+                    assert!(
+                        (one.path_cost - two.path_cost).abs() <= 1e-9 * one.path_cost.max(1.0),
+                        "{} vs {}",
+                        one.path_cost,
+                        two.path_cost
+                    );
+                }
+            }
+        }
     }
 }

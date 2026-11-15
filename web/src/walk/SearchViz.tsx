@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { mapOf } from '../map/mapHook';
 import type { T } from '../i18n';
+import { lastPlanSide } from '../core';
 
 export interface Trace {
   order: Uint32Array; cost: Float32Array;
@@ -55,14 +56,19 @@ export function SearchViz({ host, trace, onDone, t }: { host: HTMLElement | null
     }
     ctx.putImageData(img, 0, 0);
     const overlay = new CanvasOverlay(c, trace.bounds, { opacity: 0.85, interactive: false }).addTo(map);
-    const maxCost = cost.length ? cost[cost.length - 1] || 1 : 1;
+    // Bidirectional search: cells settled from the base (blue → teal) and from the destination
+    // (orange → yellow), each side coloured by its own cost; they meet in the middle.
+    const side = lastPlanSide().length === order.length ? lastPlanSide() : new Uint8Array(order.length);
+    const maxSide = [0, 0];
+    for (let k = 0; k < order.length; k++) maxSide[side[k]] = Math.max(maxSide[side[k]], cost[k]);
     let line: L.Polyline | null = null;
     let done = 0, last = performance.now(), raf = 0;
     const paint = (from: number, to: number) => {
       for (let k = from; k < to; k++) {
-        const i = order[k], o = i * 4, f = Math.min(1, cost[k] / maxCost);
-        // blue (near the base) → teal → yellow (as costly as the destination)
-        img.data[o] = Math.round(40 + 215 * f); img.data[o + 1] = Math.round(140 + 100 * f); img.data[o + 2] = Math.round(255 - 215 * f); img.data[o + 3] = 200;
+        const i = order[k], o = i * 4, sd = side[k], f = Math.min(1, cost[k] / (maxSide[sd] || 1));
+        if (sd === 0) { img.data[o] = Math.round(40 + 40 * f); img.data[o + 1] = Math.round(120 + 110 * f); img.data[o + 2] = 255; }
+        else { img.data[o] = 255; img.data[o + 1] = Math.round(120 + 110 * f); img.data[o + 2] = Math.round(40 * (1 - f)); }
+        img.data[o + 3] = 200;
       }
     };
     const finish = () => {
@@ -96,7 +102,7 @@ export function SearchViz({ host, trace, onDone, t }: { host: HTMLElement | null
         <button key={s} className={speed === s ? 'on' : ''} onClick={() => setSpeed(s)}>{s === 'slow' ? t('ゆっくり', 'Slow') : s === 'normal' ? t('ふつう', 'Normal') : t('早送り', 'Fast')}</button>
       ))}
       <button onClick={() => { skip.current = true; }}>{t('スキップ', 'Skip')}</button>
-      <div className="search-viz-legend"><i className="near" />{t('基地に近い', 'near base')}<i className="far" />{t('目的地と同じくらい', 'as far as the goal')}<i className="no" />{t('帰れない', 'no way back')}</div>
+      <div className="search-viz-legend"><i className="near" style={{ background: 'rgb(60,170,255)' }} />{t('基地から探索', 'from the base')}<i className="far" style={{ background: 'rgb(255,170,30)' }} />{t('目的地から探索', 'from the destination')}<i className="no" />{t('帰れない', 'no way back')}</div>
     </div>
   );
 }

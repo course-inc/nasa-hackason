@@ -94,7 +94,7 @@ thread_local! {
     static EVAS: RefCell<Option<eva::EvaStats>> = const { RefCell::new(None) };
     static WEATHER: RefCell<Option<weather::Weather>> = const { RefCell::new(None) };
     /// The last plan_route search: settled cells in order and their costs (search animation).
-    static TRACE: RefCell<(Vec<u32>, Vec<f32>)> = const { RefCell::new((Vec::new(), Vec::new())) };
+    static TRACE: RefCell<(Vec<u32>, Vec<f32>, Vec<u8>)> = const { RefCell::new((Vec::new(), Vec::new(), Vec::new())) };
 }
 
 fn parse_world(world: &str) -> Result<world::World, JsError> {
@@ -221,6 +221,7 @@ pub fn plan_route(
             *t.borrow_mut() = (
                 std::mem::take(&mut r.settled),
                 std::mem::take(&mut r.settled_cost),
+                std::mem::take(&mut r.settled_side),
             )
         });
         out
@@ -231,6 +232,12 @@ pub fn plan_route(
 #[wasm_bindgen(js_name = planTraceOrder)]
 pub fn plan_trace_order() -> Vec<u32> {
     TRACE.with(|t| t.borrow().0.clone())
+}
+
+/// Side of each settled cell: 0 = searched from the base, 1 = from the destination.
+#[wasm_bindgen(js_name = planTraceSide)]
+pub fn plan_trace_side() -> Vec<u8> {
+    TRACE.with(|t| t.borrow().2.clone())
 }
 
 /// Weighted cost of each settled cell, in the same order.
