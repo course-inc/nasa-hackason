@@ -2,7 +2,7 @@
 // Kept small on purpose; model names appear only here, next to a plain description.
 import { useEffect, useState } from 'react';
 import { useLang, useT } from './i18n';
-import { CLOUD_MODELS, IN_APP_MODELS, setSetting, useSettings, type AiChoice, type InAppModel } from './settings';
+import { CLOUD_MODELS, IN_APP_MODELS, OPENAI_MODELS, setSetting, useSettings, type AiChoice, type InAppModel } from './settings';
 import { getAgent } from './agent/port';
 import { desktopModels } from './agent/pirs';
 import { autoModel } from './agent/pirsWeb';
@@ -15,6 +15,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const lang = useLang();
   const s = useSettings();
   const desktop = isDesktop();
+  const ownKey = s.cloudVia === 'openai' && !!s.openaiKey.trim();
   const [avail, setAvail] = useState<{ inApp: boolean; cloud: boolean } | null>(null);
   const [local, setLocal] = useState<string[] | null>(null);
   useEffect(() => {
@@ -23,7 +24,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
     Promise.all([desktop ? ok('pi-rs') : ok('pi-rs-web'), ok('claude')]).then(([inApp, cloud]) => live && setAvail({ inApp, cloud }));
     if (desktop) desktopModels().then((m) => live && setLocal(m));
     return () => { live = false; };
-  }, [desktop]);
+  }, [desktop, ownKey]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -80,11 +81,35 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         )}
 
         <label className="settings-row">
-          <span>{t('クラウドAIのモデル', 'Cloud AI model')}</span>
-          <select value={s.cloudModel} disabled={avail ? !avail.cloud : false} onChange={(e) => setSetting('cloudModel', e.target.value)}>
-            {CLOUD_MODELS.map((m) => <option key={m.id} value={m.id}>{lang === 'ja' ? m.ja : m.en}</option>)}
+          <span>{t('クラウドAIの接続先', 'Cloud AI connection')}</span>
+          <select value={s.cloudVia} onChange={(e) => setSetting('cloudVia', e.target.value as 'relay' | 'openai')}>
+            <option value="relay">{t('このサイトのAI（標準）', "This site's AI (default)")}</option>
+            <option value="openai">{t('OpenAI（自分のAPIキー）', 'OpenAI (your own API key)')}</option>
           </select>
         </label>
+
+        {s.cloudVia === 'relay' ? (
+          <label className="settings-row">
+            <span>{t('クラウドAIのモデル', 'Cloud AI model')}</span>
+            <select value={s.cloudModel} disabled={avail ? !avail.cloud : false} onChange={(e) => setSetting('cloudModel', e.target.value)}>
+              {CLOUD_MODELS.map((m) => <option key={m.id} value={m.id}>{lang === 'ja' ? m.ja : m.en}</option>)}
+            </select>
+          </label>
+        ) : (
+          <>
+            <label className="settings-row">
+              <span>{t('OpenAI の APIキー', 'OpenAI API key')}</span>
+              <input type="password" autoComplete="off" spellCheck={false} placeholder="sk-..." value={s.openaiKey} onChange={(e) => setSetting('openaiKey', e.target.value)} />
+              <small className="muted">{t('キーはこのブラウザの中だけに保存し、OpenAI に直接送ります。このサイトのサーバーには送りません。', 'The key is kept in this browser only and sent straight to OpenAI, never to this site’s server.')}</small>
+            </label>
+            <label className="settings-row">
+              <span>{t('OpenAI のモデル', 'OpenAI model')}</span>
+              <input list="openai-models" spellCheck={false} value={s.openaiModel} onChange={(e) => setSetting('openaiModel', e.target.value)} />
+              <datalist id="openai-models">{OPENAI_MODELS.map((m) => <option key={m} value={m} />)}</datalist>
+            </label>
+            {s.openaiKey && <button className="linkish" onClick={() => setSetting('openaiKey', '')}>{t('キーを消す', 'Remove the key')}</button>}
+          </>
+        )}
 
         <p className="muted settings-foot">{t('どのAIでも、答えの数字は NASA データの計算結果だけを使います。変更は次の質問から使われます。', 'Whichever AI answers, the numbers come only from calculations on NASA data. Changes apply from the next question.')}</p>
       </section>

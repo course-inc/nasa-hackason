@@ -85,13 +85,15 @@ export function AgentPanel() {
   useEffect(() => onRegistryChange(() => bump((n) => n + 1)), []);
   const [avail, setAvail] = useState<Record<string, boolean>>({});
   const agents = listAgents();
+  const settings = useSettings();
+  const ownKey = settings.cloudVia === 'openai' && !!settings.openaiKey.trim();
   useEffect(() => {
     let live = true;
     Promise.all(agents.map(async (a) => [a.id, await a.available()] as const)).then((r) => live && setAvail(Object.fromEntries(r)));
     return () => { live = false; };
-  }, [agents.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [agents.length, ownKey]); // eslint-disable-line react-hooks/exhaustive-deps
   // The AI picked here or on the settings screen (one setting, remembered).
-  const { ai } = useSettings();
+  const { ai } = settings;
   // Automatic: desktop pi-rs; web: Claude through our relay when the deployment has a key; otherwise rules.
   const auto = avail['pi-rs'] ? 'pi-rs' : avail['claude'] ? 'claude' : 'rules';
   const inApp = avail['pi-rs'] ? 'pi-rs' : avail['pi-rs-web'] ? 'pi-rs-web' : null;
