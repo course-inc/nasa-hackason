@@ -93,7 +93,10 @@ export function App() {
           {route.view === 'sources' && <div className="view-host"><SourcesView core={core} /></div>}
         </>
       )}
-      <footer>Data: NASA GIBS, NASA Solar System Treks (LRO LOLA/WAC/Diviner, MGS MOLA/TES, Viking, Mars Odyssey THEMIS), JAXA SELENE (Kaguya), ESA Mars Express HRSC, MRO CTX (Caltech), ESA Sentinel-2 cloudless (EOX), 国土地理院, 産総研 地質調査総合センター</footer>
+      {/* Credits for what the current screen shows: Mars only on the Mars screens. */}
+      {route.view === 'walk' || route.view === 'suit' || route.view === 'sources'
+        ? <footer>Data: NASA Solar System Treks (MRO HiRISE, MGS MOLA/TES, Viking MDIM 2.1, Mars Odyssey THEMIS), MRO CTX (Caltech), ESA Mars Express HRSC, NASA/JPL Mars 2020 (traverse, MEDA), Curiosity RAD, USGS Astrogeology, IAU/USGS Gazetteer, data.nasa.gov</footer>
+        : <footer>Data: NASA GIBS, NASA Solar System Treks (LRO LOLA/WAC/Diviner, MGS MOLA/TES, Viking, Mars Odyssey THEMIS), JAXA SELENE (Kaguya), ESA Mars Express HRSC, MRO CTX (Caltech), ESA Sentinel-2 cloudless (EOX), 国土地理院, 産総研 地質調査総合センター</footer>}
     </>
   );
 }

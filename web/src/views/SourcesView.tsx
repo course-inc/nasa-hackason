@@ -18,6 +18,7 @@ export function SourcesView({ core }: { core: Core }) {
       <div className="sources-body">
         <p><a href="#walk">← {t('火星で歩いて帰る', 'Walk back on Mars')}</a></p>
         <h2>{t('データと根拠', 'Data and sources')}</h2>
+        <p className="muted" id="src-colour">{t('地図の色: Jezero の HiRISE の画像は赤フィルターの単色（白黒）です。見やすさのために火星の色味を薄く着色しています（3D の写真も同じ）。全球の Viking モザイクも、少し明るく赤みを足して表示しています。数字には影響しません。', 'Map colours: the Jezero HiRISE images are single-colour (red filter, greyscale). A light Mars tint is added for readability (as in the 3D photo). The Viking globe mosaic is shown a little brighter and redder. No numbers are affected.')}</p>
           {footModel && (
             <p className="muted" id="ev-footing">{t(
               `足場: Mars Odyssey THEMIS の熱慣性（100 m）と MGS TES のダスト被覆指数から、歩く時間（＝酸素・冷却水）を何倍にするかを決めています。熱慣性 ${footModel.ti_loose} 以下は細かい砂・ちり（Presley & Christensen 1997）で ×${footModel.eta_loose}（砂の上を歩くと平らな硬い地面の 1.6〜2.5 倍のエネルギー、Lejeune ほか 1998 の下限）、${footModel.ti_firm} 以上は岩・固まった地面（Putzig & Mellon 2007）で ×${footModel.eta_firm}（未舗装路の地形係数、Soule & Goldman 1972）。その間は熱慣性の対数で直線的に補間（目安）。ダスト被覆指数 ${footModel.dci_dusty} 未満のちりに覆われた所は ×${footModel.dust_extra}（目安）。岩の多さは熱慣性に含まれます（1 km より細かい岩の量の地図はないため）。`,
