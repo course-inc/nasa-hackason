@@ -11,7 +11,7 @@ import { LANDING, exampleRoute, loadWalkData, type WalkData } from '../walk/data
 import { peekWalkController } from '../walk/controller';
 import { DEFAULT_PARAMS, WORLD, denseRoute, evaParams, evaluate, turnIndex, type PlanParams } from '../walk/plan';
 import { fmtH } from '../walk/geo';
-import { Terrain3D, type Camera3D, type Line3D, type Patch3D, type Point3D } from '../map/Terrain3D';
+import { Terrain3D, type Beacon3D, type Camera3D, type Patch3D, type Ribbon3D } from '../map/Terrain3D';
 import { LAYERS } from '../layers';
 import { PlanetMap, type Feature } from '../map/PlanetMap';
 import { useT } from '../i18n';
@@ -27,7 +27,8 @@ function vec(a: Waypoint, b: Waypoint) {
 const fmtKm = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
 const HIRISE = ['hirise'];
 /** Follow camera: a little behind and above the walker, looking along the way. */
-const CAM_DIST_M = 160, CAM_TILT = 18;
+/** First person: eyes 1.7 m above the ground, looking a little down along the route. */
+const EYE_M = 1.7, PITCH = -7;
 const MAP_Z = 15;
 /** Playback only: how fast ▶ and the keys move along the route. The calculation's walking speed is unchanged. */
 const SPEEDS = [0.5, 1, 2, 5, 10];
@@ -140,7 +141,7 @@ export function SuitView({ core }: { core: Core }) {
     return { i, j, u, here, heading: vec(dense.pts[k0], dense.pts[k1]).deg };
   };
 
-  // 3D follow camera (~10 per second) and 2D map follow (twice a second; a fit, not a fly, so it keeps up), from the latest pos.
+  // 3D first-person camera (~20 per second) and 2D map follow (twice a second; a fit, not a fly, so it keeps up), from the latest pos.
   const posRef = useRef(pos);
   posRef.current = pos;
   const [camera, setCamera] = useState<Camera3D | null>(null);
@@ -155,14 +156,14 @@ export function SuitView({ core }: { core: Core }) {
       const { here, heading } = atRef.current(x);
       if (x !== lastCam) {
         lastCam = x;
-        setCamera({ target: here, heading, tilt: CAM_TILT, distance: CAM_DIST_M, seq: performance.now() });
+        setCamera({ eye: { lat: here.lat, lon: here.lon, heightM: EYE_M, pitch: PITCH }, heading, seq: performance.now() });
       }
-      if (++n % 5 === 0 && x !== lastFly) {
+      if (++n % 10 === 0 && x !== lastFly) {
         lastFly = x;
         const dl = MAP_HALF / Math.cos((here.lat * Math.PI) / 180);
         setFit({ bounds: [[here.lat - MAP_HALF, here.lon - dl], [here.lat + MAP_HALF, here.lon + dl]], seq: performance.now() });
       }
-    }, 100);
+    }, 50);
     return () => clearInterval(id);
   }, [last, dense]);
 
@@ -181,31 +182,28 @@ export function SuitView({ core }: { core: Core }) {
     return () => { live = false; clearInterval(id); patchAt.current = null; };
   }, [last, dense]);
 
-  // Route layers: the way out, the part past the turn-back point, base and turn-back markers.
-  const lines3d = useMemo<Line3D[]>(() => {
+  // Route as an AR bar on the ground: cyan on the way out, red past the turn-back point;
+  // light pillars at the base and the turn-back point so they show from far away.
+  const ribbons = useMemo<Ribbon3D[]>(() => {
     if (last < 1) return [];
     const ll = (a: number, b: number) => dense.pts.slice(a, b + 1).map((q) => [q.lat, q.lon] as [number, number]);
-    const l: Line3D[] = [{ pts: ll(0, outEnd), color: '#7cb8d6', width: 5 }];
-    if (turn != null) l.push({ pts: ll(turn, last), color: '#8c8c8c', width: 3, opacity: 0.8 });
-    return l;
+    const r: Ribbon3D[] = [{ pts: ll(0, outEnd), color: '#4fd8ff', widthM: 2.2, opacity: 0.4 }];
+    if (turn != null) r.push({ pts: ll(turn, last), color: '#ff4d4f', widthM: 2.2, opacity: 0.35 });
+    return r;
   }, [dense, outEnd, turn, last]);
+  const beacons = useMemo<Beacon3D[]>(() => {
+    if (last < 1) return [];
+    const b: Beacon3D[] = [{ lat: dense.pts[0].lat, lon: dense.pts[0].lon, color: '#ffffff', heightM: 120, radiusM: 4 }];
+    if (turn != null) b.push({ lat: dense.pts[turn].lat, lon: dense.pts[turn].lon, color: '#ff4d4f', heightM: 80, radiusM: 3 });
+    return b;
+  }, [dense, turn, last]);
   const features = useMemo<Feature[]>(() => {
     if (last < 1) return [];
-    const f: Feature[] = lines3d.map((l) => ({ kind: 'line', pts: l.pts, color: l.color, weight: l.width - 1, opacity: l.opacity, dash: l.opacity ? '6 6' : undefined }));
+    const f: Feature[] = ribbons.map((l) => ({ kind: 'line', pts: l.pts, color: l.color, weight: 4, opacity: 0.8 }));
     f.push({ kind: 'point', lat: dense.pts[0].lat, lon: dense.pts[0].lon, radius: 7, color: '#ffffff', tooltip: t('基地', 'Base') });
     if (turn != null) f.push({ kind: 'point', lat: dense.pts[turn].lat, lon: dense.pts[turn].lon, radius: 7, color: '#ff4d4f', tooltip: t('引き返し地点', 'Turn-back point') });
     return f;
-  }, [lines3d, dense, turn, last]); // eslint-disable-line react-hooks/exhaustive-deps
-  // The walker moves in steps of a tenth of a route step in 3D, so the overlay is not rebuilt every frame.
-  const step = Math.round(pos * 10) / 10;
-  const points3d = useMemo<Point3D[]>(() => {
-    if (last < 1) return [];
-    const ps: Point3D[] = [{ lat: dense.pts[0].lat, lon: dense.pts[0].lon, color: '#ffffff', size: 0.3 }];
-    if (turn != null) ps.push({ lat: dense.pts[turn].lat, lon: dense.pts[turn].lon, color: '#ff4d4f', size: 0.3 });
-    const h = atRef.current(step).here;
-    ps.push({ lat: h.lat, lon: h.lon, color: '#ff7a45', size: 0.18 });
-    return ps;
-  }, [dense, turn, last, step]);
+  }, [ribbons, dense, turn, last]); // eslint-disable-line react-hooks/exhaustive-deps
   const view = useMemo<[number, number, number]>(() => [route[0]?.lat ?? LANDING.lat, route[0]?.lon ?? LANDING.lon, MAP_Z], [route]);
 
   if (!data) return <div className="suit"><p className="suit-empty">{t('NASA データを読み込み中…', 'Loading NASA data…')}</p></div>;
@@ -246,8 +244,8 @@ export function SuitView({ core }: { core: Core }) {
     <div className={`suit suit-${state}`}>
       <div className="suit-stage">
         {data.demGrid
-          ? <Terrain3D grid={data.demGrid} radiusKm={core.world(WORLD).radius_km} palette="mars" lines={lines3d} points={points3d}
-              camera={camera} patch={patch} photo="./data/jezero_ortho.jpg" label={t('Jezero クレーター（3D・歩く人の目線）', 'Jezero crater (3D, walker’s view)')} />
+          ? <Terrain3D grid={data.demGrid} radiusKm={core.world(WORLD).radius_km} palette="mars" ribbons={ribbons} beacons={beacons} near={0.3} exaggeration={1}
+              camera={camera} patch={patch} photo="./data/jezero_ortho.jpg" label={t('Jezero クレーター・一人称（AR）', 'Jezero crater, first person (AR)')} />
           : <p className="suit-empty">{t('3D の地形データを読み込めませんでした。', 'Could not load the 3D terrain data.')}</p>}
 
         <div className="suit-hud" role="status" aria-live="polite">
