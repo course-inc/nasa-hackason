@@ -202,7 +202,7 @@ export function AgentPanel() {
         <b>{t('質問する', 'Ask WALKBACK')}</b>
         <select aria-label={t('エージェント', 'Agent')} value={chosen} onChange={(e) => setAgentId(e.target.value)}>
           {/* One "In-app AI" entry: hide the desktop one where it cannot run but the browser one can. */}
-          {agents.filter((a) => !(a.id === 'pi-rs' && avail['pi-rs'] === false && avail['pi-rs-web'])).map((a) => (
+          {agents.filter((a) => !(a.id === 'pi-rs' && avail['pi-rs'] === false && avail['pi-rs-web']) && !(a.id === 'pi-rs-web' && !avail['pi-rs-web'])).map((a) => (
             <option key={a.id} value={a.id} disabled={avail[a.id] === false}>
               {a.label}{avail[a.id] === false ? (a.id === 'claude' ? t('（未設定）', ' (not set up)') : t('（デスクトップ版のみ）', ' (desktop app only)')) : ''}
             </option>
