@@ -144,7 +144,7 @@ export const pirsWebAgent: AgentPort = {
   get label() {
     const m = chosen ? ` Qwen3 ${chosen.toUpperCase()}` : '';
     const dl = chosen ? DOWNLOAD[chosen] : '';
-    return getLang() === 'ja' ? `pi-rs（ブラウザ内AI${m}・初回 約${dl}）` : `pi-rs (in-browser AI${m}, ~${dl} first download)`;
+    return getLang() === 'ja' ? `アプリ内AI（${m.trim() || 'pi-rs'}・初回 約${dl}）` : `In-app AI (${m.trim() || 'pi-rs'}, ~${dl} first download)`;
   },
   async available() {
     if (typeof navigator === 'undefined' || !('gpu' in navigator)) return false;
@@ -178,7 +178,7 @@ export const pirsWebAgent: AgentPort = {
       const answer = msgs.filter((m) => m.role === 'assistant' && m.content).map((m) => m.content).pop();
       onEvent({ type: 'status', text: '' });
       if (answer) onEvent({ type: 'text', text: answer });
-      else onEvent({ type: 'error', message: getLang() === 'ja' ? 'ブラウザ内の小さなモデルがうまく答えられませんでした。言い方を変えて、もう一度どうぞ。' : 'The small in-browser model did not produce an answer. Try rephrasing.' });
+      else onEvent({ type: 'error', message: getLang() === 'ja' ? 'アプリ内AIがうまく答えられませんでした。言い方を変えて、もう一度どうぞ。' : 'The in-app AI did not produce an answer. Try rephrasing.' });
     } catch (e) {
       onEvent({ type: 'error', message: lastError || (e instanceof Error ? e.message : String(e)) });
     } finally {
