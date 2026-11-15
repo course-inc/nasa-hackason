@@ -2,7 +2,6 @@
 // joining the tools' own text. It never computes or invents a number: the only numbers it adds to a
 // tool call are ones typed in the question ("酸素6時間", "3 km").
 import { callTool } from './port';
-import { getLang } from '../i18n';
 import type { AgentEvent, AgentPort, ToolDef, ToolResult } from './types';
 
 export type Lang = 'ja' | 'en';
