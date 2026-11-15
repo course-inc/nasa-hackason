@@ -98,3 +98,11 @@
 .suit-controls { flex-wrap: nowrap; white-space: nowrap; }
 .suit-controls label { min-width: 120px; }
 @media (max-width: 1300px) { .suit-controls .keys { display: none; } }
+/* Notices under the top-right window: newest on top, each fades out after 6 s. */
+.suit-feed { position: absolute; right: 12px; top: 84px; z-index: 5; width: 280px; margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+.suit-card { background: var(--glass); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); border: 1px solid var(--ar); border-left: 3px solid rgba(120, 220, 255, .9);
+  border-radius: 8px; padding: 6px 10px; color: #e6f6ff; font-size: 13px; font-weight: 300; text-shadow: 0 0 6px rgba(120, 220, 255, .5);
+  animation: suit-card 6s linear forwards; }
+.suit-card.warn { border-left-color: var(--soon); }
+.suit-card.bad { border-left-color: var(--now); }
+@keyframes suit-card { 0% { opacity: 0; transform: translateY(-6px); } 6% { opacity: 1; transform: none; } 85% { opacity: 1; } 100% { opacity: 0; } }
