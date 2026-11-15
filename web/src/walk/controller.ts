@@ -47,6 +47,8 @@ export function setWalkController(c: WalkController | null) {
   current = c;
   if (c) waiters.splice(0).forEach((fn) => fn(c));
 }
+/** The mounted screen's controller, or null when the WALKBACK screen is not open. */
+export function currentWalkController(): WalkController | null { return current; } 
 
 /** The mounted WALKBACK screen's controller, or null; never changes the tab (for the astronaut view). */
 export const peekWalkController = () => current;

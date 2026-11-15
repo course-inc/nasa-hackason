@@ -30,7 +30,8 @@ export function AnalogsView({ core }: { core: Core }) {
     setEarthId(id);
     setEarthFly({ lat: e.lat, lon: e.lon, z: 13, seq: Date.now() });
     const r = rankings.find((x) => x.earth_id === id)!;
-    selectBody(r.ranks[0].body_id);
+    const rk = r.ranks.find((x) => body(x.body_id).world === bodyWorld) ?? r.ranks[0];
+      selectBody(rk.body_id);
   };
 
   // The Moon/Mars tab switches the whole comparison, not just the map: pick this site's best
@@ -57,7 +58,7 @@ export function AnalogsView({ core }: { core: Core }) {
         </label>
         <ol id="site-list">
           {rankings.map((r) => {
-            const e = site(r.earth_id), best = r.ranks[0], b = body(best.body_id);
+            const e = site(r.earth_id), best = r.ranks.find((x) => body(x.body_id).world === bodyWorld) ?? r.ranks[0], b = body(best.body_id);
             return (
               <li key={e.id} onClick={() => selectEarth(e.id)}
                 className={`${e.id === earthId ? 'active' : ''} ${e.id === CONTROL_ID ? 'control' : ''}`}>
@@ -77,7 +78,7 @@ export function AnalogsView({ core }: { core: Core }) {
               <p className="muted">{curE.lithology_ja ?? ''}{curE.age_ja ? `（${curE.age_ja}）` : ''}<br />
                 標高 {curE.elev_m ?? '–'} m・起伏 {curE.relief_m ?? '–'} m（半径1km）</p>
               <div className="chips">
-                {cur.ranks.slice(0, 3).map((x) => {
+                {cur.ranks.filter((x) => body(x.body_id).world === curB.world).slice(0, 3).map((x) => {
                   const b = body(x.body_id);
                   return (
                     <button key={b.id} className={`chip ${b.id === curB.id ? 'on' : ''}`} onClick={() => selectBody(b.id)}>
