@@ -19,7 +19,7 @@ export const SRC = {
   eva: { label: 'data.nasa.gov: Extra-vehicular Activity (EVA) - US and Russia', url: 'https://data.nasa.gov/docs/legacy/Extra-vehicular_Activity_EVA_-_US_and_Russia/Extra-vehicular_Activity_EVA_-_US_and_Russia_rows.csv' },
   gernhardt: { label: 'Gernhardt et al. 2010, NASA walkback / EVA metabolic tests (NTRS)', url: 'https://ntrs.nasa.gov/search?q=Gernhardt%20walkback%20EVA' },
   nasadem: { label: 'NASADEM (NASA/JPL, 1 arc-second)', url: 'https://lpdaac.usgs.gov/products/nasadem_hgtv001/' },
-  engine: { label: 'analog-core (Rust) route / reach / rehearse engine' },
+  engine: { label: 'WALKBACK calculation (walk time, walk-home area, practice course)' },
 } satisfies Record<string, Src[number]>;
 
 const LANG = { type: 'string', enum: ['ja', 'en'], description: 'Language of the returned text (default ja).' };

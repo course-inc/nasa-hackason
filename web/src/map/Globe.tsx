@@ -100,8 +100,10 @@ export function Globe({ marks, lines, focus, camera, onEnter, patch, startClose 
     // Thin atmosphere rim.
     scene.add(new THREE.Mesh(new THREE.SphereGeometry(R * 1.015, 64, 32),
       new THREE.MeshBasicMaterial({ color: '#e8a27a', transparent: true, opacity: 0.08, side: THREE.BackSide })));
-    scene.add(new THREE.AmbientLight('#ffffff', 0.55));
-    const sun = new THREE.DirectionalLight('#fff4e8', 1.6);
+    // Brighter, softer light: the Viking mosaic is dull brown-grey, and strong one-sided shading
+    // made the planet read as grey (owner: it looked like the Moon).
+    scene.add(new THREE.AmbientLight('#fff1e6', 1.05));
+    const sun = new THREE.DirectionalLight('#fff4e8', 0.95);
     sun.position.set(3, 1.5, 4);
     scene.add(sun);
 
@@ -316,7 +318,8 @@ export function Globe({ marks, lines, focus, camera, onEnter, patch, startClose 
       texture.anisotropy = 8;
       s.mat.map?.dispose();
       s.mat.map = texture;
-      s.mat.color.set('#ffffff');
+      // A warm multiply brings back the red of the Viking colour mosaic (display only).
+      s.mat.color.set(tex === 'viking' ? '#ffd2b8' : '#ffffff');
       s.mat.needsUpdate = true;
       setReady(true);
     }, undefined, () => live && setFailed(true));

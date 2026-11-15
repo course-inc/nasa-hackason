@@ -526,7 +526,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
         {(mode === 'goal' || compare) && (
           <div className="card route-plan" id="route-plan">
             <h4>{t('🎯 目的地までの経路探索', '🎯 Route to a destination')}</h4>
-            <p className="muted">{t('地図をクリックすると、基地から帰れる範囲だけを通る経路を Dijkstra で探します。重みを変えてからもう一度クリック。', 'Click the map: Dijkstra searches a route from the base through the walk-home area only. Change the weights and click again.')}</p>
+            <p className="muted">{t('地図をクリックすると、基地から帰れる範囲だけを通る経路を自動で探します。重みを変えてからもう一度クリック。', 'Click the map: a route from the base is searched through the walk-home area only. Change the weights and click again.')}</p>
             {([['slope', t('坂を避ける', 'Avoid steep slopes')], ['footing', t('足場の悪さを避ける', 'Avoid poor footing')]] as ['slope' | 'footing', string][]).map(([k, label]) => (
               <label key={k} className="wt">{label} <b>{weights[k]}</b>
                 <input id={`w-${k}`} type="range" min={0} max={3} step={0.5} value={weights[k]} onChange={(e) => setWeights((w) => ({ ...w, [k]: +e.target.value }))} /></label>
@@ -639,7 +639,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           <h4>{t('有人ローバーが壊れたら、歩いて帰れるか', 'If a crewed rover breaks down, can the crew walk back?')}</h4>
           <p className="muted">{t('Perseverance の実走ルートを人が乗ったローバーで走ったと仮定。着陸地点が基地。どこで壊れたら歩いて帰れなくなるか（上の条件と同じ酸素・冷却水）。', "Suppose a crew drove Perseverance's real path, with the landing site as the base. Where would a breakdown leave them unable to walk home (same oxygen and cooling water as above)?")}</p>
           <button onClick={() => setRoverMode(!roverMode)} disabled={!data?.rover}>{roverMode ? t('探査車の道を元に戻す', 'Show the plain rover path') : t('探査車の道を色分けする', 'Colour the rover path')}</button>
-          {roverMode && rwState === 'loading' && !rw && <p className="muted">{t('探査車の走行記録をデータベース（DuckDB）から読み込み中…', 'Loading the rover record from the database (DuckDB)…')}</p>}
+          {roverMode && rwState === 'loading' && !rw && <p className="muted">{t('探査車の走行記録を読み込み中…', 'Loading the rover record from the database (DuckDB)…')}</p>}
           {roverMode && rwState === 'error' && <p className="warn">{t('走行記録のデータベースを読み込めませんでした。Web 版はネットから読み込むので、接続を確かめてもう一度押してください。', 'Could not load the rover database. The web version downloads it; check the connection and press again.')}</p>}
           {rw && (
             <>

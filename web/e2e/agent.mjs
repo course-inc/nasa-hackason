@@ -36,7 +36,7 @@ async function ask(q, timeout = 60000) {
   const last = p.locator('.msg.agent').nth(n);
   await last.locator('xpath=self::*[@data-done="1"]').waitFor({ timeout });
   const text = await last.locator('.msg-text').innerText().catch(() => '');
-  const chips = await last.locator('.tool-chip').evaluateAll((els) => els.map((e) => `${e.querySelector('code').textContent}:${e.classList.contains('ok') ? 'ok' : 'ng'}`));
+  const chips = await last.locator('.tool-chip').evaluateAll((els) => els.map((e) => `${e.dataset.tool}:${e.classList.contains('ok') ? 'ok' : 'ng'}`));
   console.log(`\nQ: ${q}\n  tools: ${chips.join(', ')}\n  A: ${text.replace(/\n/g, ' / ')}`);
   if (chips.some((c) => c.endsWith(':ng'))) fail(`tool failed for "${q}"`);
   return { text, chips };
