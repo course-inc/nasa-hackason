@@ -5,6 +5,7 @@ import { useLang, useT } from './i18n';
 import { CLOUD_MODELS, IN_APP_MODELS, OPENAI_MODELS, setSetting, useSettings, type AiChoice, type InAppModel } from './settings';
 import { getAgent } from './agent/port';
 import { desktopModels } from './agent/pirs';
+import { listOpenAIModels } from './agent/openai';
 import { autoModel } from './agent/pirsWeb';
 
 const isDesktop = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -14,6 +15,14 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const t = useT();
   const lang = useLang();
   const s = useSettings();
+  // Models this OpenAI key can use (falls back to the fixed list when they cannot be read).
+  const [keyModels, setKeyModels] = useState<string[]>([]);
+  useEffect(() => {
+    if (s.cloudVia !== 'openai' || !s.openaiKey.trim()) { setKeyModels([]); return; }
+    const ac = new AbortController();
+    const id = setTimeout(() => { listOpenAIModels(s.openaiKey, ac.signal).then((m) => { if (!ac.signal.aborted) setKeyModels(m); }); }, 400);
+    return () => { clearTimeout(id); ac.abort(); };
+  }, [s.cloudVia, s.openaiKey]);
   const desktop = isDesktop();
   const ownKey = s.cloudVia === 'openai' && !!s.openaiKey.trim();
   const [avail, setAvail] = useState<{ inApp: boolean; cloud: boolean } | null>(null);
@@ -105,7 +114,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             <label className="settings-row">
               <span>{t('OpenAI のモデル', 'OpenAI model')}</span>
               <input list="openai-models" spellCheck={false} value={s.openaiModel} onChange={(e) => setSetting('openaiModel', e.target.value)} />
-              <datalist id="openai-models">{OPENAI_MODELS.map((m) => <option key={m} value={m} />)}</datalist>
+              <datalist id="openai-models">{(keyModels.length ? keyModels : OPENAI_MODELS).map((m) => <option key={m} value={m} />)}</datalist>
             </label>
             {s.openaiKey && <button className="linkish" onClick={() => setSetting('openaiKey', '')}>{t('キーを消す', 'Remove the key')}</button>}
           </>
