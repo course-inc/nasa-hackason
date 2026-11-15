@@ -27,6 +27,10 @@ pub struct Grid {
     /// Row-major footing factor η (crate::footing; 1.0 = firm); empty = not counted.
     #[serde(default, skip_serializing)]
     pub foot: Vec<f32>,
+    /// Row-major cells reported as blocked (e.g. an obstacle seen on the way); empty = none.
+    /// Blocked cells are never stepped into by any route search.
+    #[serde(default, skip_serializing)]
+    pub blocked: Vec<bool>,
 }
 
 impl Grid {
@@ -63,6 +67,17 @@ impl Grid {
         Some((a * (1.0 - fc) + b * fc) * (1.0 - fr) + (d * (1.0 - fc) + e * fc) * fr)
     }
     /// Footing factor of cell `i` (1.0 where not set).
+    pub fn blocked_cell(&self, i: usize) -> bool {
+        self.blocked.get(i).copied().unwrap_or(false)
+    }
+    /// Blocked at a point (nearest cell).
+    pub fn blocked_at(&self, lat: f64, lon: f64) -> bool {
+        if self.blocked.is_empty() || !self.contains(lat, lon) {
+            return false;
+        }
+        let (r, c) = self.rc(lat, lon);
+        self.blocked_cell(r.round() as usize * self.cols + c.round() as usize)
+    }
     pub fn foot_cell(&self, i: usize) -> f64 {
         self.foot.get(i).map_or(1.0, |&x| f64::from(x))
     }
@@ -190,6 +205,9 @@ fn line_cost(
         let f = k as f64 / n as f64;
         let (la, lo) = (a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f);
         let z = g.sample(la, lo);
+        if g.blocked_at(la, lo) {
+            return None;
+        }
         total += step_cost(p, prev, z, seg, max_slope)? * g.foot_at(la, lo).unwrap_or(1.0);
         prev = z;
     }
@@ -216,6 +234,9 @@ fn dijkstra(
     // Effort-hours to step from cell a to neighbour b.
     // Footing: mean of the two cells (loose ground is slower and costs more per km).
     let step = |a: usize, b: usize, dist: f64| {
+        if g.blocked_cell(a) || g.blocked_cell(b) {
+            return None;
+        }
         step_cost(p, g.z[a], g.z[b], dist, max_slope)
             .map(|h| h * (g.foot_cell(a) + g.foot_cell(b)) / 2.0)
     };
@@ -408,6 +429,7 @@ mod tests {
             cols,
             z: vec![Some(0.0); rows * cols],
             foot: Vec::new(),
+            blocked: Vec::new(),
         }
     }
     fn params() -> EvaParams {
@@ -453,6 +475,45 @@ mod tests {
         let east = rr.ratio[30 * 61 + 45];
         assert!(east.is_none(), "beyond the cliff should be unreachable");
         assert!(rr.ratio[30 * 61 + 35].unwrap() < 1.0);
+    }
+
+    #[test]
+    fn easy_path_goes_around_blocked_cells() {
+        let mut g = flat(61, 61, 0.001);
+        // Flat ground, but cells across column 30 reported blocked (open at the south end).
+        g.blocked = vec![false; 61 * 61];
+        for r in 0..50 {
+            g.blocked[r * 61 + 30] = true;
+        }
+        let path = easy_path(
+            World::Mars,
+            &g,
+            (-0.03, -0.0),
+            (-0.03, 0.06),
+            &params(),
+            25.0,
+        )
+        .unwrap();
+        assert!(
+            path.iter().any(|&(lat, _)| lat <= -0.0495),
+            "path did not detour around the blocked cells"
+        );
+        assert!(
+            path.iter().all(|&(lat, lon)| !g.blocked_at(lat, lon)),
+            "path steps on a blocked cell"
+        );
+        // No blocked cells: straight across.
+        g.blocked.clear();
+        let straight = easy_path(
+            World::Mars,
+            &g,
+            (-0.03, -0.0),
+            (-0.03, 0.06),
+            &params(),
+            25.0,
+        )
+        .unwrap();
+        assert!(straight.iter().all(|&(lat, _)| (lat + 0.03).abs() < 1e-9));
     }
 
     #[test]
@@ -611,6 +672,9 @@ pub fn plan_route_with(
     let max_slope = max_slope_deg.to_radians().tan();
     // Weighted step cost between neighbouring cells; None = not walkable or outside the area.
     let cost = |i: usize, j: usize, dist: f64| -> Option<f64> {
+        if g.blocked_cell(i) || g.blocked_cell(j) {
+            return None;
+        }
         let rj = ratio(j).filter(|&r| r <= 1.0)?;
         let t = step_cost(p, g.z[i], g.z[j], dist, max_slope)?;
         if w.distance {
@@ -874,6 +938,7 @@ mod plan_tests {
             cols: 61,
             z: vec![Some(0.0); 61 * 61],
             foot: Vec::new(),
+            blocked: Vec::new(),
         };
         for r in 0..50 {
             g.z[r * 61 + 30] = Some(500.0);
@@ -924,6 +989,7 @@ mod plan_tests {
             cols: 61,
             z: vec![Some(0.0); 61 * 61],
             foot: Vec::new(),
+            blocked: Vec::new(),
         };
         for r in 0..61 {
             for c in 0..61 {

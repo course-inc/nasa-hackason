@@ -333,6 +333,7 @@ mod walkback_tests {
             cols: 200,
             z: vec![Some(0.0); 600],
             foot: Vec::new(),
+            blocked: Vec::new(),
         };
         let p = EvaParams {
             speed_kmh: 2.0,

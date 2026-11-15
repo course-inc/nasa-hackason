@@ -87,31 +87,43 @@ export function fromOpenAI(r: Completion): Reply {
 /** The settings say to use the person's own OpenAI key, and one is entered. */
 export const openaiOn = () => { const s = getSettings(); return s.cloudVia === 'openai' && !!s.openaiKey.trim(); };
 
-/** One model turn on OpenAI. If the chosen model does not exist for this key, pick one it can use, save it, and retry once. */
+/** One model turn on OpenAI. If the chosen model does not exist for this key, pick one it can use, save it, and retry once.
+ * Tools are sent with reasoning_effort 'none' (gpt-6.1-terra refuses function tools with reasoning on /v1/chat/completions);
+ * a model that rejects that parameter gets one retry without it. */
 export async function openaiTurn(messages: Msg[], specs: Spec[], signal?: AbortSignal): Promise<Reply> {
   const s = getSettings();
   const key = s.openaiKey.trim();
-  const call = (model: string) => fetch(OPENAI_API, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
-    body: JSON.stringify({
-      model,
-      messages: toOpenAI(SYSTEM, messages),
-      tools: specs.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })),
-    }),
-    signal,
-  });
   type Body = Completion & { error?: { message?: string; code?: string } };
+  const call = async (model: string, effort: boolean) => {
+    const res = await fetch(OPENAI_API, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model,
+        messages: toOpenAI(SYSTEM, messages),
+        tools: specs.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })),
+        ...(effort ? { reasoning_effort: 'none' } : {}),
+      }),
+      signal,
+    });
+    return { res, body: (await res.json().catch(() => ({}))) as Body };
+  };
+  const send = async (model: string) => {
+    const first = await call(model, true);
+    if (first.res.status === 400 && /reasoning_effort/i.test(first.body.error?.message ?? '')) {
+      console.info('[agent] OpenAI', model, 'rejected reasoning_effort none; retrying without it');
+      return call(model, false);
+    }
+    return first;
+  };
   const wanted = s.openaiModel.trim() || 'gpt-6.1-terra';
-  let res = await call(wanted);
-  let body = (await res.json().catch(() => ({}))) as Body;
+  let { res, body } = await send(wanted);
   if (!res.ok && (res.status === 404 || body.error?.code === 'model_not_found')) {
     const pick = (await listOpenAIModels(key, signal)).find((m) => m !== wanted);
     if (!pick) throw new Error(`OpenAI のモデル ${wanted} が使えず、使えるモデルの一覧も取れませんでした。設定画面でモデル名を入れてください / model ${wanted} is not available and the model list could not be read: enter a model name in Settings`);
     setSetting('openaiModel', pick);
     console.info('[agent] OpenAI model', wanted, '→', pick);
-    res = await call(pick);
-    body = (await res.json().catch(() => ({}))) as Body;
+    ({ res, body } = await send(pick));
   }
   if (!res.ok) throw new Error(res.status === 401 ? 'OpenAI のキーが正しくありません / the OpenAI key was rejected' : `OpenAI ${res.status}: ${body.error?.message ?? ''}`);
   return fromOpenAI(body);

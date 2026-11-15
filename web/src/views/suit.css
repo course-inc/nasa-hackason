@@ -106,3 +106,5 @@
 .suit-card.warn { border-left-color: var(--soon); }
 .suit-card.bad { border-left-color: var(--now); }
 @keyframes suit-card { 0% { opacity: 0; transform: translateY(-6px); } 6% { opacity: 1; transform: none; } 85% { opacity: 1; } 100% { opacity: 0; } }
+.suit-controls .suit-obstacle { border-color: rgba(255, 90, 90, .8); color: #ffd6d6; }
+.suit-controls .suit-obstacle:disabled { opacity: .5; }
