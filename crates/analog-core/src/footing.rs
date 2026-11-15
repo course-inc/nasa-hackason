@@ -74,10 +74,16 @@ pub fn class(ti: f64) -> Class {
 pub struct Footing {
     pub rows: usize,
     pub cols: usize,
-    /// Row-major thermal inertia; `None` where missing.
+    /// Row-major thermal inertia; `None` where missing. Empty = not counted (η starts at 1.0).
+    #[serde(default)]
     pub ti: Vec<Option<f32>>,
     /// Row-major dust cover index; `None` where missing.
+    #[serde(default)]
     pub dci: Vec<Option<f32>>,
+    /// Row-major extra factor from the surface seen in HiRISE images (sand ripples, rocky ground),
+    /// multiplied onto η; `None` or empty = not counted.
+    #[serde(default)]
+    pub surface: Vec<Option<f32>>,
     #[serde(default)]
     pub src: String,
 }
@@ -87,10 +93,23 @@ impl Footing {
     pub fn etas(&self) -> Vec<f32> {
         (0..self.rows * self.cols)
             .map(|i| {
-                eta(
-                    self.ti.get(i).copied().flatten().map(f64::from),
-                    self.dci.get(i).copied().flatten().map(f64::from),
-                ) as f32
+                let base = if self.ti.is_empty() {
+                    1.0
+                } else {
+                    eta(
+                        self.ti.get(i).copied().flatten().map(f64::from),
+                        self.dci.get(i).copied().flatten().map(f64::from),
+                    )
+                };
+                let extra = self
+                    .surface
+                    .get(i)
+                    .copied()
+                    .flatten()
+                    .map(f64::from)
+                    .filter(|f| f.is_finite() && *f >= 1.0)
+                    .unwrap_or(1.0);
+                (base * extra) as f32
             })
             .collect()
     }
@@ -111,5 +130,21 @@ mod tests {
         assert!((eta(Some(500.0), Some(0.92)) - ETA_FIRM * DUST_EXTRA).abs() < 1e-12);
         assert!((eta(Some(500.0), Some(0.97)) - ETA_FIRM).abs() < 1e-12);
         assert_eq!(eta(None, None), ETA_LOOSE);
+    }
+
+    #[test]
+    fn surface_factor_multiplies() {
+        let f: Footing = serde_json::from_str(
+            r#"{"rows":1,"cols":3,"ti":[400,400,null],"dci":[null,null,null],"surface":[1.3,null,1.15]}"#,
+        )
+        .unwrap();
+        let e = f.etas();
+        assert!((e[0] as f64 - ETA_FIRM * 1.3).abs() < 1e-5);
+        assert!((e[1] as f64 - ETA_FIRM).abs() < 1e-5);
+        assert!((e[2] as f64 - ETA_LOOSE * 1.15).abs() < 1e-5);
+        let only: Footing =
+            serde_json::from_str(r#"{"rows":1,"cols":2,"surface":[1.3,null]}"#).unwrap();
+        let e = only.etas();
+        assert!((e[0] - 1.3).abs() < 1e-5 && (e[1] - 1.0).abs() < 1e-5);
     }
 }
