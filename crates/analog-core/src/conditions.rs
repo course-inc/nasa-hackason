@@ -10,6 +10,9 @@ use crate::world::World;
 pub struct Surface {
     pub foot: Vec<f64>,
     pub home_foot: Vec<f64>,
+    /// Walk home along the route reversed (each step costed in the walking-back direction) instead
+    /// of in a straight line.
+    pub retrace: bool,
 }
 
 fn scaled(l: Leg, f: f64) -> Leg {
@@ -47,6 +50,40 @@ pub fn evaluate(world: World, pts: &[Waypoint], p: EvaParams, s: &Surface) -> Ro
         home_h: home.hours,
         margin_h: budget - (e + home.effort_h),
     };
+    // Walking back along the route: the cost from each point to the base over the reversed route.
+    let home_along: Vec<Leg> = if s.retrace {
+        let mut acc = vec![Leg {
+            km: 0.0,
+            slope_deg: 0.0,
+            hours: 0.0,
+            effort_h: 0.0,
+            known: true,
+        }];
+        for i in 1..pts.len() {
+            let l = scaled(
+                leg(world, &pts[i], &pts[i - 1], &p),
+                (at(&s.foot, i) + at(&s.foot, i - 1)) / 2.0,
+            );
+            let a = acc[i - 1];
+            acc.push(Leg {
+                km: a.km + l.km,
+                slope_deg: 0.0,
+                hours: a.hours + l.hours,
+                effort_h: a.effort_h + l.effort_h,
+                known: a.known && l.known,
+            });
+        }
+        acc
+    } else {
+        Vec::new()
+    };
+    let home_of = |i: usize| -> Leg {
+        if s.retrace {
+            home_along[i]
+        } else {
+            scaled(leg(world, &pts[i], &pts[0], &p), at(&s.home_foot, i))
+        }
+    };
     if let Some(first) = pts.first() {
         ticks.push(tick(0, 0.0, 0.0, 0.0, &leg(world, first, first, &p)));
     }
@@ -64,17 +101,14 @@ pub fn evaluate(world: World, pts: &[Waypoint], p: EvaParams, s: &Surface) -> Ro
             max_slope = max_slope.max(l.slope_deg.abs());
         }
         legs.push(l);
-        let home = scaled(leg(world, &pts[i], &pts[0], &p), at(&s.home_foot, i));
+        let home = home_of(i);
         if pnr.is_none() && out_e + home.effort_h > budget {
             pnr = Some(i);
         }
         ticks.push(tick(i, out_h, out_km, out_e, &home));
     }
     let back = if pts.len() > 1 {
-        scaled(
-            leg(world, &pts[pts.len() - 1], &pts[0], &p),
-            at(&s.home_foot, pts.len() - 1),
-        )
+        home_of(pts.len() - 1)
     } else {
         Leg {
             km: 0.0,
@@ -129,9 +163,31 @@ mod tests {
         let s = Surface {
             foot: vec![1.5; 3],
             home_foot: vec![1.5; 3],
+            retrace: false,
         };
         let c = evaluate(World::Mars, &pts, p, &s);
         assert!((c.total_h - a.total_h * 1.5).abs() < 1e-9);
         assert!((c.total_effort_h - a.total_effort_h * 1.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn retrace_walks_home_along_the_route() {
+        // An L-shaped route: back along it is longer than the straight line home.
+        let pts = [wp(18.44, 77.45), wp(18.45, 77.45), wp(18.45, 77.46)];
+        let p = EvaParams::new(2.0, 8.0, 0.2);
+        let straight = evaluate(World::Mars, &pts, p, &Surface::default());
+        let along = evaluate(
+            World::Mars,
+            &pts,
+            p,
+            &Surface {
+                retrace: true,
+                ..Surface::default()
+            },
+        );
+        assert!((along.back_km - along.out_km).abs() < 1e-9);
+        assert!(along.back_km > straight.back_km);
+        assert!(along.total_h > straight.total_h);
+        assert_eq!(along.ticks[0].home_h, 0.0);
     }
 }

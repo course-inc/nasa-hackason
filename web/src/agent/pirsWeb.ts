@@ -6,6 +6,7 @@
 import { callTool } from './port';
 import { getLang } from '../i18n';
 import { NoModelError } from './pirs';
+import { getSettings, onSettings } from '../settings';
 import type { AgentEvent, AgentPort, ToolDef } from './types';
 
 const BASE = '/pirs-browser/';
@@ -18,7 +19,7 @@ const SYSTEM = `あなたは WALKBACK（火星の船外活動で歩いて帰れ�
 答えの数字はツールの結果に書かれた数字だけをそのまま使う。自分で計算しない。短く答える。`;
 
 /** Model per device. Qwen3 4B picked the right tool on all 3 test questions, 1.7B on 2, so 4B
- * wherever it fits; localStorage 'walkback.pirsModel' ('0.6b' | '1.7b' | '4b' | '8b') overrides.
+ * wherever it fits; the settings screen (inAppModel) overrides.
  *   no WebGPU, or no 16-bit float shaders (shader-f16) → none (the panel keeps the rules version)
  *   phone / tablet, under 8 GB of memory, or GPU buffers under 1 GB → 1.7B (~1 GB download)
  *   otherwise → 4B (~2.5 GB download, ~3.4 GB of GPU memory) */
@@ -31,21 +32,27 @@ export function pickModel(d: { webgpu: boolean; f16: boolean; mobile: boolean; m
   return '4b';
 }
 let chosen: string | null = null;
+/** What this device would get on 'automatic' (null: it cannot run the in-app AI). */
+export let autoModel: string | null = null;
+let deviceOk = false;
 const modelSize = () => chosen ?? '1.7b';
+const settingModel = () => { const m = getSettings().inAppModel; return m === 'auto' ? null : m; };
+// A change on the settings screen applies from the next question (each question opens a new session).
+onSettings(() => { if (deviceOk) chosen = settingModel() ?? autoModel; });
 async function detectModel(): Promise<string | null> {
   const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<{ features: Set<string>; limits: { maxBufferSize: number } } | null> } }).gpu;
   const adapter = gpu ? await gpu.requestAdapter().catch(() => null) : null;
   const nav = navigator as Navigator & { deviceMemory?: number; userAgentData?: { mobile?: boolean } };
-  let override: string | null = null;
-  try { override = localStorage.getItem('walkback.pirsModel'); } catch { /* storage off */ }
-  return pickModel({
+  const d = {
     webgpu: !!adapter,
     f16: !!adapter?.features.has('shader-f16'),
     mobile: nav.userAgentData?.mobile ?? /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent),
     memoryGB: nav.deviceMemory,
     maxBufferGB: (adapter?.limits.maxBufferSize ?? 0) / 2 ** 30,
-    override,
-  });
+  };
+  autoModel = pickModel(d);
+  deviceOk = !!autoModel;
+  return autoModel && (settingModel() ?? autoModel);
 }
 
 let worker: Worker | null = null;

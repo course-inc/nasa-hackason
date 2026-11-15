@@ -25,12 +25,14 @@ export const steepLeg = (ev: RouteEval) => {
 /** The sliders on the screen. reserve is in percent. */
 export interface PlanParams { speed: number; o2: number; water: number; reserve: number; footing?: boolean;
   /** Departure, local solar hour at Jezero (MEDA temperatures change the cooling water); default 9. */
-  start?: number }
+  start?: number;
+  /** Walk home along the route reversed (true) or straight (false, default). */
+  retrace?: boolean }
 export const DEFAULT_START = 9;
 export const DEFAULT_PARAMS: PlanParams = { speed: 2, o2: 8, water: 8, reserve: 20 };
 
 export const evaParams = (q: PlanParams): EvaParams =>
-  ({ speed_kmh: q.speed, o2_h: q.o2, water_h: q.water, reserve: q.reserve / 100, min_reserve_h: 0.5, footing: q.footing ?? true, start_h: q.start ?? DEFAULT_START });
+  ({ speed_kmh: q.speed, o2_h: q.o2, water_h: q.water, reserve: q.reserve / 100, min_reserve_h: 0.5, footing: q.footing ?? true, start_h: q.start ?? DEFAULT_START, retrace: q.retrace ?? false });
 /**
  * Surface conditions before a computation: the footing switch into the Rust core's grid, and the
  * cooling water scaled by the air temperature over the walk (Rust weather.rs; from the departure

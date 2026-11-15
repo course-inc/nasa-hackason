@@ -77,6 +77,8 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   setSurfaceOn(surfOn);
   // Departure, local solar hour at Jezero: MEDA air temperature over the walk sets the cooling water.
   const [start, setStart] = useState(DEFAULT_START);
+  // Way home: straight back to the base (default, as before) or back along the route.
+  const [retrace, setRetrace] = useState(false);
   const [showFoot, setShowFoot] = useState(false);
   const [view3d, setView3d] = useState(false);
   const [globeOn, setGlobeOn] = useState(false);
@@ -102,7 +104,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
 
   // Same functions as the agent tools (walk/plan.ts), so both always show the same numbers.
   // surfOn is read by ensureFooting (walk/data.ts); it is in the deps so every number recomputes.
-  const p = useMemo(() => evaParams({ speed, o2, water, reserve, footing: footOn, start }), [speed, o2, water, reserve, footOn, start, surfOn]); // eslint-disable-line react-hooks/exhaustive-deps
+  const p = useMemo(() => evaParams({ speed, o2, water, reserve, footing: footOn, start, retrace }), [speed, o2, water, reserve, footOn, start, surfOn, retrace]); // eslint-disable-line react-hooks/exhaustive-deps
   const dense = useMemo(() => denseRoute(core, data, route), [core, data, route]);
   const ev = useMemo(() => evaluate(core, dense, p), [core, dense, p]);
   // The same route on firm ground, to show how much time the footing adds.
@@ -257,7 +259,11 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
         setHud({ t_h: tt.t_h, km: tt.km, o2: tt.o2_left, water: tt.water_left, home_h: tt.home_h, margin_h: tt.margin_h, phase: 'turn', slope: null });
       } else if (el < OUT_MS + HOLD + BACK_MS) {
         const u = (el - OUT_MS - HOLD) / BACK_MS;
-        setWalker([pts[turn].lat + (pts[0].lat - pts[turn].lat) * u, pts[turn].lon + (pts[0].lon - pts[turn].lon) * u]);
+        if (retrace) {
+          // Back along the route: from the turn point down the drawn points to the base.
+          const f = turn * (1 - u), i = Math.min(turn, Math.floor(f)), j = Math.max(0, Math.min(turn, i + 1)), w = f - i;
+          setWalker([pts[i].lat + (pts[j].lat - pts[i].lat) * w, pts[i].lon + (pts[j].lon - pts[i].lon) * w]);
+        } else setWalker([pts[turn].lat + (pts[0].lat - pts[turn].lat) * u, pts[turn].lon + (pts[0].lon - pts[turn].lon) * u]);
         setHud({ t_h: tt.t_h + tt.home_h * u, km: tt.km, o2: tt.o2_left - (homeE * u) / ev.usable_o2_h,
           water: tt.water_left - (homeE * WATER_PER_O2 * u) / ev.usable_water_h, home_h: tt.home_h * (1 - u),
           margin_h: tt.margin_h, phase: 'back', slope: null });
@@ -340,14 +346,14 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const [camera, setCamera] = useState<Camera3D | null>(null);
   const [exag, setExag] = useState<number | undefined>(undefined);
   const [flash, setFlash] = useState<EvidenceTopic | null>(null);
-  const live$ = useRef({ route, speed, o2, water, reserve, footOn, start, play, stop, startRehearsalWith: reh.run, found: reh.found, loadWalk, loadSample, walkRec });
-  live$.current = { route, speed, o2, water, reserve, footOn, start, play, stop, startRehearsalWith: reh.run, found: reh.found, loadWalk, loadSample, walkRec };
+  const live$ = useRef({ route, speed, o2, water, reserve, footOn, start, retrace, play, stop, startRehearsalWith: reh.run, found: reh.found, loadWalk, loadSample, walkRec });
+  live$.current = { route, speed, o2, water, reserve, footOn, start, retrace, play, stop, startRehearsalWith: reh.run, found: reh.found, loadWalk, loadSample, walkRec };
   useEffect(() => {
     setWalkController({
       core,
       data: () => loadWalkData(core),
       route: () => live$.current.route,
-      params: () => ({ speed: live$.current.speed, o2: live$.current.o2, water: live$.current.water, reserve: live$.current.reserve, footing: live$.current.footOn, start: live$.current.start }),
+      params: () => ({ speed: live$.current.speed, o2: live$.current.o2, water: live$.current.water, reserve: live$.current.reserve, footing: live$.current.footOn, start: live$.current.start, retrace: live$.current.retrace }),
       setRoute: (r) => { live$.current.route = r; setRoute(r); },
       setParams: (q) => {
         if (q.speed != null) { setSpeed(q.speed); live$.current.speed = q.speed; }
@@ -355,6 +361,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
         if (q.water != null) { setWater(q.water); live$.current.water = q.water; }
         if (q.reserve != null) { setReserve(q.reserve); live$.current.reserve = q.reserve; }
         if (q.start != null) { setStart(q.start); live$.current.start = q.start; }
+        if (q.retrace != null) { setRetrace(q.retrace); live$.current.retrace = q.retrace; }
       },
       runRehearsal: (pts) => { setRehOpen(true); setRehSel(0); return live$.current.startRehearsalWith(pts); },
       selectRehearsal: (i) => { setRehOpen(true); setRehSel(i); },
@@ -517,7 +524,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
         </div>
         {n >= 2 && (
           <>
-            <div className="kv"><span>{t('行き / 帰り（まっすぐ）', 'Out / back (straight)')}</span><b>{ev.out_km.toFixed(1)} km / {ev.back_km.toFixed(1)} km</b></div>
+            <div className="kv"><span>{(retrace ? t('行き / 帰り（来た道）', 'Out / back (same way)') : t('行き / 帰り（まっすぐ）', 'Out / back (straight)'))}</span><b>{ev.out_km.toFixed(1)} km / {ev.back_km.toFixed(1)} km</b></div>
             <div className="kv"><span>{t('かかる時間', 'Time')}</span><b>{fmtH(ev.total_h)}</b></div>
             {evFirm && ev.total_h - evFirm.total_h >= 1 / 60 && <div className="kv sub" id="foot-extra"><span>{t('うち足場で増えた時間', 'of which footing adds')}</span><b>+{fmtH(ev.total_h - evFirm.total_h)}</b></div>}
             {rad && <div className="kv" id="rad-dose"><span>{t('放射線（この船外活動）', 'Radiation (this EVA)')}</span><b>{rad.dose_msv.toFixed(2)} mSv <small className="muted">{t(`生涯上限の ${(rad.career_share * 100).toFixed(2)}%`, `${(rad.career_share * 100).toFixed(2)}% of career limit`)}</small></b></div>}
@@ -634,6 +641,11 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           )}
           {wx && <div className="kv sub" id="wx-water"><span>{t('冷却水の減り方（気温による・目安）', 'Cooling water use (air temperature, estimate)')}</span><b>×{wx.f.toFixed(2)}</b></div>}
           <p className="muted"><a href="#sources" id="sources-link">{t('根拠', 'Sources')}</a></p>
+          <div className="seg" role="radiogroup" aria-label={t('帰り道', 'Way home')} id="retrace-toggle">
+            <span className="muted">{t('帰り', 'Way home')}</span>
+            <button role="radio" aria-checked={!retrace} className={!retrace ? 'on' : ''} onClick={() => setRetrace(false)}>{t('まっすぐ', 'Straight')}</button>
+            <button role="radio" aria-checked={retrace} className={retrace ? 'on' : ''} onClick={() => setRetrace(true)}>{t('来た道を戻る', 'Back along the route')}</button>
+          </div>
           <label className="check" id="foot-toggle"><input type="checkbox" checked={footOn} onChange={(e) => setFootOn(e.target.checked)} /> {t('足場（地面のやわらかさ）を計算に入れる', 'Count the footing (how loose the ground is)')}</label>
           <label className="check" id="surface-toggle2"><input type="checkbox" checked={surfOn} onChange={(e) => setSurfOn(e.target.checked)} /> {t('砂の波紋・岩（HiRISE写真から判定）を計算に入れる', 'Count sand ripples and rocks (judged from HiRISE images)')}</label>
         </details>

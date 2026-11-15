@@ -8,6 +8,7 @@ import type { AgentEvent, ToolResult } from './types';
 import { useLang, useT } from '../i18n';
 import { currentWalkController } from '../walk/controller';
 import { publishAnswer } from './lastAnswer';
+import { setSetting, useSettings, type AiChoice } from '../settings';
 import { startVoice, voiceStatus, type Recording, type VoiceStatus } from './voice';
 
 export const EXAMPLES = [
@@ -89,9 +90,13 @@ export function AgentPanel() {
     Promise.all(agents.map(async (a) => [a.id, await a.available()] as const)).then((r) => live && setAvail(Object.fromEntries(r)));
     return () => { live = false; };
   }, [agents.length]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [agentId, setAgentId] = useState<string | null>(null);
-  // Desktop: pi-rs. Web: Claude through our relay when the deployment has a key. Otherwise rules.
-  const chosen = agentId ?? (avail['pi-rs'] ? 'pi-rs' : avail['claude'] ? 'claude' : 'rules');
+  // The AI picked here or on the settings screen (one setting, remembered).
+  const { ai } = useSettings();
+  // Automatic: desktop pi-rs; web: Claude through our relay when the deployment has a key; otherwise rules.
+  const auto = avail['pi-rs'] ? 'pi-rs' : avail['claude'] ? 'claude' : 'rules';
+  const inApp = avail['pi-rs'] ? 'pi-rs' : avail['pi-rs-web'] ? 'pi-rs-web' : null;
+  const chosen = ai === 'rules' ? 'rules' : ai === 'in-app' ? inApp ?? auto : ai === 'claude' && avail['claude'] !== false ? 'claude' : auto;
+  const setAgentId = (id: string) => setSetting('ai', (id === 'pi-rs' || id === 'pi-rs-web' ? 'in-app' : id) as AiChoice);
 
   // Open by default on WALKBACK; elsewhere a small button, so it never covers the other tabs.
   const isWalk = () => /^#(walk|mars)/.test(location.hash) || location.hash.replace('#', '') === '';
