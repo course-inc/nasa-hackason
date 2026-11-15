@@ -48,6 +48,9 @@ export function setWalkController(c: WalkController | null) {
   if (c) waiters.splice(0).forEach((fn) => fn(c));
 }
 
+/** The mounted WALKBACK screen's controller, or null; never changes the tab (for the astronaut view). */
+export const peekWalkController = () => current;
+
 /** The mounted screen's controller; opens the WALKBACK tab and waits for it if needed. */
 export function walkController(timeoutMs = 15000): Promise<WalkController> {
   if (typeof location !== 'undefined' && !/^#(walk|mars)/.test(location.hash)) location.hash = '#walk';
