@@ -353,7 +353,7 @@ export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], re
         for (let j = 0; j < n; j++) pts.push([a0 + (a1 - a0) * j / n, o0 + (o1 - o0) * j / n]);
       }
       pts.push(rb.pts[rb.pts.length - 1]);
-      const c = pts.map(([la, lo]) => sc.project(la, lo, 0.6));
+      const c = pts.map(([la, lo]) => sc.project(la, lo, 0.5));
       const pos = new Float32Array(c.length * 6), uv = new Float32Array(c.length * 4);
       let dist = 0;
       for (let i = 0; i < c.length; i++) {
@@ -371,13 +371,16 @@ export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], re
       geo.setIndex(idx);
       const mat = new THREE.MeshBasicMaterial({ color: rb.color, transparent: true, opacity: rb.opacity, depthWrite: false, side: THREE.DoubleSide,
         map: chevrons(), polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, fog: false });
-      group.add(new THREE.Mesh(geo, mat));
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.renderOrder = 10; // after the see-through ground patch, which would otherwise paint over it
+      group.add(mesh);
     }
     for (const b of beacons ?? []) {
       const geo = new THREE.CylinderGeometry(b.radiusM, b.radiusM, b.heightM, 24, 1, true);
       const mat = new THREE.MeshBasicMaterial({ color: b.color, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide, fog: false });
       const m = new THREE.Mesh(geo, mat);
       m.position.copy(sc.project(b.lat, b.lon, b.heightM / 2));
+      m.renderOrder = 11;
       group.add(m);
     }
     sc.s.add(group);

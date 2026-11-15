@@ -100,7 +100,7 @@ export function SuitView({ core }: { core: Core }) {
   // Where the astronaut is: a position along the route (slider, keys or ▶ walk).
   const [pos, setPos] = useState(0);
   const [walking, setWalking] = useState(false);
-  /** Playback speed multiplier: ×1 walks the whole route in 20 s. */
+  /** Playback speed multiplier: ×1 walks the whole route in 60 s. */
   const [speed, setSpeed] = useState(1);
   const speedRef = useRef(speed);
   speedRef.current = speed;
@@ -108,7 +108,7 @@ export function SuitView({ core }: { core: Core }) {
   useEffect(() => { setPos(0); setWalking(false); }, [route, params]);
   useEffect(() => {
     if (!walking) return;
-    const t0 = performance.now(), from = pos, span = Math.max(1, last - from), ms = (20000 / speed) * (span / Math.max(1, last));
+    const t0 = performance.now(), from = pos, span = Math.max(1, last - from), ms = (60000 / speed) * (span / Math.max(1, last));
     const frame = (now: number) => {
       const f = Math.min(1, (now - t0) / ms);
       setPos(from + span * f);
@@ -187,8 +187,8 @@ export function SuitView({ core }: { core: Core }) {
   const ribbons = useMemo<Ribbon3D[]>(() => {
     if (last < 1) return [];
     const ll = (a: number, b: number) => dense.pts.slice(a, b + 1).map((q) => [q.lat, q.lon] as [number, number]);
-    const r: Ribbon3D[] = [{ pts: ll(0, outEnd), color: '#4fd8ff', widthM: 2.2, opacity: 0.4 }];
-    if (turn != null) r.push({ pts: ll(turn, last), color: '#ff4d4f', widthM: 2.2, opacity: 0.35 });
+    const r: Ribbon3D[] = [{ pts: ll(0, outEnd), color: '#4fd8ff', widthM: 4, opacity: 0.5 }];
+    if (turn != null) r.push({ pts: ll(turn, last), color: '#ff4d4f', widthM: 4, opacity: 0.45 });
     return r;
   }, [dense, outEnd, turn, last]);
   const beacons = useMemo<Beacon3D[]>(() => {
