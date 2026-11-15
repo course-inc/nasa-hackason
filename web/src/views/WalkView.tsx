@@ -69,6 +69,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const [o2, setO2] = useState(8);
   const [water, setWater] = useState(8);
   const [reserve, setReserve] = useState(20);
+  const [workH, setWorkH] = useState(1);
   const [showReach, setShowReach] = useState(true);
   const [showRover, setShowRover] = useState(true);
   // Footing (THEMIS thermal inertia, TES dust): counted in every walk number; layer off by default.
@@ -105,7 +106,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
 
   // Same functions as the agent tools (walk/plan.ts), so both always show the same numbers.
   // surfOn is read by ensureFooting (walk/data.ts); it is in the deps so every number recomputes.
-  const p = useMemo(() => evaParams({ speed, o2, water, reserve, footing: footOn, start, retrace }), [speed, o2, water, reserve, footOn, start, surfOn, retrace]); // eslint-disable-line react-hooks/exhaustive-deps
+  const p = useMemo(() => evaParams({ speed, o2, water, reserve, footing: footOn, start, retrace, work: workH }), [speed, o2, water, reserve, footOn, start, surfOn, retrace, workH]); // eslint-disable-line react-hooks/exhaustive-deps
   const dense = useMemo(() => denseRoute(core, data, route), [core, data, route]);
   const ev = useMemo(() => evaluate(core, dense, p), [core, dense, p]);
   // The same route on firm ground, to show how much time the footing adds.
@@ -370,14 +371,14 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const [camera, setCamera] = useState<Camera3D | null>(null);
   const [exag, setExag] = useState<number | undefined>(undefined);
   const [flash, setFlash] = useState<EvidenceTopic | null>(null);
-  const live$ = useRef({ route, speed, o2, water, reserve, footOn, start, retrace, play, stop, startRehearsalWith: reh.run, found: reh.found, loadWalk, loadSample, walkRec });
-  live$.current = { route, speed, o2, water, reserve, footOn, start, retrace, play, stop, startRehearsalWith: reh.run, found: reh.found, loadWalk, loadSample, walkRec };
+  const live$ = useRef({ route, speed, o2, water, reserve, workH, footOn, start, retrace, play, stop, startRehearsalWith: reh.run, found: reh.found, loadWalk, loadSample, walkRec });
+  live$.current = { route, speed, o2, water, reserve, workH, footOn, start, retrace, play, stop, startRehearsalWith: reh.run, found: reh.found, loadWalk, loadSample, walkRec };
   useEffect(() => {
     setWalkController({
       core,
       data: () => loadWalkData(core),
       route: () => live$.current.route,
-      params: () => ({ speed: live$.current.speed, o2: live$.current.o2, water: live$.current.water, reserve: live$.current.reserve, footing: live$.current.footOn, start: live$.current.start, retrace: live$.current.retrace }),
+      params: () => ({ speed: live$.current.speed, o2: live$.current.o2, water: live$.current.water, reserve: live$.current.reserve, footing: live$.current.footOn, start: live$.current.start, retrace: live$.current.retrace, work: live$.current.workH }),
       setRoute: (r) => { live$.current.route = r; setRoute(r); },
       setParams: (q) => {
         if (q.speed != null) { setSpeed(q.speed); live$.current.speed = q.speed; }
@@ -386,6 +387,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
         if (q.reserve != null) { setReserve(q.reserve); live$.current.reserve = q.reserve; }
         if (q.start != null) { setStart(q.start); live$.current.start = q.start; }
         if (q.retrace != null) { setRetrace(q.retrace); live$.current.retrace = q.retrace; }
+        if (q.work != null) { setWorkH(q.work); live$.current.workH = q.work; }
       },
       runRehearsal: (pts) => { setRehOpen(true); setRehSel(0); return live$.current.startRehearsalWith(pts); },
       selectRehearsal: (i) => { setRehOpen(true); setRehSel(i); },
@@ -556,6 +558,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           <>
             <div className="kv"><span>{(retrace ? t('行き / 帰り（来た道）', 'Out / back (same way)') : t('行き / 帰り（まっすぐ）', 'Out / back (straight)'))}</span><b>{ev.out_km.toFixed(1)} km / {ev.back_km.toFixed(1)} km</b></div>
             <div className="kv"><span>{t('かかる時間', 'Time')}</span><b>{fmtH(ev.total_h)}</b></div>
+            {(ev.work_h ?? 0) > 0 && <div className="kv sub" id="work-line"><span>{t('うち目的地での作業', 'of which working at the destination')}</span><b>{fmtH(ev.work_h ?? 0)}</b></div>}
             {evFirm && ev.total_h - evFirm.total_h >= 1 / 60 && <div className="kv sub" id="foot-extra"><span>{t('うち足場で増えた時間', 'of which footing adds')}</span><b>+{fmtH(ev.total_h - evFirm.total_h)}</b></div>}
             {rad && <div className="kv" id="rad-dose"><span>{t('放射線（この船外活動）', 'Radiation (this EVA)')}</span><b>{rad.dose_msv.toFixed(2)} mSv <small className="muted">{t(`生涯上限の ${(rad.career_share * 100).toFixed(2)}%`, `${(rad.career_share * 100).toFixed(2)}% of career limit`)}</small></b></div>}
             <div className="kv"><span>{t('体力の消費 / 使える分', 'Effort used / usable')}</span><b>{ev.total_effort_h.toFixed(1)} / {ev.usable_h.toFixed(1)} h</b></div>
@@ -676,6 +679,9 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
             <input id="water" type="range" min={2} max={12} step={0.5} value={water} onChange={(e) => setWater(+e.target.value)} /></label>
           <label>{t('残しておく余裕', 'Reserve at arrival')} <b>{reserve}</b>%{t('（最低30分）', ' (at least 30 min)')}
             <input id="reserve" type="range" min={0} max={50} step={5} value={reserve} onChange={(e) => setReserve(+e.target.value)} /></label>
+          <label>{t('目的地での作業時間', 'Work time at destination')} <b>{workH}</b> {t('時間', 'h')}
+            <input id="work-h" type="range" min={0} max={4} step={0.5} value={workH} onChange={(e) => setWorkH(+e.target.value)} />
+            <small>{t('作業中も平地を歩くのと同じ速さで酸素と冷却水を使う前提（目安）', 'Assumes work uses O₂ and water at the same rate as walking on flat ground (estimate)')}</small></label>
           <label>{t('出発時刻（火星の地方時）', 'Departure (Mars local time)')} <b>{String(Math.floor(start)).padStart(2, '0')}:{start % 1 ? '30' : '00'}</b>
             <input id="start" type="range" min={5} max={19} step={0.5} value={start} onChange={(e) => setStart(+e.target.value)} /></label>
           {wx && wx.temp_k != null && (

@@ -341,6 +341,7 @@ mod walkback_tests {
             reserve: 0.0,
             min_reserve_h: 0.0,
             unknown_slope: 0.3,
+            work_h: 0.0,
         };
         let home = home_ratio(World::Mars, &g, 0.0, 0.0, &p, 25.0);
         let t = Traverse {

@@ -370,7 +370,7 @@ pub fn reach(
     let mut max_km = 0.0_f64;
     let ratio = (0..n)
         .map(|i| {
-            let t = out[i] + back[i];
+            let t = out[i] + back[i] + p.work();
             if !t.is_finite() || budget <= 0.0 {
                 return None;
             }
@@ -600,7 +600,7 @@ pub fn plan_route_with(
     let out = efforts(world, g, a, p, max_slope_deg, false);
     let back = efforts(world, g, a, p, max_slope_deg, true);
     let ratio = |i: usize| {
-        let t = out[i] + back[i];
+        let t = out[i] + back[i] + p.work();
         (t.is_finite() && budget > 0.0).then(|| t / budget)
     };
     let goal_ratio = ratio(b);

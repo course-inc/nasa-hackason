@@ -8,9 +8,9 @@ const OPENAI_MODELS_API = 'https://api.openai.com/v1/models';
 
 const NOT_CHAT = /embedding|audio|realtime|tts|image|transcribe|search|moderation|whisper|dall-e/i;
 
-/** Chat model ids from a /v1/models list, best first: gpt-terra → gpt-5 → gpt-4.1 → gpt-4o (plain before -mini, undated before dated). */
+/** Chat model ids from a /v1/models list, best first: *terra* → gpt-5 → gpt-4.1 → gpt-4o (plain before -mini, undated before dated). */
 export function chatModels(ids: string[]): string[] {
-  const fam = (id: string) => (/gpt-terra/.test(id) ? 0 : id.startsWith('gpt-5') ? 1 : id.startsWith('gpt-4.1') ? 2 : id.startsWith('gpt-4o') ? 3 : 9);
+  const fam = (id: string) => (/terra/.test(id) ? 0 : id.startsWith('gpt-5') ? 1 : id.startsWith('gpt-4.1') ? 2 : id.startsWith('gpt-4o') ? 3 : 9);
   const rank = (id: string) => [fam(id), /-(mini|nano)\b/.test(id) ? 1 : 0, /\d{4}-\d{2}-\d{2}/.test(id) ? 1 : 0, id.length] as const;
   return ids.filter((id) => !NOT_CHAT.test(id) && fam(id) < 9).sort((a, b) => {
     const x = rank(a), y = rank(b);
@@ -37,7 +37,7 @@ export const SYSTEM = `あなたは WALKBACK（火星の船外活動で「歩い
 - 北海道のどこで・いつ訓練するかは explore_hokkaido。歩いた記録・GPX は import_walk。
 - 見せてと言われたら表示ツール（view_3d, view_walk, view_globe など）で地図を動かす。
 - 件数・範囲・一覧など、ほかのツールで答えられない質問は query_nasa に読み取り専用の SELECT を1つ渡して表から引く（集計や WHERE で絞る）。Perseverance が何 km 走ったか・sol ごとの位置は rover_traverse 表（例: SELECT max(km) FROM rover_traverse WHERE sol <= 1000）。船外活動の回数や時間は eva 表。Jezero の足場（熱慣性・ダスト被覆）は mars_footing 表。船外活動の放射線（Curiosity RAD の線量率と NASA の上限）は mars_radiation 表。Jezero の時刻ごとの気温・気圧（Perseverance MEDA）は mars_weather 表。火星の地名・着陸地点・有人着陸の候補地は mars_names 表（例: SELECT name, lat, lon, diameter_km FROM mars_names WHERE name ILIKE '%Jezero%'）。
-- どんな表・列があるか分からないときは list_nasa_tables（table を渡すと列の型と例）。列の件数・最小・最大・平均・中央値・欠損は summarize_nasa（where で絞り込み、group_by でグループ別）、それ以外の集計は query_nasa。
+- どんな表・列があるか分からないときは list_nasa_tables（table を渡すと列の型と例）。列の件数・最小・最大・平均・中央値・欠損は summarize_nasa（where で絞り込み、group_by でグループ別）。グループ間や2つの条件の比較は compare_nasa（group_by か where_a と where_b）。細かい条件の集計は query_nasa。
 - walkback_check は歩く計画の判定だけに使う。
 数字の決まり（最重要）: 答えに書く数字は、ツールの結果の文に出てくる数字だけを、そのまま写す。自分で計算・換算・四捨五入・推測をしない。ツールで出せない数字は「ツールでは出せません」と言う。
 最後に出典（sources）を一言添える。ユーザーの言語で、短く（3〜6文）答える。答えはそのまま文字で表示されるので、**太字** や見出しなどのマークダウン記法は使わない（箇条書きは「・」で）。`;
@@ -102,7 +102,7 @@ export async function openaiTurn(messages: Msg[], specs: Spec[], signal?: AbortS
     signal,
   });
   type Body = Completion & { error?: { message?: string; code?: string } };
-  const wanted = s.openaiModel.trim() || 'gpt-terra-6.1';
+  const wanted = s.openaiModel.trim() || 'gpt-6.1-terra';
   let res = await call(wanted);
   let body = (await res.json().catch(() => ({}))) as Body;
   if (!res.ok && (res.status === 404 || body.error?.code === 'model_not_found')) {

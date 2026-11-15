@@ -27,6 +27,7 @@ fn scaled(l: Leg, f: f64) -> Leg {
 pub fn evaluate(world: World, pts: &[Waypoint], p: EvaParams, s: &Surface) -> RouteEval {
     let at = |v: &Vec<f64>, i: usize| v.get(i).copied().unwrap_or(1.0);
     let budget = p.budget();
+    let work = p.work();
     let limit_km = p.speed_kmh * budget / 2.0;
     let (mut out_km, mut out_h, mut out_e, mut max_slope, mut unknown) =
         (0.0, 0.0, 0.0, 0.0_f64, 0);
@@ -48,7 +49,7 @@ pub fn evaluate(world: World, pts: &[Waypoint], p: EvaParams, s: &Surface) -> Ro
             0.0
         },
         home_h: home.hours,
-        margin_h: budget - (e + home.effort_h),
+        margin_h: budget - (e + work + home.effort_h),
     };
     // Walking back along the route: the cost from each point to the base over the reversed route.
     let home_along: Vec<Leg> = if s.retrace {
@@ -102,7 +103,7 @@ pub fn evaluate(world: World, pts: &[Waypoint], p: EvaParams, s: &Surface) -> Ro
         }
         legs.push(l);
         let home = home_of(i);
-        if pnr.is_none() && out_e + home.effort_h > budget {
+        if pnr.is_none() && out_e + work + home.effort_h > budget {
             pnr = Some(i);
         }
         ticks.push(tick(i, out_h, out_km, out_e, &home));
@@ -118,13 +119,14 @@ pub fn evaluate(world: World, pts: &[Waypoint], p: EvaParams, s: &Surface) -> Ro
             known: true,
         }
     };
-    let total_effort_h = out_e + back.effort_h;
+    let total_effort_h = out_e + work + back.effort_h;
     RouteEval {
         out_km,
         out_h,
         back_km: back.km,
         back_h: back.hours,
-        total_h: out_h + back.hours,
+        total_h: out_h + work + back.hours,
+        work_h: work,
         total_effort_h,
         usable_h: budget,
         usable_o2_h: p.usable_o2(),

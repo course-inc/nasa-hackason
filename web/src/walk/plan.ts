@@ -27,12 +27,14 @@ export interface PlanParams { speed: number; o2: number; water: number; reserve:
   /** Departure, local solar hour at Jezero (MEDA temperatures change the cooling water); default 9. */
   start?: number;
   /** Walk home along the route reversed (true) or straight (false, default). */
-  retrace?: boolean }
+  retrace?: boolean;
+  /** Hours of work at the destination (O₂ / water at the nominal rate, estimate); default 0. */
+  work?: number }
 export const DEFAULT_START = 9;
 export const DEFAULT_PARAMS: PlanParams = { speed: 2, o2: 8, water: 8, reserve: 20 };
 
 export const evaParams = (q: PlanParams): EvaParams =>
-  ({ speed_kmh: q.speed, o2_h: q.o2, water_h: q.water, reserve: q.reserve / 100, min_reserve_h: 0.5, footing: q.footing ?? true, start_h: q.start ?? DEFAULT_START, retrace: q.retrace ?? false });
+  ({ speed_kmh: q.speed, o2_h: q.o2, water_h: q.water, reserve: q.reserve / 100, min_reserve_h: 0.5, footing: q.footing ?? true, start_h: q.start ?? DEFAULT_START, retrace: q.retrace ?? false, work_h: q.work ?? 0 });
 /**
  * Surface conditions before a computation: the footing switch into the Rust core's grid, and the
  * cooling water scaled by the air temperature over the walk (Rust weather.rs; from the departure

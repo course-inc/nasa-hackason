@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const saved: Record<string, string> = {};
 vi.mock('../settings', () => ({
-  getSettings: () => ({ cloudVia: 'openai', openaiKey: 'sk-test', openaiModel: 'gpt-terra-6.1' }),
+  getSettings: () => ({ cloudVia: 'openai', openaiKey: 'sk-test', openaiModel: 'gpt-6.1-terra' }),
   setSetting: (k: string, v: string) => { saved[k] = v; },
 }));
 import { chatModels, openaiTurn } from './openai';
@@ -13,12 +13,12 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe('OpenAI model fallback', () => {
   it('ranks chat models and drops non-chat ones', () => {
-    expect(chatModels(['text-embedding-3-small', 'gpt-4o', 'gpt-5-mini', 'gpt-5-2025-08-07', 'gpt-5', 'gpt-4o-realtime-preview', 'gpt-4.1', 'gpt-image-1']))
-      .toEqual(['gpt-5', 'gpt-5-2025-08-07', 'gpt-5-mini', 'gpt-4.1', 'gpt-4o']);
+    expect(chatModels(['text-embedding-3-small', 'gpt-6.1-terra', 'gpt-4o', 'gpt-5-mini', 'gpt-5-2025-08-07', 'gpt-5', 'gpt-4o-realtime-preview', 'gpt-4.1', 'gpt-image-1']))
+      .toEqual(['gpt-6.1-terra', 'gpt-5', 'gpt-5-2025-08-07', 'gpt-5-mini', 'gpt-4.1', 'gpt-4o']);
   });
   it('on 404 reads /v1/models, saves an available model and retries once', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(json({ error: { message: 'The model `gpt-terra-6.1` does not exist', code: 'model_not_found' } }, 404))
+      .mockResolvedValueOnce(json({ error: { message: 'The model `gpt-6.1-terra` does not exist', code: 'model_not_found' } }, 404))
       .mockResolvedValueOnce(json({ data: [{ id: 'whisper-1' }, { id: 'gpt-4o' }, { id: 'gpt-5-mini' }, { id: 'gpt-5' }] }))
       .mockResolvedValueOnce(json({ model: 'gpt-5', choices: [{ finish_reason: 'stop', message: { content: 'ok' } }] }));
     vi.stubGlobal('fetch', fetchMock);

@@ -60,6 +60,10 @@ pub struct EvaParams {
     /// Slope (rise/run) assumed on segments without elevation.
     #[serde(default = "d_unknown_slope")]
     pub unknown_slope: f64,
+    /// Hours of work at the destination, counted at the same O2 / water rate as nominal walking
+    /// (estimate, 目安). Spent between walking out and walking back.
+    #[serde(default)]
+    pub work_h: f64,
 }
 
 impl EvaParams {
@@ -71,6 +75,7 @@ impl EvaParams {
             water_h: d_water(),
             min_reserve_h: d_min_reserve(),
             unknown_slope: UNKNOWN_SLOPE,
+            work_h: 0.0,
         }
     }
 
@@ -88,6 +93,10 @@ impl EvaParams {
     /// Effort-hours available for the whole walk: whichever consumable runs out first.
     pub fn budget(&self) -> f64 {
         self.usable_o2().min(self.usable_water() / WATER_PER_O2)
+    }
+    /// Work time at the destination in effort-hours (never negative).
+    pub fn work(&self) -> f64 {
+        self.work_h.max(0.0)
     }
     /// Which consumable limits the walk.
     pub fn limiting(&self) -> Limiting {
@@ -167,8 +176,12 @@ pub struct RouteEval {
     pub out_h: f64,
     pub back_km: f64,
     pub back_h: f64,
+    /// Hours out + work at the destination + back.
     pub total_h: f64,
-    /// Effort-hours used out and back.
+    /// Hours of work at the destination (included in total_h / total_effort_h).
+    #[serde(default)]
+    pub work_h: f64,
+    /// Effort-hours used out, at the destination and back.
     pub total_effort_h: f64,
     /// Effort-hours available (the smaller of O₂ and water after reserves).
     pub usable_h: f64,
@@ -189,6 +202,7 @@ pub struct RouteEval {
 
 pub fn evaluate_route(world: World, pts: &[Waypoint], p: EvaParams) -> RouteEval {
     let budget = p.budget();
+    let work = p.work();
     let limit_km = p.speed_kmh * budget / 2.0;
     let (mut out_km, mut out_h, mut out_e, mut max_slope, mut unknown) =
         (0.0, 0.0, 0.0, 0.0_f64, 0);
@@ -212,7 +226,7 @@ pub fn evaluate_route(world: World, pts: &[Waypoint], p: EvaParams) -> RouteEval
                 0.0
             },
             home_h: home.hours,
-            margin_h: budget - used,
+            margin_h: budget - used - work,
         }
     };
     if let Some(first) = pts.first() {
@@ -230,7 +244,7 @@ pub fn evaluate_route(world: World, pts: &[Waypoint], p: EvaParams) -> RouteEval
         }
         legs.push(s);
         let home = leg(world, &pts[i], &pts[0], &p);
-        if pnr.is_none() && out_e + home.effort_h > budget {
+        if pnr.is_none() && out_e + work + home.effort_h > budget {
             pnr = Some(i);
         }
         ticks.push(tick(i, out_h, out_km, out_e, &home));
@@ -246,13 +260,14 @@ pub fn evaluate_route(world: World, pts: &[Waypoint], p: EvaParams) -> RouteEval
             known: true,
         }
     };
-    let total_effort_h = out_e + back.effort_h;
+    let total_effort_h = out_e + work + back.effort_h;
     RouteEval {
         out_km,
         out_h,
         back_km: back.km,
         back_h: back.hours,
-        total_h: out_h + back.hours,
+        total_h: out_h + work + back.hours,
+        work_h: work,
         total_effort_h,
         usable_h: budget,
         usable_o2_h: p.usable_o2(),
@@ -307,7 +322,25 @@ mod tests {
         assert!((r.usable_h - 6.4).abs() < 1e-12 && (r.limit_km - 6.4).abs() < 1e-12);
         assert_eq!(r.limiting, Limiting::O2);
         assert_eq!(r.ticks.len(), 2);
+        assert!((r.work_h - 0.0).abs() < 1e-12);
         assert!((r.ticks[1].o2_left - (1.0 - 0.5 / 6.4)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn work_at_destination_counts_between_out_and_back() {
+        // 3.2 km out + 3.2 km back on flat ground = 3.2 h ≤ 6.4 h; with 3.5 h of work it no longer fits.
+        let deg = (3.2 / 3389.5_f64).to_degrees();
+        let pts = [wp(0.0, 0.0, Some(0.0)), wp(0.0, deg, Some(0.0))];
+        let base = evaluate_route(World::Mars, &pts, p());
+        assert!(base.ok && base.point_of_no_return.is_none());
+        let busy = EvaParams { work_h: 3.5, ..p() };
+        let r = evaluate_route(World::Mars, &pts, busy);
+        assert!((r.total_effort_h - (base.total_effort_h + 3.5)).abs() < 1e-9);
+        assert!((r.total_h - (base.total_h + 3.5)).abs() < 1e-9);
+        assert!((r.usable_h - base.usable_h).abs() < 1e-12);
+        assert!(!r.ok);
+        assert_eq!(r.point_of_no_return, Some(1));
+        assert!((r.ticks[1].margin_h - (base.ticks[1].margin_h - 3.5)).abs() < 1e-9);
     }
 
     #[test]
