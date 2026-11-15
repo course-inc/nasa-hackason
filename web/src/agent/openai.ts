@@ -8,9 +8,9 @@ const OPENAI_MODELS_API = 'https://api.openai.com/v1/models';
 
 const NOT_CHAT = /embedding|audio|realtime|tts|image|transcribe|search|moderation|whisper|dall-e/i;
 
-/** Chat model ids from a /v1/models list, best first: gpt-terra → gpt-5 → gpt-4.1 → gpt-4o (plain before -mini, undated before dated). */
+/** Chat model ids from a /v1/models list, best first: *terra* → gpt-5 → gpt-4.1 → gpt-4o (plain before -mini, undated before dated). */
 export function chatModels(ids: string[]): string[] {
-  const fam = (id: string) => (/gpt-terra/.test(id) ? 0 : id.startsWith('gpt-5') ? 1 : id.startsWith('gpt-4.1') ? 2 : id.startsWith('gpt-4o') ? 3 : 9);
+  const fam = (id: string) => (/terra/.test(id) ? 0 : id.startsWith('gpt-5') ? 1 : id.startsWith('gpt-4.1') ? 2 : id.startsWith('gpt-4o') ? 3 : 9);
   const rank = (id: string) => [fam(id), /-(mini|nano)\b/.test(id) ? 1 : 0, /\d{4}-\d{2}-\d{2}/.test(id) ? 1 : 0, id.length] as const;
   return ids.filter((id) => !NOT_CHAT.test(id) && fam(id) < 9).sort((a, b) => {
     const x = rank(a), y = rank(b);
@@ -102,7 +102,7 @@ export async function openaiTurn(messages: Msg[], specs: Spec[], signal?: AbortS
     signal,
   });
   type Body = Completion & { error?: { message?: string; code?: string } };
-  const wanted = s.openaiModel.trim() || 'gpt-terra-6.1';
+  const wanted = s.openaiModel.trim() || 'gpt-6.1-terra';
   let res = await call(wanted);
   let body = (await res.json().catch(() => ({}))) as Body;
   if (!res.ok && (res.status === 404 || body.error?.code === 'model_not_found')) {
