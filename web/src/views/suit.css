@@ -50,6 +50,9 @@
 .suit-controls input[type=range] { flex: 1; }
 .suit-controls a { color: var(--muted); }
 .suit-controls .keys { font-size: 12px; }
+.suit-speed { display: flex; gap: 4px; align-items: center; font-size: 13px; }
+.suit-speed button { padding: 2px 8px; border: 1px solid rgba(255, 255, 255, .25); border-radius: 4px; background: transparent; color: inherit; cursor: pointer; font: inherit; }
+.suit-speed button.on { background: #ff7a45; border-color: #ff7a45; color: #fff; }
 .suit-empty { max-width: 520px; margin: 48px auto; text-align: center; display: flex; flex-direction: column; gap: 10px; }
 .suit-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 

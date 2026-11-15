@@ -28,6 +28,8 @@ const HIRISE = ['hirise'];
 /** Follow camera: a little behind and above the walker, looking along the way. */
 const CAM_DIST_M = 160, CAM_TILT = 18;
 const MAP_Z = 15;
+/** Playback only: how fast ▶ and the keys move along the route. The calculation's walking speed is unchanged. */
+const SPEEDS = [0.5, 1, 2, 5, 10];
 /** Half-size (deg of latitude) of the 2D map's window around the walker. */
 const MAP_HALF = 0.004;
 
@@ -61,11 +63,15 @@ export function SuitView({ core }: { core: Core }) {
   // Where the astronaut is: a position along the route (slider, keys or ▶ walk).
   const [pos, setPos] = useState(0);
   const [walking, setWalking] = useState(false);
+  /** Playback speed multiplier: ×1 walks the whole route in 20 s. */
+  const [speed, setSpeed] = useState(1);
+  const speedRef = useRef(speed);
+  speedRef.current = speed;
   const raf = useRef(0);
   useEffect(() => { setPos(0); setWalking(false); }, [route, params]);
   useEffect(() => {
     if (!walking) return;
-    const t0 = performance.now(), from = pos, span = Math.max(1, last - from), ms = 20000 * (span / Math.max(1, last));
+    const t0 = performance.now(), from = pos, span = Math.max(1, last - from), ms = (20000 / speed) * (span / Math.max(1, last));
     const frame = (now: number) => {
       const f = Math.min(1, (now - t0) / ms);
       setPos(from + span * f);
@@ -73,7 +79,7 @@ export function SuitView({ core }: { core: Core }) {
     };
     raf.current = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf.current);
-  }, [walking]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [walking, speed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keys (only while this tab is shown): ↑/W walk on, ↓/S walk back, space ▶/■.
   useEffect(() => {
@@ -82,8 +88,8 @@ export function SuitView({ core }: { core: Core }) {
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       const k = e.key.toLowerCase();
-      if (k === 'arrowup' || k === 'w') { e.preventDefault(); setWalking(false); setPos((x) => Math.min(last, x + 0.5)); }
-      else if (k === 'arrowdown' || k === 's') { e.preventDefault(); setWalking(false); setPos((x) => Math.max(0, x - 0.5)); }
+      if (k === 'arrowup' || k === 'w') { e.preventDefault(); setWalking(false); setPos((x) => Math.min(last, x + 0.5 * speedRef.current)); }
+      else if (k === 'arrowdown' || k === 's') { e.preventDefault(); setWalking(false); setPos((x) => Math.max(0, x - 0.5 * speedRef.current)); }
       else if (k === ' ') { e.preventDefault(); setWalking((w) => !w); }
     };
     window.addEventListener('keydown', on);
@@ -233,6 +239,12 @@ export function SuitView({ core }: { core: Core }) {
         <button onClick={() => (walking ? setWalking(false) : (pos >= last && setPos(0), setWalking(true)))}>
           {walking ? t('■ 止める', '■ Stop') : t('▶ 歩いてみる', '▶ Walk')}
         </button>
+        <span className="suit-speed" role="group" aria-label={t('再生の速さ', 'Playback speed')}>
+          {t('再生の速さ', 'Playback speed')}
+          {SPEEDS.map((x) => (
+            <button key={x} className={x === speed ? 'on' : ''} aria-pressed={x === speed} onClick={() => setSpeed(x)}>×{x}</button>
+          ))}
+        </span>
         <label>
           {t('いまの位置', 'Position')}
           <input type="range" min={0} max={last} step={0.1} value={pos} onChange={(e) => { setWalking(false); setPos(+e.target.value); }} />
