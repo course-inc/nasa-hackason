@@ -34,7 +34,7 @@ export function WalkImportCard({ rec, error, busy, onFile, onSample, onClear }: 
           <div className="kv"><span>{t('歩いた距離', 'Distance walked')}</span><b>{s.km.toFixed(2)} km</b></div>
           <div className="kv"><span>{t('かかった時間（歩いていた時間）', 'Time (moving)')}</span><b>{fmtH(s.elapsed_h)} ({fmtH(s.moving_h)})</b></div>
           <div className="kv"><span>{t('登り / 下り（NASADEM）', 'Climb / descent (NASADEM)')}</span><b>{rec.area ? `${Math.round(s.climb_m)} m / ${Math.round(s.descent_m)} m` : t('標高データなし', 'No elevation data')}</b></div>
-          <div className="kv"><span>{t('平地に直した速さ', 'Flat-ground speed')}</span><b className="measured-speed">{s.flat_kmh.toFixed(2)} km/h</b></div>
+          <div className="kv"><span>{t('平地に直した速さ', 'Flat-ground speed')}</span><b className="measured-speed">{Math.min(5, Math.max(0.5, s.flat_kmh)).toFixed(2)} km/h</b></div>
           <p className="muted">
             {t(`速さは GPX の時刻と NASADEM の坂から求めた${rec.synthetic ? '値（仮データ）' : 'チームの実測'}で、上の「歩く速さ」に入れています。GPS の標高は使いません。`, `The speed comes from the GPX times and NASADEM slopes (${rec.synthetic ? 'sample data' : "the team's own measurement"}) and is set as the walking speed above. GPS elevation is not used.`)}
             {!rec.area && t(' この場所は標高データ（札幌市街）の範囲外なので、坂を平らとして計算しています。', ' This walk is outside the elevation data (central Sapporo), so slopes are taken as flat.')}

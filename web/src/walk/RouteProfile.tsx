@@ -24,8 +24,8 @@ export function RouteProfile({ pts, ev, foot, turn, onHover, t }: {
       case 'slope': return i > 0 ? (ev.legs[i - 1]?.known ? ev.legs[i - 1].slope_deg : null) : 0;
       case 'foot': return foot?.[i] ?? null;
       case 'time': return ev.ticks[i].t_h;
-      case 'o2': return ev.ticks[i].o2_left * 100;
-      case 'water': return ev.ticks[i].water_left * 100;
+      case 'o2': return Math.max(0, ev.ticks[i].o2_left) * 100;
+      case 'water': return Math.max(0, ev.ticks[i].water_left) * 100;
     }
   };
   const ys = Array.from({ length: n }, (_, i) => val(i));
