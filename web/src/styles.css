@@ -630,3 +630,27 @@ h1 small { font-size: 12px; margin-left: 6px; }
 .split-close { position: absolute; z-index: 1300; right: 12px; top: 60px; font-size: 13px; padding: 6px 12px; border-radius: 18px;
   background: rgba(14, 18, 28, 0.92); border: 1px solid #3a4560; color: #e8edf5; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
 .split-close:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Glass look across the app: frosted panels, cards and the header over the map / 3D.
+   Overrides only — delete this block to go back. Blur is kept to the big boxes. */
+:root { --glass: rgba(16,21,34,.72); --glass-strong: rgba(16,21,34,.8); --glass-line: rgba(255,255,255,.14);
+  --glass-blur: blur(14px) saturate(150%); --glass-shadow: 0 10px 30px rgba(0,0,0,.35); }
+header { background: rgba(11,15,25,.72); border-bottom-color: var(--glass-line);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); position: relative; z-index: 1500; }
+.walk .panel, .guide, .settings, .rehearsal-card, .globe-card, .search-viz, .panel-chip, .floating {
+  background: var(--glass); border: 1px solid var(--glass-line); box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); }
+.walk .panel, .settings { background: var(--glass-strong); border-radius: 14px; }
+.guide, .rehearsal-card, .globe-card, .panel-chip { border-radius: 14px; }
+.hud-top, .hud-left, .hud-msg:not(.alert) { background: rgba(5,15,30,.55);
+  -webkit-backdrop-filter: blur(12px) saturate(140%); backdrop-filter: blur(12px) saturate(140%); }
+.maplabel { background: rgba(11,15,25,.62); border: 1px solid var(--glass-line);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+.undo-bar button, .split-close { background: rgba(16,21,34,.66); border-color: var(--glass-line);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+.card { background: rgba(255,255,255,.04); border-color: var(--glass-line); border-radius: 10px; }
+.settings-choice { border-color: var(--glass-line); background: rgba(255,255,255,.03); }
+:is(.walk .panel, .guide, .settings, .rehearsal-card, .globe-card, .search-viz, header) :is(button:not(.primary):not(.on), select, input:not([type=range]):not([type=checkbox]):not([type=radio])) {
+  background: rgba(255,255,255,.06); border-color: var(--glass-line); }
+.lang-switch { background: rgba(255,255,255,.06); border-color: var(--glass-line); }
+.settings-btn { background: rgba(255,255,255,.06); border-color: var(--glass-line); }
