@@ -2,7 +2,6 @@
 // joining the tools' own text. It never computes or invents a number: the only numbers it adds to a
 // tool call are ones typed in the question ("酸素6時間", "3 km").
 import { callTool } from './port';
-import { getLang } from '../i18n';
 import type { AgentEvent, AgentPort, ToolDef, ToolResult } from './types';
 
 export type Lang = 'ja' | 'en';
@@ -130,7 +129,7 @@ const HELP: Record<Lang, string> = {
 
 export const rulesAgent: AgentPort = {
   id: 'rules',
-  get label() { return getLang() === 'ja' ? '規則版（AIなし）' : 'Rules (no AI)'; },
+  get label() { return 'QA'; },
   available: () => true,
   async ask(prompt, tools: ToolDef[], onEvent: (e: AgentEvent) => void, signal?: AbortSignal) {
     const lang = detectLang(prompt);
