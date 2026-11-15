@@ -287,8 +287,8 @@ export function TargetView({ core, params }: { core: Core; params: TargetParams 
         )}
 
         <div className="btns">
-          <a className="btn" href={`#walk/earth/${curSite.lat}/${curSite.lon}/14`}>{t.walk}</a>
-          <a className="btn" href={`#walk/${body.world}/${body.lat}/${body.lon}/${body.world === 'mars' ? 9 : 10}`}>{core.world(body.world).icon} {t.plan}</a>
+          <a className="btn" href="#walk">{t.walk}</a>
+          <a className="btn" href={body.id === 'jezero' ? `#walk/mars/${body.lat}/${body.lon}/9` : '#walk'}>{core.world(body.world).icon} {t.plan}</a>
         </div>
         <p className="muted">{t.src}: {body.src}{body.approx ? t.approx : ''}</p>
       </aside>

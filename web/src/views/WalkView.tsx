@@ -356,7 +356,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
       },
       runRehearsal: (pts) => { setRehOpen(true); setRehSel(0); return live$.current.startRehearsalWith(pts); },
       selectRehearsal: (i) => { setRehOpen(true); setRehSel(i); },
-      set3d: setView3d,
+      set3d: (on) => { setGlobeOn(false); setView3d(on); },
       setCamera: (c) => {
         if (c.exaggeration != null) setExag(c.exaggeration);
         if ([c.lat, c.lon, c.distance_m, c.heading_deg, c.tilt_deg].some((x) => x != null)) {
@@ -396,7 +396,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   const routePreview = (pts: Waypoint[]): Preview | null => {
     if (!data || pts.length < 2) return null;
     const e = evaluate(core, denseRoute(core, data, pts), p);
-    return { ok: e.ok, out_km: e.out_km, total_h: e.total_h, o2_left: e.ticks.at(-1)?.o2_left ?? null };
+    return { ok: e.ok, out_km: e.out_km, total_h: e.total_h, o2_left: e.usable_o2_h > 0 ? 1 - e.total_effort_h / e.usable_o2_h : 0 };
   };
 
   // ---- map features ----
@@ -578,7 +578,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
                 <button onClick={() => setRoute(compare.safe)}>{t('安全重視を使う', 'Use the safer')}</button>
               </div>
             )}
-            <p className="muted" id="ev-weights">{t('「最短距離」は距離だけで探した経路（帰れる範囲・歩ける坂の中で）。「安全重視」の各歩のコスト ＝ 歩く時間 ×（1 ＋ 安全優先 ×（坂 ×（坂/10°）² ＋ 足場 ×（η−1）/0.5 ＋ そのマスまで行って戻るのに使う割合））。歩く時間は判定と同じ計算（坂・足場・出発時刻の冷却水）。「足場の悪い区間」は η が かたい地面と砂の中間（1.35）以上の区間の割合。重みは好みの指定で、物理の係数ではありません。', 'Weights: the cost of each step = walking time × (speed + slope × (slope/10°)² + footing × (η−1)/0.5 + margin × the share of the budget used going there and back). Walking time is the verdict\'s own calculation (slope, footing, departure-time water). "Poor footing" = share of the route with η at or above the midpoint of firm and loose (1.35). Weights are preferences, not physical coefficients.')}</p>
+            <p className="muted" id="ev-weights">{t('「最短距離」は距離だけで探した経路（帰れる範囲・歩ける坂の中で）。「安全重視」の各歩のコスト ＝ 歩く時間 ×（1 ＋ 安全優先 ×（坂 ×（坂/10°）² ＋ 足場 ×（η−1）/0.5 ＋ そのマスまで行って戻るのに使う割合））。歩く時間は判定と同じ計算（坂・足場・出発時刻の冷却水）。「足場の悪い区間」は η が かたい地面と砂の中間（1.35）以上の区間の割合。重みは好みの指定で、物理の係数ではありません。', 'Weights: the cost of each step = walking time × (1 + safety × (slope × (slope/10°)² + footing × (η−1)/0.5 + the share of the budget used going there and back)). Walking time is the verdict\'s own calculation (slope, footing, departure-time water). "Poor footing" = share of the route with η at or above the midpoint of firm and loose (1.35). Weights are preferences, not physical coefficients.')}</p>
           </div>
         )}
         {dense.pts.length > 1 && <RouteProfile pts={dense.pts} ev={ev} foot={profFoot} turn={turnIdx} onHover={setProfHi} t={t} />}
