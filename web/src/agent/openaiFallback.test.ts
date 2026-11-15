@@ -34,4 +34,18 @@ describe('OpenAI model fallback', () => {
       .mockResolvedValueOnce(json({ error: {} }, 403)));
     await expect(openaiTurn([{ role: 'user', content: 'q' }], [])).rejects.toThrow(/設定画面でモデル名/);
   });
+  it('sends reasoning_effort none, and on a 400 about it retries once without it', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ error: { message: "Unsupported value: 'reasoning_effort' does not support 'none' with this model.", code: 'unsupported_value' } }, 400))
+      .mockResolvedValueOnce(json({ model: 'gpt-4o', choices: [{ finish_reason: 'stop', message: { content: 'ok' } }] }));
+    vi.stubGlobal('fetch', fetchMock);
+    const r = await openaiTurn([{ role: 'user', content: 'q' }], [{ name: 't', description: 'd', input_schema: { type: 'object' } }]);
+    expect(r.content).toEqual([{ type: 'text', text: 'ok' }]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).reasoning_effort).toBe('none');
+    const second = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(second).not.toHaveProperty('reasoning_effort');
+    expect(second.tools).toHaveLength(1);
+    expect(second.model).toBe('gpt-6.1-terra');
+  });
 });

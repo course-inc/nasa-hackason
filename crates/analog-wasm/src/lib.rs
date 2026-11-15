@@ -144,6 +144,31 @@ pub fn set_footing(name: &str, footing_json: &str) -> Result<(), JsError> {
     })
 }
 
+/// Cells reported blocked (an obstacle seen on the way), as row-major indices `[i, …]`; every route
+/// search on this grid steps around them. `"[]"` clears them.
+#[wasm_bindgen(js_name = setBlocked)]
+pub fn set_blocked(name: &str, cells_json: &str) -> Result<(), JsError> {
+    let cells: Vec<usize> = serde_json::from_str(cells_json).map_err(err)?;
+    GRIDS.with(|m| {
+        let mut m = m.borrow_mut();
+        let g = m
+            .get_mut(name)
+            .ok_or_else(|| JsError::new(&format!("grid {name} not loaded")))?;
+        g.blocked = if cells.is_empty() {
+            Vec::new()
+        } else {
+            let mut b = vec![false; g.rows * g.cols];
+            for i in cells {
+                if let Some(x) = b.get_mut(i) {
+                    *x = true;
+                }
+            }
+            b
+        };
+        Ok(())
+    })
+}
+
 /// Footing factor η at `[[lat, lon], …]` (null outside the grid or when not set).
 #[wasm_bindgen(js_name = sampleFooting)]
 pub fn sample_footing(name: &str, latlons: &str) -> Result<String, JsError> {

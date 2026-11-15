@@ -4,7 +4,8 @@ import type { Core, Waypoint } from '../core';
 import { LANDING, exampleRoute, loadHokkaidoGrid, type WalkData } from '../walk/data';
 import { fmtH } from '../walk/geo';
 import { DEFAULT_START, MAX_SLOPE, reachFrom, computePlan, evaluateRouteMaterial, evaParams, evaluate, planRoute, steepLeg, rehearsalPoints, roverWalkbackSql, turnIndex, turnWaypoint, WATER_PER_O2, type PlanParams } from '../walk/plan';
-import { nextFrame, walkController, type EvidenceTopic } from '../walk/controller';
+import { nextFrame, peekWalkController, walkController, type EvidenceTopic } from '../walk/controller';
+import { reportObstacle } from '../walk/obstacle';
 import { registerTool, setToolsReady } from './port';
 import { getLang } from '../i18n';
 import { SPOT_SRC, loadSpotSources, pickSpots, spotNote } from '../walk/spots';
@@ -501,6 +502,48 @@ const planRouteTool: ToolDef = {
   },
 };
 
+/** report_obstacle: an obstacle ahead of the astronaut (astronaut view) → blocked cells, route searched again. */
+const reportObstacleTool: ToolDef = {
+  name: 'report_obstacle',
+  kind: 'compute',
+  description: 'The astronaut reports an obstacle in front of them while walking (rocks, a crack, a ridge, loose sand, "障害物", "前に…がある", "通れない", "ルート再検索"). Marks a rectangle across the walking direction as impassable (width_m across, depth_m deep, starting ahead_m in front), searches the route again from where the astronaut stands (to the destination on the way out, to the base on the way back) with the same Rust planner, and puts the new route on screen. Returns old and new distance and time and whether the walk is still within oxygen/water. Use it whenever the user says something is blocking the way ahead or asks to re-search the route. Example: "前に障害物が横50mにわたってある。ルート再検索して" → width_m=50.',
+  parameters: {
+    type: 'object',
+    properties: {
+      width_m: { type: 'number', description: 'How wide the obstacle is across the walking direction, in metres (e.g. 横50m → 50). Default 50.' },
+      ahead_m: { type: 'number', description: 'How far in front of the astronaut it starts, in metres. Default 20.' },
+      depth_m: { type: 'number', description: 'How deep it is along the walking direction, in metres. Default 10.' },
+      note: { type: 'string', description: 'What it is, if said (e.g. rocks, crack).' },
+      lang: LANG,
+    },
+  },
+  async run(a) {
+    const l = lang(a);
+    const c = peekWalkController();
+    if (!c) return { text: t(l, '宇宙飛行士ビューで歩いているときに使えます（先にルートを表示してください）。', 'Use this while walking in the astronaut view (show a route first).') };
+    const data = await c.data();
+    const r = reportObstacle(c.core, data, c.route(), c.params(), { width_m: a.width_m as number, ahead_m: a.ahead_m as number, depth_m: a.depth_m as number, note: a.note as string });
+    if (!r.ok) {
+      return { text: r.reason === 'no_view' ? t(l, '宇宙飛行士ビュー（#suit）でルートを歩いているときに使えます。', 'Use this while walking a route in the astronaut view (#suit).')
+        : r.reason === 'no_terrain' ? t(l, '地形データが読み込めていないので、ルートを探し直せませんでした。', 'The terrain is not loaded, so the route could not be searched again.')
+        : t(l, '障害物は登録しましたが、ここから先へ歩いて行ける道が見つかりませんでした（坂が急すぎるか、地形データの外）。引き返してください。', 'The obstacle is registered, but no walkable way on was found from here (too steep or outside the terrain data). Turn back.'),
+        data: { status: r.reason } };
+    }
+    const dm = Math.round((r.after.km - r.before.km) * 1000), dmin = Math.round((r.after.hours - r.before.hours) * 60);
+    const sign = (x: number) => (x >= 0 ? `+${x}` : `${x}`);
+    const what = r.back ? t(l, '基地までの帰り道', 'the way home') : t(l, '往復全体', 'the whole walk');
+    return {
+      text: t(l,
+        `障害物（幅 ${r.obstacle.widthM} m・${r.obstacle.aheadM} m 先）を通れない場所として登録し、ここからルートを探し直しました。${what}: ${r1(r.before.km)} km → ${r1(r.after.km)} km（${sign(dm)} m）、${fmtH(r.before.hours)} → ${fmtH(r.after.hours)}（${sign(dmin)} 分）。${r.walkable ? `新しいルートでも酸素・冷却水の範囲内で帰れます（O₂ 残り ${Math.round(r.o2_left * 100)}%）。` : (r.back ? '新しい帰り道では酸素・冷却水が足りません。' : '新しいルートで目的地まで往復するには酸素・冷却水が足りません。引き返し地点で戻ってください。')}`,
+        `Registered the obstacle (${r.obstacle.widthM} m wide, ${r.obstacle.aheadM} m ahead) as impassable and searched the route again from here. ${what}: ${r1(r.before.km)} km → ${r1(r.after.km)} km (${sign(dm)} m), ${fmtH(r.before.hours)} → ${fmtH(r.after.hours)} (${sign(dmin)} min). ${r.walkable ? `Still within oxygen and water on the new route (O₂ left ${Math.round(r.o2_left * 100)}%).` : (r.back ? 'Not enough oxygen or water for the new way home.' : 'Not enough oxygen or water to reach the destination and back on the new route: turn back at the turn-back point.')}`),
+      data: { phase: r.back ? 'way_back' : 'way_out', obstacle: { width_m: r.obstacle.widthM, ahead_m: r.obstacle.aheadM, depth_m: r.obstacle.depthM },
+        before: { km: +r.before.km.toFixed(3), hours: +r.before.hours.toFixed(3) }, after: { km: +r.after.km.toFixed(3), hours: +r.after.hours.toFixed(3) },
+        delta_m: dm, delta_min: dmin, walkable: r.walkable, o2_left: +r.o2_left.toFixed(2) },
+      sources: [SRC.mola, SRC.engine],
+    };
+  },
+};
+
 /** nearby_spots: destination ideas from NASA data (named places, Perseverance's stops) in the walk-home area. */
 const nearbySpotsTool: ToolDef = {
   name: 'nearby_spots',
@@ -525,7 +568,7 @@ const nearbySpotsTool: ToolDef = {
   },
 };
 
-export const WALK_TOOLS: ToolDef[] = [walkbackCheck, planRouteTool, nearbySpotsTool, evaluateRouteTool, roverWalkbackTool, importWalkTool, marsReplay, openEvidence, view3d, viewGlobe, viewOverlay, viewSetParams, viewWalk];
+export const WALK_TOOLS: ToolDef[] = [walkbackCheck, planRouteTool, reportObstacleTool, nearbySpotsTool, evaluateRouteTool, roverWalkbackTool, importWalkTool, marsReplay, openEvidence, view3d, viewGlobe, viewOverlay, viewSetParams, viewWalk];
 
 /**
  * Register the WALKBACK tools and #10's Hokkaido tools.

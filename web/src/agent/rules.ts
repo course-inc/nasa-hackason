@@ -45,6 +45,14 @@ export function plan(question: string, available: Set<string>): Step[] {
   const steps: Step[] = [];
   const add = (name: string, args: Record<string, unknown> = {}) => { if (available.has(name)) steps.push({ name, args }); };
 
+  // An obstacle reported on the way (astronaut view): register it and search the route again.
+  if (has(q, /障害物|通れな|塞が|ふさが|岩.{0,6}(?:ある|邪魔)|ルート.{0,4}再検索|再検索|obstacle|blocked|in the way|reroute|re-?route/i)) {
+    const num = (re: RegExp) => { const m = q.match(re); return m ? Number(m[1]) : undefined; };
+    const width = num(/(?:横|幅|width|wide)\D{0,8}(\d+(?:\.\d+)?)\s*(?:m|メートル)/i) ?? num(/(\d+(?:\.\d+)?)\s*(?:m|メートル)\s*(?:wide|の幅|にわたって|にわたり)/i);
+    const ahead = num(/(\d+(?:\.\d+)?)\s*(?:m|メートル)\s*(?:先|前方|ahead)/i);
+    add('report_obstacle', { ...(width != null ? { width_m: width } : {}), ...(ahead != null ? { ahead_m: ahead } : {}), lang });
+    if (steps.length) return steps;
+  }
   const params = extractParams(q);
   const km = extractKm(q);
   const wantPlay = has(q, /歩いて見せ|歩く(?:様子|ところ)|ヘルメット|helmet|play|show (?:me )?(?:the )?walk|walk me/i);

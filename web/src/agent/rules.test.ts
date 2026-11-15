@@ -19,6 +19,12 @@ describe('rules agent routing', () => {
     expect(extractKm('５ｋｍ先')).toBeUndefined(); // full-width digits are normalised in plan(), not here
     expect(plan('５km先まで帰れる？', ALL)[0].args.route).toEqual({ away_km: 5 });
   });
+  it('obstacle ahead → report_obstacle with the width from the question', () => {
+    const A = new Set([...ALL, 'report_obstacle']);
+    expect(plan('前に障害物が横50mにわたってある。ルート再検索して', A)).toEqual([{ name: 'report_obstacle', args: { width_m: 50, lang: 'ja' } }]);
+    expect(plan('30m先に岩がある、幅80m。通れないので再検索', A)).toEqual([{ name: 'report_obstacle', args: { width_m: 80, ahead_m: 30, lang: 'ja' } }]);
+    expect(plan('Obstacle ahead, 40 m wide. Reroute please', A)).toEqual([{ name: 'report_obstacle', args: { width_m: 40, lang: 'en' } }]);
+  });
   it('crewed rover breakdown', () => {
     expect(names('有人ローバーが壊れたら歩いて帰れる？')).toEqual(['rover_walkback']);
     expect(names('酸素4時間でローバーが故障したら？')).toEqual(['view_set_params', 'rover_walkback']);

@@ -206,6 +206,7 @@ mod tests {
             cols,
             z,
             foot: Vec::new(),
+            blocked: Vec::new(),
         }
     }
 
