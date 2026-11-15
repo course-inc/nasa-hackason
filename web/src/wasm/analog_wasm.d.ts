@@ -168,6 +168,12 @@ export function scanScores(body_id: string, profile_id: string): Float32Array;
 export function scanTop(scores: Float32Array | number[], n: number, min_km: number): string;
 
 /**
+ * Cells reported blocked (an obstacle seen on the way), as row-major indices `[i, …]`; every route
+ * search on this grid steps around them. `"[]"` clears them.
+ */
+export function setBlocked(name: string, cells_json: string): void;
+
+/**
  * Parse the data.nasa.gov EVA CSV, keep its statistics and return them.
  */
 export function setEvaCsv(csv: string): string;
@@ -254,6 +260,7 @@ export interface InitOutput {
     readonly scanGaps: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
     readonly scanScores: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly scanTop: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly setBlocked: (a: number, b: number, c: number, d: number) => [number, number];
     readonly setEvaCsv: (a: number, b: number) => [number, number];
     readonly setFooting: (a: number, b: number, c: number, d: number) => [number, number];
     readonly setGrid: (a: number, b: number, c: number, d: number) => [number, number];
