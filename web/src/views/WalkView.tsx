@@ -544,6 +544,9 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
           hokkaido: t('北海道の地形データを読み込めませんでした（練習コース探しは使えません）。', 'Could not load the Hokkaido terrain (no practice courses).'),
         } as Record<string, string>)[e] ?? e).join(' ')} {t('ページを再読み込みしてください。', 'Reload the page to try again.')}</p> : null}
 
+        <button className={`goal-cta${mode === 'goal' ? ' on' : ''}`} id="goal-cta" onClick={() => setMode(mode === 'goal' ? 'route' : 'goal')}>
+          🎯 {mode === 'goal' ? t('地図で目的地をクリック（もう一度押すとやめる）', 'Click a destination on the map (press again to stop)') : t('目的地を置いて自動で経路を探す', 'Set a destination and plan the route')}
+        </button>
         <div className={`verdict ${n < 2 ? '' : ev.ok && steep == null ? 'ok' : 'ng'}`}>
           {!data ? t('データを読み込み中…', 'Loading data…') : n < 2 ? t('地図をクリックしてルートを引く／🎯 で目的地を置く', 'Click the map to draw a route / 🎯 to set a destination')
             : steep != null ? t(`通れない坂がある（${Math.abs(ev.legs[steep].slope_deg).toFixed(0)}°、上限 ${MAX_SLOPE}°）`, `Impassable slope on the route (${Math.abs(ev.legs[steep].slope_deg).toFixed(0)}°, limit ${MAX_SLOPE}°)`)
