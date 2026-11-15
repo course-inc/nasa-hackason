@@ -74,7 +74,7 @@ export function WalkView({ core, params }: { core: Core; params: WalkParams }) {
   // Footing (THEMIS thermal inertia, TES dust): counted in every walk number; layer off by default.
   const [footOn, setFootOn] = useState(true);
   // Sand ripples / rocky ground judged from HiRISE images (report page #hirise); off by default.
-  const [surfOn, setSurfOn] = useState(false);
+  const [surfOn, setSurfOn] = useState(true);
   setSurfaceOn(surfOn);
   // Departure, local solar hour at Jezero: MEDA air temperature over the walk sets the cooling water.
   const [start, setStart] = useState(DEFAULT_START);
