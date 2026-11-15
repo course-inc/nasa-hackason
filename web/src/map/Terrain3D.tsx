@@ -329,7 +329,8 @@ export function Terrain3D({ grid, radiusKm, palette, lines = [], points = [], re
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = sc.r.capabilities.getMaxAnisotropy();
     tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-    const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95, metalness: 0, transparent: true, depthWrite: false,
+    // The same image as a bump map: brightness → small relief, so ripples and rocks catch the low sun.
+    const mat = new THREE.MeshStandardMaterial({ map: tex, bumpMap: tex, bumpScale: 2.5, roughness: 0.95, metalness: 0, transparent: true, depthWrite: false,
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.receiveShadow = true;

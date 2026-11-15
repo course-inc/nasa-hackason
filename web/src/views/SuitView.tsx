@@ -138,7 +138,12 @@ export function SuitView({ core }: { core: Core }) {
     const i = Math.max(0, Math.min(last, Math.floor(x))), j = Math.min(last, i + 1), u = Math.min(1, Math.max(0, x - i));
     const here: Waypoint = { lat: dense.pts[i].lat + (dense.pts[j].lat - dense.pts[i].lat) * u, lon: dense.pts[i].lon + (dense.pts[j].lon - dense.pts[i].lon) * u };
     const k0 = Math.min(Math.max(0, last - 1), i), k1 = Math.min(last, i + 3);
-    return { i, j, u, here, heading: vec(dense.pts[k0], dense.pts[k1]).deg };
+    // Feel of the ground: look up/down with the slope under the feet, and a small step bob (2.5 cm per 0.8 m stride).
+    const leg = ev?.legs[Math.min(i, (ev?.legs.length ?? 1) - 1)];
+    const slope = leg?.known ? Math.max(-15, Math.min(15, leg.slope_deg)) : 0;
+    const walkedM = ev ? (ev.ticks[i].km + ((ev.ticks[j] ?? ev.ticks[i]).km - ev.ticks[i].km) * u) * 1000 : 0;
+    const bob = 0.025 * Math.abs(Math.sin((walkedM / 0.8) * Math.PI));
+    return { i, j, u, here, heading: vec(dense.pts[k0], dense.pts[k1]).deg, pitch: PITCH + slope * 0.6, eyeM: EYE_M + bob };
   };
 
   // 3D first-person camera (~20 per second) and 2D map follow (twice a second; a fit, not a fly, so it keeps up), from the latest pos.
@@ -153,10 +158,10 @@ export function SuitView({ core }: { core: Core }) {
     let lastCam = -1, lastFly = -1, n = 0;
     const id = setInterval(() => {
       const x = posRef.current;
-      const { here, heading } = atRef.current(x);
+      const { here, heading, pitch, eyeM } = atRef.current(x);
       if (x !== lastCam) {
         lastCam = x;
-        setCamera({ eye: { lat: here.lat, lon: here.lon, heightM: EYE_M, pitch: PITCH }, heading, seq: performance.now() });
+        setCamera({ eye: { lat: here.lat, lon: here.lon, heightM: eyeM, pitch }, heading, seq: performance.now() });
       }
       if (++n % 10 === 0 && x !== lastFly) {
         lastFly = x;
