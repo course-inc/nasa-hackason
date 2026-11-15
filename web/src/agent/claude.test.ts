@@ -63,7 +63,7 @@ describe('relay worker', () => {
 
   it('reports availability, refuses other sites and missing keys', async () => {
     const get = new Request('https://walkback.example/api/agent');
-    expect(await (await worker.fetch(get, {})).json()).toEqual({ available: false, model: 'claude-opus-5-5', via: null });
+    expect(await (await worker.fetch(get, {})).json()).toEqual({ available: false, model: 'claude-opus-5-5', models: ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'], via: null });
     expect((await worker.fetch(post({ messages: [{ role: 'user', content: 'hi' }] }), {})).status).toBe(503);
     expect((await worker.fetch(post({ messages: [{ role: 'user', content: 'hi' }] }, 'https://evil.example'), { ANTHROPIC_API_KEY: 'k' })).status).toBe(403);
   });

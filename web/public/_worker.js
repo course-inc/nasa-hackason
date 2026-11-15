@@ -7,11 +7,13 @@
 // Two ways out, whichever secret is set on the tachyon app (tachyon env set <app> --secret NAME):
 //   TACHYON_API_KEY    → the tachyon AI gateway (OpenAI-style chat completions, translated here)
 //   ANTHROPIC_API_KEY  → the Anthropic API directly
-// The model, the system prompt and the limits are fixed here, so the page cannot turn the relay
+// The model list, the system prompt and the limits are fixed here, so the page cannot turn the relay
 // into a general-purpose proxy. Everything else is served from the static files.
 // Plain JS with no imports: this file is not bundled.
 
 const MODEL = 'claude-opus-5-5';
+// Models the settings screen may pick (anything else falls back to MODEL).
+const MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages';
 const TACHYON_API = 'https://api.n1.tachy.one/v1/llms/chat/completions';
 const TACHYON_TENANT = 'tn_01m71hyn06c1mpz8y22ywn8qq3'; // nasa-hackason tenant (scripts/tachyon.preview.yml)
@@ -131,7 +133,7 @@ async function tachyonTurn(b, body) {
 
 async function agent(req, env) {
   const b = backend(env);
-  if (req.method === 'GET') return json({ available: !!b, model: MODEL, via: b?.via ?? null });
+  if (req.method === 'GET') return json({ available: !!b, model: MODEL, models: MODELS, via: b?.via ?? null });
   if (req.method !== 'POST') return json({ error: 'method not allowed' }, 405);
   if (!b) return json({ error: 'not_configured', message: 'no TACHYON_API_KEY / ANTHROPIC_API_KEY on this deployment' }, 503);
   // Only this site's own pages (browsers always send Origin on a cross-site POST).
@@ -144,13 +146,15 @@ async function agent(req, env) {
   const tools = validTools(input.tools ?? []);
   const messages = input.messages;
   if (!tools || !Array.isArray(messages) || messages.length === 0 || messages.length > MAX_MESSAGES) return json({ error: 'bad_request' }, 400);
+  const model = MODELS.includes(input.model) ? input.model : MODEL;
   const body = {
-    model: MODEL,
+    model,
     max_tokens: 16000,
     system: SYSTEM,
     messages,
     tools,
-    output_config: { effort: 'low' }, // quick answers; the tools do the real work
+    // Quick answers; the tools do the real work. (Haiku takes no effort setting.)
+    ...(model.includes('haiku') ? {} : { output_config: { effort: 'low' } }),
   };
   return b.via === 'tachyon' ? tachyonTurn(b, body) : anthropicTurn(b, body);
 }

@@ -33,6 +33,7 @@ pub fn run() {
                 rank_all,
                 evaluate_route,
                 agent::agent_start,
+                agent::agent_models,
                 agent::agent_prompt,
                 agent::agent_tool_result,
                 agent::agent_abort,
