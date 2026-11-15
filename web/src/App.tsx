@@ -2,6 +2,7 @@
 //   #walk[/world/lat/lon/zoom]    → WALKBACK route planner (default; #mars kept as an alias)
 //   #target[/body/test/site]      → Explore all of Hokkaido (#10, target-first)
 //   #analogs                      → Hokkaido site → Moon/Mars (#10, site-first)
+//   #hirise                       → Report: sand ripples and rocks judged from HiRISE images
 //   #suit                         → Astronaut view: way-home navigator (reads the WALKBACK route)
 import { useEffect, useState } from 'react';
 import { loadCore, type Core, type World } from './core';
@@ -10,16 +11,18 @@ import { TargetView, type TargetParams } from './views/TargetView';
 import { WalkView, type WalkParams } from './views/WalkView';
 import { SourcesView } from './views/SourcesView';
 import { SuitView } from './views/SuitView';
+import { HiriseReportView } from './views/HiriseReportView';
 import { setLang, useLang, useT } from './i18n';
 import { Splash, wantSplash } from './Splash';
 import { loadWalkData } from './walk/data';
 
-type View = 'target' | 'analogs' | 'walk' | 'sources' | 'suit';
+type View = 'target' | 'analogs' | 'walk' | 'sources' | 'suit' | 'hirise';
 
 function parseHash(): { view: View; params: WalkParams; target: TargetParams } {
   const [name, world, lat, lon, z] = location.hash.replace(/^#/, '').split('/');
   if (name === 'analogs') return { view: 'analogs', params: {}, target: {} };
   if (name === 'sources') return { view: 'sources', params: {}, target: {} };
+  if (name === 'hirise') return { view: 'hirise', params: {}, target: {} };
   if (name === 'suit') return { view: 'suit', params: {}, target: {} };
   if (name === 'walk' || name === 'mars' || name === '') {
     const w = (['earth', 'moon', 'mars'].includes(world) ? world : name === 'mars' ? 'mars' : undefined) as World | undefined;
@@ -73,6 +76,7 @@ export function App() {
         <nav aria-label={t('画面', 'Views')}>
           <a href="#walk" className={route.view === 'walk' ? 'on' : ''}>{t('火星で歩いて帰る', 'Walk back on Mars')}</a>
           <a href="#suit" className={route.view === 'suit' ? 'on' : ''}>{t('宇宙飛行士ビュー', 'Astronaut view')}</a>
+          <a href="#hirise" className={route.view === 'hirise' ? 'on' : ''}>{t('レポート: 岩と波紋', 'Report: rocks & ripples')}</a>
           <a href="#target" className={route.view === 'target' ? 'on' : ''}>{t('北海道全域の探索', 'Explore all of Hokkaido')}</a>
           <a href="#analogs" className={route.view === 'analogs' ? 'on' : ''}>{t('地点 → 月・火星', 'Site → Moon/Mars')}</a>
         </nav>
@@ -91,10 +95,11 @@ export function App() {
           {(visited.has('walk') || visited.has('suit')) && <div className="view-host" hidden={route.view !== 'walk'}><WalkView core={core} params={route.params} /></div>}
           {visited.has('suit') && <div className="view-host" hidden={route.view !== 'suit'}><SuitView core={core} /></div>}
           {route.view === 'sources' && <div className="view-host"><SourcesView core={core} /></div>}
+          {route.view === 'hirise' && <div className="view-host"><HiriseReportView /></div>}
         </>
       )}
       {/* Credits for what the current screen shows: Mars only on the Mars screens. */}
-      {route.view === 'walk' || route.view === 'suit' || route.view === 'sources'
+      {route.view === 'walk' || route.view === 'suit' || route.view === 'sources' || route.view === 'hirise'
         ? <footer>Data: NASA Solar System Treks (MRO HiRISE, MGS MOLA/TES, Viking MDIM 2.1, Mars Odyssey THEMIS), MRO CTX (Caltech), ESA Mars Express HRSC, NASA/JPL Mars 2020 (traverse, MEDA), Curiosity RAD, USGS Astrogeology, IAU/USGS Gazetteer, data.nasa.gov</footer>
         : <footer>Data: NASA GIBS, NASA Solar System Treks (LRO LOLA/WAC/Diviner, MGS MOLA/TES, Viking, Mars Odyssey THEMIS), JAXA SELENE (Kaguya), ESA Mars Express HRSC, MRO CTX (Caltech), ESA Sentinel-2 cloudless (EOX), 国土地理院, 産総研 地質調査総合センター</footer>}
     </>
