@@ -51,7 +51,8 @@ export function alongRover(core: Core, raw: [number, number, number][][], km: nu
 
 export function resolveRoute(core: Core, data: WalkData, arg: unknown, current: Waypoint[]): Waypoint[] {
   if (typeof arg === 'string' && /^[[{]/.test(arg.trim())) { try { arg = JSON.parse(arg); } catch { /* fall through */ } }
-  if (arg == null || arg === 'current') return current;
+  // No route on screen (the map starts empty): a question without a route uses the example route.
+  if (arg == null || arg === 'current') return current.length >= 2 ? current : exampleRoute(data.traverseRaw);
   if (arg === 'example') return exampleRoute(data.traverseRaw);
   if (Array.isArray(arg)) {
     const r = arg.map((p) => ({ lat: Number(p?.lat), lon: Number(p?.lon) }));

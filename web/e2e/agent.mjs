@@ -4,6 +4,12 @@
 import { createRequire } from 'node:module';
 
 const { chromium } = createRequire(import.meta.url)('playwright');
+const walkReady = async (pg, ms = 30000) => {
+  // #walk starts with only the base: wait for the data, then load the example route (★).
+  await pg.waitForFunction(() => { const v = document.querySelector('.walk .verdict'); return v && !/読み込み中|Loading/.test(v.textContent); }, null, { timeout: ms });
+  if (!(await pg.locator('.walk .verdict.ok, .walk .verdict.ng').count())) await pg.locator('.draw-toolbar a[data-m=example]').click();
+  await pg.waitForSelector('.walk .verdict.ok, .walk .verdict.ng', { timeout: ms });
+};
 
 const BASE = process.env.BASE_URL ?? 'http://localhost:4173';
 const SHOTS = process.env.SHOTS !== '0';
@@ -17,7 +23,7 @@ p.on('console', (m) => m.type() === 'error' && !/Failed to load resource/.test(m
 await p.route('**/*', (r) => (r.request().url().startsWith(BASE) ? r.continue() : r.fulfill({ status: 204 })));
 
 await p.goto(`${BASE}/#walk`);
-await p.waitForSelector('.walk .verdict.ok, .walk .verdict.ng', { timeout: 20000 });
+await walkReady(p, 20000);
 await p.waitForSelector('.agent-panel');
 const agent = await p.locator('.agent-panel select').inputValue();
 console.log('agent:', agent); if (agent !== 'rules') fail('web default agent is the rules version');
@@ -205,7 +211,7 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
 // Empty state: with only the base left, the panel says what to do next.
 {
   await p.goto(`${BASE}/#walk`);
-  await p.waitForSelector('.walk .verdict.ok, .walk .verdict.ng', { timeout: 20000 });
+  await walkReady(p, 20000);
   await p.locator('.draw-toolbar a[data-m=clear]').click();
   const empty = await p.locator('.walk .verdict').innerText();
   console.log('\nempty route:', empty);
@@ -290,6 +296,9 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
   const v = await p.locator('.walk .verdict').innerText();
   console.log('english verdict:', v);
   if (!/Can walk back|Turn back/.test(v)) fail('English verdict');
+  // Suggestions are hidden once questions were asked; the small link shows them again.
+  if (await p.locator('.agent-examples').count()) fail('suggestions hidden after a question');
+  await p.locator('.agent-examples-show').click().catch(() => fail('link to show the suggestions again'));
   if (!(await p.locator('.agent-examples button', { hasText: 'Can I walk back from 3 km out?' }).count())) fail('English examples');
   const { text } = await ask('Can I walk back from 3 km out?');
   // The verdict depends on the footing (THEMIS thermal inertia), so either is valid here.
@@ -306,12 +315,12 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
   m.on('pageerror', (e) => errs.push(e.message));
   await m.route('**/*', (r) => (r.request().url().startsWith(BASE) ? r.continue() : r.fulfill({ status: 204 })));
   await m.goto(`${BASE}/#walk`);
-  await m.waitForSelector('.panel-chip.ok, .panel-chip.ng', { timeout: 20000 });
+  await m.waitForSelector('.panel-chip', { timeout: 20000 }); // empty start: no verdict colour yet
   const mapBox = await m.locator('.maps .map').first().boundingBox();
   console.log('phone map', Math.round(mapBox.width), 'x', Math.round(mapBox.height), 'at y', Math.round(mapBox.y));
   if (!(mapBox.height > 844 * 0.75 && mapBox.y < 120)) fail('phone: the map fills the screen');
   await m.locator('.panel-chip').click();
-  await m.waitForSelector('.walk .verdict.ok, .walk .verdict.ng', { timeout: 5000 }).catch(() => fail('phone: the chip opens the panel sheet'));
+  await m.waitForSelector('.walk .verdict', { timeout: 5000 }).catch(() => fail('phone: the chip opens the panel sheet'));
   if (SHOTS) await m.screenshot({ path: 'e2e/agent-phone-sheet.png' });
   await m.locator('.panel-fold').click();
   if (await m.locator('.agent-panel').count()) fail('phone: question panel starts closed');
@@ -347,7 +356,7 @@ const shot = async (name) => { if (SHOTS) await p.screenshot({ path: `e2e/agent-
   v.on('pageerror', (e) => errs.push(e.message));
   await v.route('**/*', (r) => (r.request().url().startsWith(BASE) ? r.continue() : r.fulfill({ status: 204 })));
   await v.goto(`${BASE}/#walk`);
-  await v.waitForSelector('.walk .verdict.ok, .walk .verdict.ng', { timeout: 20000 });
+  await walkReady(v, 20000);
   await v.locator('.agent-input .mic').click();
   await v.waitForTimeout(3000);
   await v.locator('.agent-input .mic').click();
