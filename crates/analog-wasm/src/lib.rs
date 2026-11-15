@@ -301,6 +301,11 @@ pub fn evaluate_route_on(
     let w = parse_world(world)?;
     let pts: Vec<route::Waypoint> = serde_json::from_str(points).map_err(err)?;
     let p: route::EvaParams = serde_json::from_str(params).map_err(err)?;
+    // "retrace": walk home along the route reversed instead of straight (a field next to EvaParams).
+    let retrace = serde_json::from_str::<serde_json::Value>(params)
+        .ok()
+        .and_then(|v| v.get("retrace").and_then(|x| x.as_bool()))
+        .unwrap_or(false);
     let surface = GRIDS.with(|m| {
         m.borrow()
             .get(name)
@@ -316,6 +321,7 @@ pub fn evaluate_route_on(
                         .iter()
                         .map(|q| base.map_or(1.0, |b| g.foot_line((q.lat, q.lon), b)))
                         .collect(),
+                    retrace,
                 }
             })
     });
@@ -323,7 +329,10 @@ pub fn evaluate_route_on(
         w,
         &pts,
         p,
-        &surface.unwrap_or_default(),
+        &surface.unwrap_or(conditions::Surface {
+            retrace,
+            ..Default::default()
+        }),
     )))
 }
 

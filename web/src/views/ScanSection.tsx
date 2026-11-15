@@ -6,7 +6,7 @@ import type { Core, Gap, Scan } from '../core';
 import type { Feature } from '../map/PlanetMap';
 import { heatImage, percentiles } from '../scanHeat';
 
-type Lang = 'en' | 'ja';
+import type { Lang } from '../i18n';
 
 /** Treasure-hunt sweep: how long the scan line takes to cross Hokkaido. */
 const HUNT_MS = 1800;
@@ -14,58 +14,58 @@ const reducedMotion = () => typeof window !== 'undefined' && !!window.matchMedia
 
 const T = {
   en: {
-    loading: 'Loading the 1 km grid…', failed: 'Could not load the scan data',
-    headline: (n: number, km: number) => `${n.toLocaleString()} land cells of ${km} km, all scored`,
+    loading: 'Loading the map of Hokkaido…', failed: 'Could not load the scan data',
+    headline: (n: number) => `All of Hokkaido's land, cut into ${n.toLocaleString()} squares, scored. Brighter = more like the target.`,
     legend: ['poorest', 'best in Hokkaido'],
-    top: 'Best places found by the scan', topNote: 'At least 15 km apart. Click one, or click anywhere on the map.',
+    top: 'Top 5 places', topNote: 'At least 15 km apart. Tap one, or tap anywhere on the map.',
     near: (s: string, km: number) => `≈ ${s} (${km} km)`, newSpot: 'new candidate',
     check: 'Check against the 14 known sites',
-    checkLine: (a: number, n: number) => `${a} of ${n} known sites fall in the top 10% of all Hokkaido cells`,
+    checkLine: (a: number, n: number) => `${a} of ${n} known sites are in the top 10% of Hokkaido`,
     rank: (r: number, n: number) => `#${r.toLocaleString()} / ${n.toLocaleString()}`,
     top10: 'top', outside: 'outside grid',
-    cell: 'Selected cell', elev: 'Elevation', relief: 'Relief', slope: 'Mean slope', p90: '90% slope',
+    cell: 'Selected place', elev: 'Elevation', relief: 'Relief', slope: 'Mean slope', p90: '90% slope',
     shadow: 'Winter noon shadow', temp: 'Air temperature', jan: 'Jan night', aug: 'Aug day', precip: 'Precipitation',
-    ndvi: 'Summer NDVI (MODIS)', cover: 'Built-up / cropland / forest / barren (MODIS)',
-    excluded: { forest: 'Screened out: mostly forest — no room to land, walk or build', water: 'Screened out: mostly water', other: 'Screened out: mostly built-up land or cropland' },
-    siteScreened: { forest: 'cell mostly forest', water: 'cell mostly water', other: 'cell built-up / farm' },
-    checkNote: 'Small domes and craters are smaller than a 1 km cell, so the cell can be mostly forest; the 500 m grid will resolve them.',
-    note: 'Rock type is not in the grid yet, so geology is left out of this score. Air temperature is NASA POWER corrected for height; vegetation and land cover are NASA MODIS.',
-    gaps: 'What Hokkaido cannot reproduce here', match: 'Match',
-    hunting: (a: number, n: number) => `Scanning Hokkaido… ${a.toLocaleString()} / ${n.toLocaleString()} cells`,
-    again: 'Scan again',
-    best: 'Scan #1',
-    bestWhy: (n: number, score: number) => `The highest score among all ${n.toLocaleString()} land cells for this test's formula (match ${score}).`,
+    ndvi: 'Plant cover in summer (0–1)', cover: 'Town / farm / forest / bare ground',
+    excluded: { forest: 'Left out: mostly forest — no room to land, walk or build', water: 'Left out: mostly water', other: 'Left out: mostly town or farmland' },
+    siteScreened: { forest: 'mostly forest', water: 'mostly water', other: 'town / farm' },
+    checkNote: 'Small domes and craters are smaller than one square, so the square can be mostly forest.',
+    note: 'Rock type is not in the map yet, so it is left out of this score. Temperature is corrected for height; plants and land use come from satellite images.',
+    gaps: 'What this place cannot reproduce', match: 'Match',
+    hunting: (a: number, n: number) => `Searching Hokkaido… ${a.toLocaleString()} / ${n.toLocaleString()}`,
+    again: 'Search again', more: 'Check against the known sites, and notes',
+    best: 'No. 1',
+    bestWhy: (n: number, score: number) => `The best of all ${n.toLocaleString()} squares for this test (match ${score}).`,
     bestNear: (s: string, km: number) => `${km} km from the known candidate “${s}”.`,
     bestNew: 'Not near any of the 14 sites people picked.',
     bestCaveat: 'Rock type is not scored yet, and nobody has checked the ground there.',
-    bestGreen: (v: string) => `Plants cover it in summer (NDVI ${v}).`,
+    bestGreen: () => 'Plants cover it in summer.',
   },
   ja: {
-    loading: '1km マスを読み込み中…', failed: 'スキャンのデータを読み込めませんでした',
-    headline: (n: number, km: number) => `陸の ${km} km マス ${n.toLocaleString()} 個を全部採点`,
+    loading: '北海道の地図を読み込み中…', failed: 'スキャンのデータを読み込めませんでした',
+    headline: (n: number) => `北海道の陸地を ${n.toLocaleString()} マスに区切って全部採点。明るいほど目的地に似ています。`,
     legend: ['遠い', '北海道で一番近い'],
-    top: 'スキャンで見つかった上位の場所', topNote: '互いに 15 km 以上離れた場所。押すか、地図のどこかを押してください。',
+    top: '上位5か所', topNote: '互いに 15 km 以上離れた場所。押すか、地図のどこかを押してください。',
     near: (s: string, km: number) => `≈ ${s}（${km} km）`, newSpot: '新しい候補',
     check: '人が選んだ14地点で答え合わせ',
     checkLine: (a: number, n: number) => `14地点のうち ${a}/${n} か所が、北海道全体の上位10%に入った`,
     rank: (r: number, n: number) => `${r.toLocaleString()} 位 / ${n.toLocaleString()}`,
     top10: '上位', outside: '範囲外',
-    cell: '選んだマス', elev: '標高', relief: '起伏', slope: '平均傾斜', p90: '傾斜（90%）',
+    cell: '選んだ場所', elev: '標高', relief: '起伏', slope: '平均傾斜', p90: '傾斜（90%）',
     shadow: '冬の正午に影になる割合', temp: '気温', jan: '1月の夜', aug: '8月の昼', precip: '年降水量',
-    ndvi: '夏の植生指数 NDVI（MODIS）', cover: '市街地 / 農地 / 森林 / 裸地（MODIS）',
-    excluded: { forest: '除外：大部分が森林で、着陸・歩行・建設の練習ができない', water: '除外：大部分が水面', other: '除外：大部分が市街地か農地' },
-    siteScreened: { forest: 'マスの大部分が森林', water: 'マスの大部分が水面', other: 'マスが市街地・農地' },
-    checkNote: '小さな溶岩ドームや火口は 1 km マスより小さく、マスとしては森が大部分になる。500 m マスで見分けられるようにする。',
-    note: '岩石の種類はまだマスに入っていないので、地質はこの点数から外しています。気温は NASA POWER を標高で補正した値、植生と土地被覆は NASA MODIS。',
-    gaps: 'このマスで再現できないこと', match: '一致度',
-    hunting: (a: number, n: number) => `北海道を走査中… ${a.toLocaleString()} / ${n.toLocaleString()} マス`,
-    again: 'もう一度スキャン',
-    best: 'スキャン 1 位',
-    bestWhy: (n: number, score: number) => `この試験の式で、北海道の陸地 ${n.toLocaleString()} マスの中で一番点が高い場所（一致度 ${score}）。`,
+    ndvi: '夏の植物の多さ（0〜1）', cover: '市街地 / 農地 / 森林 / 裸地',
+    excluded: { forest: '対象外：大部分が森林で、着陸・歩行・建設の練習ができない', water: '対象外：大部分が水面', other: '対象外：大部分が市街地か農地' },
+    siteScreened: { forest: '大部分が森林', water: '大部分が水面', other: '市街地・農地' },
+    checkNote: '小さな溶岩ドームや火口は1マスより小さく、マスとしては森が大部分になります。',
+    note: '岩石の種類はまだ地図に入っていないので、この点数から外しています。気温は標高で補正した値、植物と土地の使われ方は衛星画像から。',
+    gaps: 'この場所で再現できないこと', match: '一致度',
+    hunting: (a: number, n: number) => `北海道を探しています… ${a.toLocaleString()} / ${n.toLocaleString()}`,
+    again: 'もう一度探す', more: '人が選んだ14地点との答え合わせ・注意書き',
+    best: '1位',
+    bestWhy: (n: number, score: number) => `北海道の ${n.toLocaleString()} マスの中で、この練習に一番向いている場所（一致度 ${score}）。`,
     bestNear: (s: string, km: number) => `人が選んだ候補地「${s}」から ${km} km。`,
     bestNew: '人が選んだ 14 地点の近くにはない場所。',
     bestCaveat: '岩石の種類はまだ点数に入っておらず、現地の状況も確かめていません。',
-    bestGreen: (v: string) => `夏は植物に覆われる場所です（NDVI ${v}）。`,
+    bestGreen: () => '夏は植物に覆われる場所です。',
   },
 } as const;
 
@@ -136,12 +136,12 @@ export function useScanSection({ core, enabled, bodyId, testId, lang, siteName, 
     if (!enabled || !heat || !result) return [];
     const f: Feature[] = [{ kind: 'image', url: heat.url, bounds: heat.bounds, opacity: 0.75 * Math.min(1, huntP * 1.3) }];
     if (huntP < 1) f.push({ kind: 'line', pts: [[heat.bounds[0][0], sweepLon], [heat.bounds[1][0], sweepLon]], color: '#ffd666', weight: 3, opacity: 0.9 });
-    result.top.forEach((c, i) => found(c.lon) && f.push({
+    result.top.slice(0, 5).forEach((c, i) => found(c.lon) && f.push({
       kind: 'point', lat: c.lat, lon: c.lon, radius: c.k === k ? 10 : 7, color: c.k === k ? '#ffffff' : '#ff7a45',
       tooltip: `#${i + 1} · ${Math.round(c.score * 100)}`, openTooltip: c.k === k,
       onClick: () => { setCellK(c.k); onFly(c.lat, c.lon, 11); },
     }));
-    if (cell && !result.top.some((c) => c.k === k)) {
+    if (cell && !result.top.slice(0, 5).some((c) => c.k === k)) {
       f.push({ kind: 'pin', lat: cell.lat, lon: cell.lon, tooltip: `${Math.round(cell.score.total * 100)}` });
     }
     return f;
@@ -153,9 +153,10 @@ export function useScanSection({ core, enabled, bodyId, testId, lang, siteName, 
     if (kk !== null) setCellK(kk);
   };
 
-  if (!enabled) return { panel: null, features, onMapClick: undefined, focusAt };
-  if (error) return { panel: <p className="warn">{t.failed}: {error}</p>, features, onMapClick, focusAt };
-  if (!scan || !result || !scores) return { panel: <p className="muted">{t.loading}</p>, features, onMapClick, focusAt };
+  const selected = cell ? { lat: cell.lat, lon: cell.lon } : null;
+  if (!enabled) return { panel: null, features, onMapClick: undefined, focusAt, selected: null };
+  if (error) return { panel: <p className="warn">{t.failed}: {error}</p>, features, onMapClick, focusAt, selected };
+  if (!scan || !result || !scores) return { panel: <p className="muted">{t.loading}</p>, features, onMapClick, focusAt, selected };
 
   const n = scan.meta.n;
   const known = result.sites.filter((s) => s.earth_id !== 'sapporo');
@@ -164,7 +165,7 @@ export function useScanSection({ core, enabled, bodyId, testId, lang, siteName, 
 
   const panel = (
     <div id="scan">
-      <p className="scan-head">{t.headline(n, scan.meta.cell_km)}</p>
+      <p className="scan-head">{t.headline(n)}</p>
       <div className="legend"><span>{t.legend[0]}</span><i /><span>{t.legend[1]}</span></div>
 
       {huntP < 1 ? (
@@ -180,13 +181,13 @@ export function useScanSection({ core, enabled, bodyId, testId, lang, siteName, 
           </div>
           <div className="scan-best-where">{top1.lat.toFixed(3)}°N {top1.lon.toFixed(3)}°E · {Math.round(top1.elev_m)} m · {fmt1(top1.slope_deg)}°<b className="score">{Math.round(top1.score * 100)}</b></div>
           <p>{t.bestWhy(n, Math.round(top1.score * 100))} {top1.near ? t.bestNear(siteName(top1.near[0]), top1.near[1]) : t.bestNew}</p>
-          <p className="muted">{(() => { const c = scan.cell(top1.k, bodyId, testId); return c.ndvi != null && c.ndvi >= 0.6 ? `${t.bestGreen(c.ndvi.toFixed(2))} ` : ''; })()}{t.bestCaveat}</p>
+          <p className="muted">{(() => { const c = scan.cell(top1.k, bodyId, testId); return c.ndvi != null && c.ndvi >= 0.6 ? `${t.bestGreen()} ` : ''; })()}{t.bestCaveat}</p>
         </div>
       )}
       <h3 className="sub">{t.top}</h3>
       <p className="muted">{t.topNote}</p>
       <ol id="scan-top">
-        {result.top.map((c, i) => !found(c.lon) ? null : (
+        {result.top.slice(0, 5).map((c, i) => !found(c.lon) ? null : (
           <li key={c.k} className={`${c.k === k ? 'active' : ''}${huntP < 1 ? ' found' : ''}`} onClick={() => { setCellK(c.k); onFly(c.lat, c.lon, 11); }}>
             <span className="rank">{i + 1}</span>
             <span className="name">{c.lat.toFixed(3)}°N {c.lon.toFixed(3)}°E · {Math.round(c.elev_m)} m · {fmt1(c.slope_deg)}°
@@ -221,10 +222,8 @@ export function useScanSection({ core, enabled, bodyId, testId, lang, siteName, 
                 <div className="track"><div className="fill" style={{ width: `${d.s * 100}%` }} /></div>
                 <span>{Math.round(d.s * 100)}</span>
               </div>
-              <div className="why">{lang === 'en' ? d.why_en : d.why}</div>
             </div>
           ))}
-          <p className="muted">{t.note}</p>
           <div className="gaps">
             <h4>{t.gaps}</h4>
             {gaps.filter((g) => g.critical).map((g) => (
@@ -234,8 +233,10 @@ export function useScanSection({ core, enabled, bodyId, testId, lang, siteName, 
         </div>
       )}
 
-      <details className="overview" open>
-        <summary>{t.check}</summary>
+      <details className="overview" id="scan-more">
+        <summary>{t.more}</summary>
+        <p className="muted">{t.note}</p>
+        <h4>{t.check}</h4>
         <p className="check-line">{t.checkLine(inTop, known.length)}</p>
         <table id="scan-check">
           <tbody>
@@ -256,8 +257,7 @@ export function useScanSection({ core, enabled, bodyId, testId, lang, siteName, 
         </table>
         {known.some((s) => s.excluded) && <p className="muted">{t.checkNote}</p>}
       </details>
-      <p className="muted">{[scan.meta.src.dem, scan.meta.src.vegetation, scan.meta.src.landcover, scan.meta.src.climate].filter(Boolean).join(' · ')}</p>
     </div>
   );
-  return { panel, features, onMapClick, focusAt };
+  return { panel, features, onMapClick, focusAt, selected };
 }

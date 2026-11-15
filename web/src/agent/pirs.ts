@@ -3,6 +3,7 @@
 // so the web build needs no Tauri package.
 import { callTool, toolSpecs } from './port';
 import { getLang } from '../i18n';
+import { getSettings } from '../settings';
 import type { AgentEvent, AgentPort, ToolDef } from './types';
 
 interface TauriInternals {
@@ -27,6 +28,13 @@ export class NoModelError extends Error {}
 
 export let lastModel: ModelInfo | null = null;
 
+/** Desktop app: local models the settings screen can offer ([] on the web or with no local server). */
+export async function desktopModels(): Promise<string[]> {
+  const t = tauri();
+  if (!t) return [];
+  return t.invoke<string[]>('agent_models').catch(() => []);
+}
+
 export const pirsAgent: AgentPort = {
   id: 'pi-rs',
   get label() { return getLang() === 'ja' ? 'アプリ内AI' : 'In-app AI'; },
@@ -36,7 +44,7 @@ export const pirsAgent: AgentPort = {
     if (!t) throw new NoModelError('pi-rs runs only in the desktop app');
     const names = new Set(tools.map((x) => x.name));
     try {
-      lastModel = await t.invoke<ModelInfo>('agent_start', { tools: toolSpecs().filter((s) => names.has(s.name)) });
+      lastModel = await t.invoke<ModelInfo>('agent_start', { tools: toolSpecs().filter((s) => names.has(s.name)), model: getSettings().desktopModel || null });
     } catch (e) {
       throw new NoModelError(String(e));
     }

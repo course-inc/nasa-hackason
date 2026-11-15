@@ -25,12 +25,14 @@ export const steepLeg = (ev: RouteEval) => {
 /** The sliders on the screen. reserve is in percent. */
 export interface PlanParams { speed: number; o2: number; water: number; reserve: number; footing?: boolean;
   /** Departure, local solar hour at Jezero (MEDA temperatures change the cooling water); default 9. */
-  start?: number }
+  start?: number;
+  /** Walk home along the route reversed (true) or straight (false, default). */
+  retrace?: boolean }
 export const DEFAULT_START = 9;
 export const DEFAULT_PARAMS: PlanParams = { speed: 2, o2: 8, water: 8, reserve: 20 };
 
 export const evaParams = (q: PlanParams): EvaParams =>
-  ({ speed_kmh: q.speed, o2_h: q.o2, water_h: q.water, reserve: q.reserve / 100, min_reserve_h: 0.5, footing: q.footing ?? true, start_h: q.start ?? DEFAULT_START });
+  ({ speed_kmh: q.speed, o2_h: q.o2, water_h: q.water, reserve: q.reserve / 100, min_reserve_h: 0.5, footing: q.footing ?? true, start_h: q.start ?? DEFAULT_START, retrace: q.retrace ?? false });
 /**
  * Surface conditions before a computation: the footing switch into the Rust core's grid, and the
  * cooling water scaled by the air temperature over the walk (Rust weather.rs; from the departure
@@ -248,7 +250,7 @@ export function evaluateRouteMaterial(core: Core, data: WalkData | null, route: 
     const f = waterFactor(core, q);
     let temp: number | null = null;
     try { const w = core.weatherWalk(h, p.o2_h); temp = w.temp_k != null ? w.temp_k - 273.15 : null; } catch { /* no weather */ }
-    return { start_h: h, temp_c: temp, water_factor: f, o2_left: e.usable_o2_h > 0 ? 1 - e.total_effort_h / e.usable_o2_h : 0, water_left: e.usable_water_h > 0 ? 1 - (e.total_effort_h * WATER_PER_O2) / e.usable_water_h : 0, ok: e.ok };
+    return { start_h: h, temp_c: temp, water_factor: f, o2_left: e.usable_o2_h > 0 ? Math.max(0, 1 - e.total_effort_h / e.usable_o2_h) : 0, water_left: e.usable_water_h > 0 ? Math.max(0, 1 - (e.total_effort_h * WATER_PER_O2) / e.usable_water_h) : 0, ok: e.ok };
   });
   let rad: number | null = null;
   try { rad = core.radiationExposure(ev.total_h).dose_msv; } catch { /* none */ }

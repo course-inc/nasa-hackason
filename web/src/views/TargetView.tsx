@@ -6,17 +6,15 @@ import type { Core, Gap, SiteScore } from '../core';
 import { PlanetMap, missionOverlay, type Feature, type FlyTarget } from '../map/PlanetMap';
 import { useScanSection } from './ScanSection';
 import { DEFAULT_TARGET, DEFAULT_TEST, scanViewBus } from '../agent/scanBus';
+import { useLang } from '../i18n';
 
 export interface TargetParams { body?: string; test?: string; site?: string; mode?: string }
-type Lang = 'en' | 'ja';
-
 const CONTROL_ID = 'sapporo';
-const LANG_KEY = 'analog-lang';
 
 const T = {
   en: {
-    title: 'Rehearse the Moon in Hokkaido',
-    lead: 'Pick a Moon or Mars site and a test. Every Hokkaido site is scored on 5 measured axes, and what Hokkaido cannot reproduce is stated in numbers.',
+    title: 'Where in Hokkaido to train for Mars',
+    lead: 'Pick a place on Mars (or the Moon) and what to practise. The map colours all of Hokkaido by how close it is; the top 5 places are listed below.',
     target: '1. Target on the Moon / Mars', test: '2. What to rehearse',
     overview: 'All tests at a glance', bestSite: 'Best site in Hokkaido', when: 'When', cannot: 'Cannot reproduce',
     ranking: (t: string) => `Hokkaido sites for “${t}”`,
@@ -25,14 +23,14 @@ const T = {
     gapsNote: 'Red = matters for this test. Rehearse procedures here; true conditions need a vacuum chamber, offloading rig or parabolic flight.',
     season: 'Best season', seasonNote: '(rule of thumb; monthly satellite data is the next step)',
     similar: 'Most similar', different: 'Least similar',
-    walk: '🥾 Practice walk here', plan: 'Plan the route there',
-    src: 'Target values', approx: ' (representative values)',
+    walk: '🥾 Practise walking here in Hokkaido (map)', marsWalk: '🔴 Walk-back practice on Mars', plan: 'Plan the route there',
+    credit: 'Data: NASA and others',
     moon: 'Moon', mars: 'Mars', earthLabel: 'Earth · Hokkaido', control: 'control',
-    modeSites: '14 known sites', modeScan: 'Scan all of Hokkaido (1 km)',
+    modeSites: '14 places people picked', modeScan: 'Search all of Hokkaido',
   },
   ja: {
-    title: '北海道で月の予行演習',
-    lead: '月・火星の場所と試験を選ぶと、北海道の全地点を実測データの5軸で採点し、北海道では再現できないことを数字で示します。',
+    title: '火星の訓練を、北海道のどこでするか',
+    lead: '火星（または月）の場所と、練習したいことを選んでください。北海道全体を「どれだけ似ているか」で色分けし、上位5か所を下に並べます。',
     target: '1. 月・火星の目的地', test: '2. 練習したいこと',
     overview: '試験ごとの一覧', bestSite: '北海道で一番近い場所', when: 'いつ', cannot: '再現できないこと',
     ranking: (t: string) => `「${t}」の北海道ランキング`,
@@ -41,10 +39,10 @@ const T = {
     gapsNote: '赤はこの試験で効くもの。北海道では手順の練習まで、本番の条件は真空チャンバー・吊り下げ装置・放物線飛行で。',
     season: 'おすすめの時期', seasonNote: '（目安。月別の衛星データは次の段で）',
     similar: '似ている点', different: '違う点',
-    walk: '🥾 ここで歩く練習', plan: '現地のルートを計画',
-    src: '天体側の値', approx: '（代表値）',
+    walk: '🥾 北海道のこの場所で歩く練習（地図）', marsWalk: '🔴 火星で歩いて帰る練習', plan: '現地のルートを計画',
+    credit: 'データ: NASA ほか',
     moon: '月', mars: '火星', earthLabel: '地球 北海道', control: '対照',
-    modeSites: '人が選んだ14地点', modeScan: '北海道全体をスキャン（1km）',
+    modeSites: '人が選んだ14地点', modeScan: '北海道全体から探す',
   },
 } as const;
 
@@ -57,10 +55,6 @@ const KIND_EN: Record<string, string> = {
   mawrth: 'clay minerals', arsia: 'lava-tube skylights',
 };
 
-function loadLang(): Lang {
-  try { return localStorage.getItem(LANG_KEY) === 'ja' ? 'ja' : 'en'; } catch { return 'en'; }
-}
-
 /** 0 → blue (#40a9ff), 1 → orange (#ff7a45), mixed in RGB so it never passes through green. */
 export function scoreColor(s: number): string {
   const k = Math.max(0, Math.min(1, s));
@@ -70,13 +64,13 @@ export function scoreColor(s: number): string {
 
 export function TargetView({ core, params }: { core: Core; params: TargetParams }) {
   const tests = useMemo(() => core.profiles.filter((p) => p.test), [core]);
-  const [lang, setLang] = useState<Lang>(loadLang);
+  const lang = useLang();
   // Mars by default (#10 inside #11 WALKBACK: where and when in Hokkaido to train for Mars).
   const [bodyId, setBodyId] = useState(params.body && core.bodies.some((b) => b.id === params.body) ? params.body : DEFAULT_TARGET);
   const [testId, setTestId] = useState(params.test && tests.some((t) => t.id === params.test) ? params.test : DEFAULT_TEST);
   const [siteId, setSiteId] = useState<string | null>(params.site ?? null);
   const [earthFly, setEarthFly] = useState<FlyTarget | null>(null);
-  const [mode, setMode] = useState<'sites' | 'scan'>(params.mode === 'scan' ? 'scan' : 'sites');
+  const [mode, setMode] = useState<'sites' | 'scan'>(params.site || params.mode === 'sites' ? 'sites' : 'scan');
   const t = T[lang];
 
   const body = core.bodies.find((b) => b.id === bodyId)!;
@@ -120,7 +114,6 @@ export function TargetView({ core, params }: { core: Core; params: TargetParams 
     } else if (r.mode === 'scan') fly(43.4, 142.8, 7);
   }), [core, tests, bodyId, testId, fly, focusAt]);
 
-  useEffect(() => { try { localStorage.setItem(LANG_KEY, lang); } catch { /* private mode */ } }, [lang]);
   useEffect(() => {
     const h = `#target/${bodyId}/${testId}/${mode === 'scan' ? 'scan' : siteId ?? ''}`.replace(/\/$/, '');
     if (location.hash.startsWith('#target') && location.hash !== h) history.replaceState(null, '', h);
@@ -168,13 +161,12 @@ export function TargetView({ core, params }: { core: Core; params: TargetParams 
 
   return (
     <section className="view target">
+      <header className="target-head">
+        <h2>{t.title}</h2>
+        <p>{t.lead}</p>
+      </header>
+      <div className="target-body">
       <aside className="panel">
-        <div className="lang tabs">
-          <button className={lang === 'en' ? 'on' : ''} onClick={() => setLang('en')}>EN</button>
-          <button className={lang === 'ja' ? 'on' : ''} onClick={() => setLang('ja')}>日本語</button>
-        </div>
-        <h2 className="walk-title">{t.title}</h2>
-        <p className="muted">{t.lead}</p>
 
         <label>{t.target}
           <select id="target-body" value={bodyId} onChange={(e) => pickBody(e.target.value)}>
@@ -202,7 +194,7 @@ export function TargetView({ core, params }: { core: Core; params: TargetParams 
 
         {mode === 'scan' ? scanView.panel : (
           <>
-        <details className="overview" open>
+        <details className="overview">
           <summary>{t.overview} — {bodyName()}</summary>
           <table id="overview">
             <thead><tr><th /><th>{t.bestSite}</th><th>{t.match}</th><th>{t.when}</th><th>{t.cannot}</th></tr></thead>
@@ -287,10 +279,14 @@ export function TargetView({ core, params }: { core: Core; params: TargetParams 
         )}
 
         <div className="btns">
-          <a className="btn" href={`#walk/earth/${curSite.lat}/${curSite.lon}/14`}>{t.walk}</a>
-          <a className="btn" href={`#walk/${body.world}/${body.lat}/${body.lon}/${body.world === 'mars' ? 9 : 10}`}>{core.world(body.world).icon} {t.plan}</a>
+          {/* WALKBACK (#walk) is a Mars-only planner, so the Hokkaido practice spot opens on a GSI map. */}
+          {(() => {
+            const at = mode === 'scan' ? scanView.selected : { lat: curSite.lat, lon: curSite.lon };
+            return at && <a className="btn" id="hokkaido-walk" target="_blank" rel="noopener" href={`https://maps.gsi.go.jp/#15/${at.lat.toFixed(5)}/${at.lon.toFixed(5)}/`}>{t.walk}</a>;
+          })()}
+          <a className="btn" href={body.id === 'jezero' ? `#walk/mars/${body.lat}/${body.lon}/9` : '#walk'}>{t.marsWalk}</a>
         </div>
-        <p className="muted">{t.src}: {body.src}{body.approx ? t.approx : ''}</p>
+        <p className="muted credit">{t.credit}</p>
       </aside>
       <div className="maps">
         <PlanetMap core={core} world="earth" baseKey="s2" fly={earthFly} features={mode === 'scan' ? scanFeatures : earthFeatures}
@@ -301,6 +297,7 @@ export function TargetView({ core, params }: { core: Core; params: TargetParams 
           fly={bodyFly} overlays={missionOverlay(core, body.world)} features={bodyFeatures}>
           <div className="maplabel">{core.world(body.world).icon} {bodyName()}</div>
         </PlanetMap>
+      </div>
       </div>
     </section>
   );

@@ -80,7 +80,7 @@ const paramsFrom = (a: Record<string, unknown>, cur: PlanParams): PlanParams => 
     if (!Number.isFinite(x) || x < lo || x > hi) throw new Error(`${k} must be between ${lo} and ${hi}`);
     return x;
   };
-  return { speed: n('speed_kmh', 0.5, 5, cur.speed), o2: n('o2_h', 2, 12, cur.o2), water: n('water_h', 2, 12, cur.water), reserve: n('reserve', 0, 50, cur.reserve) };
+  return { speed: n('speed_kmh', 0.5, 5, cur.speed), o2: n('o2_h', 2, 12, cur.o2), water: n('water_h', 2, 12, cur.water), reserve: n('reserve', 0, 50, cur.reserve), footing: cur.footing, start: cur.start };
 };
 
 // ---------- walkback_check ----------

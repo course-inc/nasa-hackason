@@ -38,6 +38,8 @@ export interface EvaParams {
   footing?: boolean;
   /** Local solar hour of departure at Jezero (MEDA air temperature → cooling water); none = not counted. */
   start_h?: number;
+  /** Walk home along the route reversed instead of in a straight line. */
+  retrace?: boolean;
 }
 /** Route-planner weights (grid.rs RouteWeights): penalties added to the walking time of a step. */
 export interface RouteWeights { time?: number; slope?: number; footing?: number; margin?: number; distance?: boolean }

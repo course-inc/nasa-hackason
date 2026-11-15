@@ -48,6 +48,7 @@ const step = async (name, fn) => {
 
 await step('1. 候補地を選ぶ（#target）', async () => {
   await p.goto(`${BASE}/#target`);
+  await p.locator('#mode-tabs button[data-mode=sites]').click();
   await p.waitForSelector('#rank-list li', { timeout: 30000 });
   await p.locator('#rank-list li').first().click();
   await tiles('target');

@@ -128,7 +128,8 @@ pub struct ModelInfo {
 }
 
 /// Anthropic with ANTHROPIC_API_KEY, else Ollama if its port answers, else an error to show.
-fn pick_model() -> Result<(Arc<dyn Model>, ModelInfo), String> {
+/// `preferred` is the local model picked on the settings screen (used when it is installed).
+fn pick_model(preferred: Option<String>) -> Result<(Arc<dyn Model>, ModelInfo), String> {
     let name = std::env::var("PI_RS_MODEL")
         .ok()
         .filter(|s| !s.trim().is_empty());
@@ -146,8 +147,10 @@ fn pick_model() -> Result<(Arc<dyn Model>, ModelInfo), String> {
         ));
     }
     if let Some(installed) = ollama_models() {
-        // PI_RS_MODEL, else qwen2.5:7b if pulled, else the first installed model that can call tools.
-        let model = name
+        // Settings, else PI_RS_MODEL, else qwen2.5:7b if pulled, else the first installed model that can call tools.
+        let model = preferred
+            .filter(|p| installed.iter().any(|m| &m.0 == p))
+            .or(name)
             .or_else(|| {
                 installed
                     .iter()
@@ -298,13 +301,25 @@ impl AgentState {
     }
 }
 
+/// Local models the settings screen can offer (installed in Ollama and able to call tools).
+#[tauri::command]
+pub fn agent_models() -> Vec<String> {
+    ollama_models()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|m| m.1)
+        .map(|m| m.0)
+        .collect()
+}
+
 #[tauri::command]
 pub fn agent_start(
     app: AppHandle,
     state: State<'_, AgentState>,
     tools: Vec<ToolSpec>,
+    model: Option<String>,
 ) -> Result<ModelInfo, String> {
-    let (model, info) = pick_model()?;
+    let (model, info) = pick_model(model.filter(|m| !m.trim().is_empty()))?;
     let emit: Emit = Arc::new(move |event: &str, payload: Value| {
         app.emit(event, payload).map_err(|e| e.to_string())
     });
@@ -431,7 +446,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     #[ignore]
     async fn real_model_calls_the_tool() {
-        let (model, info) = pick_model().expect("a model");
+        let (model, info) = pick_model(None).expect("a model");
         println!("model: {} / {}", info.provider, info.model);
         let state = Arc::new(AgentState::default());
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(String, Value)>();
