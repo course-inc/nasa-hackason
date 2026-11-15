@@ -3,7 +3,23 @@
 // browser, 0.6B through Transformers.js or 1.7B through WebLLM. It only turns the pi-rs
 // ModelRequest messages into text and parses <tool_call> blocks back out; pi-rs runs the tools.
 // Model files come from Hugging Face / WebLLM on first use (cached by the browser afterwards).
-import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1';
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1';
+
+// Keep the model files in the browser (Cache Storage) so a reload reads them from there.
+env.useBrowserCache = true;
+const TF_CACHE = 'transformers-cache';
+const TF_MODEL = 'onnx-community/Qwen3-0.6B-ONNX';
+/** Whether the model's weights are already stored in this browser. */
+async function isCached(size) {
+  try {
+    if (MLC[size]) {
+      const { hasModelInCache } = await import('https://esm.run/@mlc-ai/web-llm@0.2.88');
+      return await hasModelInCache(MLC[size]);
+    }
+    const keys = await (await caches.open(TF_CACHE)).keys();
+    return keys.some((k) => k.url.includes(TF_MODEL) && /\.onnx(_data)?$/.test(k.url));
+  } catch { return false; }
+}
 
 let generator, engine, engineId;
 // WebLLM prebuilt models by size key (q4f16). 0.6b uses Transformers.js below.
@@ -34,9 +50,11 @@ function chatMessages(data, inlineTools) {
   return out;
 }
 
+let reported = false;
 self.onmessage = async ({ data }) => {
   try {
-    if (!navigator.gpu) throw new Error('このブラウザでは WebGPU を使えません。WebGPU 対応の Chrome で試してください。');
+    if (!navigator.gpu) throw new Error('このブラウザではアプリ内AIを動かせません。Chrome の新しい版で試してください。');
+    if (!reported && !generator && !engine) { reported = true; self.postMessage({ type: 'cache', cached: await isCached(data.model) }); }
     if (MLC[data.model]) {
       if (!engine || engineId !== MLC[data.model]) {
         const { CreateMLCEngine } = await import('https://esm.run/@mlc-ai/web-llm@0.2.88');
@@ -47,7 +65,7 @@ self.onmessage = async ({ data }) => {
       return output(response.choices[0].message.content || '');
     }
     if (!generator) {
-      generator = await pipeline('text-generation', 'onnx-community/Qwen3-0.6B-ONNX', {
+      generator = await pipeline('text-generation', TF_MODEL, {
         device: 'webgpu', dtype: 'q4f16', progress_callback: (p) => { if (p.status === 'progress') self.postMessage({ type: 'progress', progress: p.progress }); },
       });
     }

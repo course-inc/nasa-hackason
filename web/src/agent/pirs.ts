@@ -29,7 +29,7 @@ export let lastModel: ModelInfo | null = null;
 
 export const pirsAgent: AgentPort = {
   id: 'pi-rs',
-  get label() { return getLang() === 'ja' ? 'pi-rs（ローカル AI）' : 'pi-rs (local AI)'; },
+  get label() { return getLang() === 'ja' ? 'アプリ内AI' : 'In-app AI'; },
   available: () => !!tauri(),
   async ask(prompt: string, tools: ToolDef[], onEvent: (e: AgentEvent) => void, signal?: AbortSignal) {
     const t = tauri();

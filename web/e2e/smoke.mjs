@@ -5,6 +5,12 @@ import { createRequire } from 'node:module';
 
 // Resolved via require so a globally installed Playwright (NODE_PATH) also works.
 const { chromium } = createRequire(import.meta.url)('playwright');
+const walkReady = async (pg, ms = 30000) => {
+  // #walk starts with only the base: wait for the data, then load the example route (★).
+  await pg.waitForFunction(() => { const v = document.querySelector('.walk .verdict'); return v && !/読み込み中|Loading/.test(v.textContent); }, null, { timeout: ms });
+  if (!(await pg.locator('.walk .verdict.ok, .walk .verdict.ng').count())) await pg.locator('.draw-toolbar a[data-m=example]').click();
+  await pg.waitForSelector('.walk .verdict.ok, .walk .verdict.ng', { timeout: ms });
+};
 
 const BASE = process.env.BASE_URL ?? 'http://localhost:4173';
 const fail = (m) => { console.error('FAIL', m); process.exitCode = 1; };
@@ -106,7 +112,7 @@ await p.screenshot({ path: 'e2e/shot-analogs.png' });
 
 // WALKBACK: bundled Jezero data loads, the example route is judged, and a clicked route is too.
 await p.goto(`${BASE}/#walk`);
-await p.waitForSelector('.walk .verdict.ok, .walk .verdict.ng', { timeout: 15000 });
+await walkReady(p, 15000);
 const verdict = await p.locator('.walk .verdict').innerText();
 console.log('walk example:', verdict, '|', (await p.locator('.walk .panel').innerText()).split('\n').slice(4, 14).join(' | '));
 if (!/帰れる|引き返す/.test(verdict)) fail('walk verdict');

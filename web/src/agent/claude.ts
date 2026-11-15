@@ -45,7 +45,7 @@ async function turn(messages: Msg[], tools: ToolDef[], signal?: AbortSignal): Pr
 
 export const claudeAgent: AgentPort = {
   id: 'claude',
-  get label() { return getLang() === 'ja' ? 'Claude（AI）' : 'Claude (AI)'; },
+  get label() { return getLang() === 'ja' ? 'クラウドAI' : 'Cloud AI'; },
   available() {
     availability ??= fetch(RELAY, { method: 'GET' })
       .then((r) => (r.ok ? r.json() : { available: false }))
